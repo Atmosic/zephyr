@@ -63,6 +63,7 @@ Options:
   -h       Help (this message)
   -a APP   Application path relative to west_topdir
   -b       Build only (skip flashing)
+  -c       No cofiguration modification
   -d       Build/flash not just the app but the dependencies
            (MCUboot/SPE/ATMWSTK)
   -e       Erase flash
@@ -80,7 +81,7 @@ Options:
 EOF
 }
 
-while getopts :ha:bdefgjlmnr:s:uw: OPT; do
+while getopts :ha:bcdefgjlmnr:s:uw: OPT; do
     case $OPT in
 	h|+h)
 	    usage
@@ -91,6 +92,9 @@ while getopts :ha:bdefgjlmnr:s:uw: OPT; do
 	    ;;
 	b|+b)
 	    BUILD_ONLY=1
+	    ;;
+	c|+c)
+	    NO_CONFIG=1
 	    ;;
 	d|+d)
 	    DEPENDENCIES=1
@@ -198,6 +202,7 @@ readonly -a CMAKE_CONF_LOG=(
 
 DTS_EXTRAS=""
 
+is_set NO_CONFIG || {
 is_undef ATMWSTKLIB || {
     [[ -z $ATMWSTK ]] || die 'ATMWSTK and ATMWSTKLIB cannot both be set'
     NS_EXTRAS="$NS_EXTRAS -DCONFIG_USE_ATMWSTK=n -DCONFIG_ATMWSTKLIB=\"$ATMWSTKLIB\""
@@ -212,7 +217,7 @@ is_unset DFU_IN_FLASH || {
     [[ -z $NO_MCUBOOT ]] || die 'DFU_IN_FLASH and NO_MCUBOOT cannot both be set'
     DTS_EXTRAS="$DTS_EXTRAS;-DDFU_IN_FLASH"
 }
-
+}
 if [ $BUILD -ne 0 ]
 then
     WBUILD=(west build -p)
@@ -221,6 +226,7 @@ then
 	CMAKE_DEF_BOARD_ROOT="$(cmake_def $BOARD_ROOT BOARD_ROOT)"
 	WBUILD_CMAKE_OPTS+=("$CMAKE_DEF_BOARD_ROOT")
     fi
+    is_set NO_CONFIG || {
     if is_set DEBUG_LOG
     then WBUILD_CMAKE_OPTS+=($(cmake_def y ${CMAKE_CONF_LOG[@]}))
     else WBUILD_CMAKE_OPTS+=($(cmake_def n ${CMAKE_CONF_LOG[@]}))
@@ -229,6 +235,7 @@ then
     then WBUILD_CMAKE_OPTS+=($(cmake_def n CONFIG_PM))
     else WBUILD_CMAKE_OPTS+=($(cmake_def y CONFIG_PM))
     fi
+    }
     is_unset PARALLEL_BUILD || WBUILD+=(-o=-j4)
     if is_unset NO_MCUBOOT
     then
