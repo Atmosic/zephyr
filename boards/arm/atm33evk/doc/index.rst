@@ -283,16 +283,18 @@ Atmosic In-System Programming (ISP) Tool
 This SDK ships with a tool called Atmosic In-System Programming Tool
 (ISP) for bundling all three types of binaries -- OTP NVDS, flash NVDS, and
 flash -- into a single binary archive.
------------------------------------------------------------------------
+
++---------------+-----------------------------------------------------+
 |  Binary Type  |  Description                                        |
------------------------------------------------------------------------
++---------------+-----------------------------------------------------+
 |   .bin        |  binary file, contains flash or nvds data only.     |
------------------------------------------------------------------------
++---------------+-----------------------------------------------------+
 |   .elf        |  elf file, a common standard file format, consists  |
 |               |  of elf headers and flash data.                     |
------------------------------------------------------------------------
++---------------+-----------------------------------------------------+
 |   .nvm        |  OTP NVDS file, contains OTP nvds data.             |
------------------------------------------------------------------------
++---------------+-----------------------------------------------------+
+
 The ISP tool, which is also shipped as a stand-alone package, can then be used
 to unpack the components of the archive and download them on a device.
 
