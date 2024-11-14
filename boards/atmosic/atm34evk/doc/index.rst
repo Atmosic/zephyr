@@ -126,7 +126,7 @@ as such rather than "J-Link driver".  (In Device Manager, expand category
 Programming and Debugging
 *************************
 
-Applications for the ATMEVK-34xx-xxx-2 and ATMEVK-3430e-xxx-2 boards can be built, flashed, and debugged with the familiar `west build` and `west flash`.  Except for the case of debugging, a convenience wrapper script is provided that can invoke all the right `west` commands as detailed in the section on `Support Script`_.  For most cases, using this script is the recommended way to build and program an atm34evk.  Needless to say, it is still important to understand concepts such as an MCUboot vs. non-MCUboot builds as well as the various BLE link controller options, which are described later in this section.
+Applications for the ATMEVK-34xx-xxx-2 and ATMEVK-3430e-xxx-2 boards can be built, flashed, and debugged with the familiar `west build` and `west flash`.
 
 The atm34evk boards require at least two images to be built -- the SPE and the application.
 
@@ -252,43 +252,6 @@ First, flash MCUboot::
 Then flash the singed application image (merged with SPE)::
 
    west flash --verify --device=<DEVICE_ID> --jlink -d build/<BOARD>_ns/<APP>
-
-
-Support Script
-==============
-
-A convenient support script is provided in the Zephyr repository and can be used as follows.  From the ``west topdir`` directory where Zephyr was cloned and ``west`` was initialized, run the following:
-
-Without MCUBoot::
-
-  zephyr/boards/atmosic/atm33evk/support/run.sh -n -e -d [-l <flavor>] -a <application path> -j -s <DEVICE_ID> <BOARD>
-
-With MCUBoot::
-
-  zephyr/boards/atmosic/atm33evk/support/run.sh -e -d [-w <flavor>] [-l <flavor>] -a <application path> -j -s <DEVICE_ID> <BOARD>
-
-* replace ``<DEVICE_ID>`` with the appropriate device ID (typically the JLINK serial ID. Ex: ``000900028906``)
-* replace ``<BOARD>`` with the targeted board design (Ex: ATMEVK-3425-PQK-2 )
-* replace ``<application path>`` with the path to your application (Ex: ``zephyr/samples/bluetooth/peripheral_hr``)
-* see below for selecting ``-l`` options.
-
-Using -l [flavor] Option
-------------------------
-
-The ``-l`` option selects for the statically linked BLE controller library.  The flavor can be PD50(default) or LL or CPD200. The PD50 is smaller in size and supports BLE peripheral only mode with reduced BLE feature set. If you want BLE central functionality choose CPD200 or LL
-
-Using the Support Script on Windows
------------------------------------
-
-This script is written in Bash.  While Bash is readily available on most Linux distributions and macOS, it is not so on Windows.  However, Bash is bundled with Git.  The following single command demonstrates how to build, flash, and run the ``hello_world`` application using Bash in a typical installation of Git executed from the root of the Zephyr workspace::
-
-  C:\zephyrproject>"C:\Program Files\Git\bin\bash.exe" zephyr\boards\atmosic\atm34evk\support\run.sh -e -d -a zephyr\samples\hello_world -j -s <DEVICE_ID> <BOARD>
-
-As an alternative, pass ``-n`` to build without MCUboot.
-
-From this point on out, unless the bootloader has been modified, the source code for the application (in this case ``zephyr\samples\hello_world``) can be modified and then programmed with ``-d`` and ``-e`` omitted::
-
-  C:\zephyrproject>"C:\Program Files\Git\bin\bash.exe" zephyr\boards\atmosic\atm34evk\support\run.sh -a zephyr\samples\hello_world -j -s <DEVICE_ID> <BOARD>
 
 
 Atmosic In-System Programming (ISP) Tool
