@@ -311,20 +311,14 @@ flash -- into a single binary archive.
 +---------------+-----------------------------------------------------+
 |   .bin        |  binary file, contains flash or nvds data only.     |
 +---------------+-----------------------------------------------------+
-|   .elf        |  elf file, a common standard file format, consists  |
-|               |  of elf headers and flash data.                     |
-+---------------+-----------------------------------------------------+
-|   .nvm        |  OTP NVDS file, contains OTP nvds data.             |
-+---------------+-----------------------------------------------------+
 
 The ISP tool, which is also shipped as a stand-alone package, can then be used
 to unpack the components of the archive and download them on a device.
 
 west atm_arch commands
 ======================
-::
 
-  atm isp archive tool
+atm isp archive tool
   -atm_isp_path ATM_ISP_PATH, --atm_isp_path ATM_ISP_PATH
                         specify atm_isp exe path path
   -d, --debug           debug enabled, default false
@@ -350,10 +344,32 @@ west atm_arch commands
   -openocd_pkg_root OPENOCD_PKG_ROOT, --openocd_pkg_root OPENOCD_PKG_ROOT
                         Path to directory where openocd and its scripts are found
 
-Generate atm isp file
-=====================
-::
+Support Linux and Windows currently. The ``--atm_isp_path`` option should be specifiec accordingly.
 
+On Linux::
+  the ``--atm_isp_path`` option should be modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp
+
+On Windows::
+  the ``--atm_isp_path`` option should be modules/hal/atmosic_lib/tools/atm_arch/bin/Windows_NT/atm_isp.exe
+
+When ``-DCONFIG_SPE_PATH`` has been sepcified, the parition_info infomation will merge from build_dir of application and spe to build_dir of application and named as parition_info.map.merge.
+
+When not use SPE::
+  the ``-p`` option should be <build_dir>/zehpyr/parition_info.map
+When use SPE::
+  the ``-p`` option should be <build_dir>/zehpyr/parition_info.map.merge
+
+When build with wireless stack, the ``-DCONFIG_USE_ATMWSTK=y -DCONFIG_ATMWSTK=\"<ATMWSTK>\"``, the wireless stack elf file should be transfered to binary::
+    <ZEPHYR_TOOLCHAIN_VARIANT>/arm-zephyr-eabi/bin/arm-zephyr-eabi-objcopy -O binary <ATMSWTK_PATH>/atmwstk_<ATMWSTK>.elf <ATMSWTK_PATH>/atmwstk_<ATMWSTK>.bin
+
+* replace ``<ZEPHYR_TOOLCHAIN_VARIANT>`` the zephyr toolchain path.
+* replace ``<ATMSWTK_PATH>`` the wireless stack file, it should be openair/modules/hal_atmosic/ATM33xx-5/drivers/ble defaultly.
+* replace ``<ATMWSTK>`` the wireless stack, PD50LL or LL.
+
+Generate atm isp file
+---------------------
+
+Without SPE::
   west atm_arch -o <BOARD>_beacon.atm \
     -p build/<BOARD>_ns/<APP>/zephyr/partition_info.map \
     --app_file build/<BOARD>_ns/<APP>/zephyr/zephyr.signed.bin \
@@ -361,17 +377,37 @@ Generate atm isp file
     --atmwstk_file openair/modules/hal_atmosic/ATM33xx-5/drivers/ble/atmwstk_PD50LL.bin \
     --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp
 
+With SPE::
+  west atm_arch -o <BOARD>_beacon.atm \
+    -p build/<BOARD>_ns/<APP>/zephyr/partition_info.map.merge \
+    --app_file build/<BOARD>_ns/<APP>/zephyr/zephyr.signed.bin \
+    --mcuboot_file build/<BOARD>/<MCUBOOT>/zephyr/zephyr.bin \
+    --atmwstk_file openair/modules/hal_atmosic/ATM33xx-5/drivers/ble/atmwstk_PD50LL.bin \
+    --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp
+
+Without ATMWSTK::
+  west atm_arch -o <BOARD>_beacon.atm \
+    -p build/<BOARD>_ns/<APP>/zephyr/partition_info.map.merge \
+    --app_file build/<BOARD>_ns/<APP>/zephyr/zephyr.signed.bin \
+    --mcuboot_file build/<BOARD>/<MCUBOOT>/zephyr/zephyr.bin \
+    --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp
+
+Without MCUBOOT::
+  west atm_arch -o <BOARD>_beacon.atm \
+    -p build/<BOARD>_ns/<APP>/zephyr/partition_info.map.merge \
+    --app_file build/<BOARD>_ns/<APP>/zephyr/zephyr.bin \
+    --spe_file build/<BOARD>/<SPE>/zephyr/zephyr.bin \
+    --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp
+
 Show atm isp file
-=================
-::
+-----------------
 
   west atm_arch -i <BOARD>_beacon.atm \
     --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp \
     --show
 
 Flash atm isp file
-==================
-::
+------------------
 
   west atm_arch -i <BOARD>_beacon.atm \
     --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp \
@@ -396,7 +432,7 @@ Dumping Secure Journal
 
 To dump the secure journal, run the command::
 
- west secjrnl dump --atm_plat atmx3 --device <DEVICE_ID>
+ west secjrnl dump --device <DEVICE_ID>
 
 This will dump all the TLV tags located in the secure journal.
 
@@ -405,7 +441,7 @@ Appending a tag to the Secure Journal
 
 To append a new tag to the secure journal::
 
- west secjrnl append --atm_plat atmx3 --device <DEVICE_ID> --tag=<TAG_ID> --data=<TAG_DATA>
+ west secjrnl append --device <DEVICE_ID> --tag=<TAG_ID> --data=<TAG_DATA>
 
 * replace ``<TAG_ID>`` with the appropriate tag ID (Ex: ``0xde``)
 * replace ``<TAG_DATA>`` with the data for the tag. This is passed as a string. To pass raw byte values format it like so: '\xde\xad\xbe\xef'. As such, ``--data="data"`` will result in the same output as ``--data="\x64\x61\x74\x61``.
@@ -429,7 +465,7 @@ Erasing non-ratcheted data from the Secure Journal
 
 Appended tags are not ratcheted down. this allows for prototyping with the secure journal before needing to lock down the TLVs. To support prototyping, you can erase non-ratcheted data easily via::
 
- west secjrnl erase --atm_plat atmx3 --device <DEVICE_ID>
+ west secjrnl erase --device <DEVICE_ID>
 
 
 
@@ -438,7 +474,7 @@ Ratcheting Secure Journal
 
 To ratchet data, run the command::
 
- west secjrnl ratchet_jrnl --atm_plat atmx3 --device <DEVICE_ID>
+ west secjrnl ratchet_jrnl --device <DEVICE_ID>
 
 This will list the non-ratcheted tags and confirm that you want to ratchet the tags. Confirm by typing 'yes'.
 

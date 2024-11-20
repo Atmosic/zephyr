@@ -189,6 +189,16 @@ Note that developers cannot use ``CONFIG_BT_CTLR_*`` `flags`__ with the ATM34 pl
 __ CONFIG_BT_CTLR_KCONFIGS_
 
 
+Enabling A Random BD Address
+----------------------------
+
+Non-production ATM34 EVKs in the field have no BD address programmed in the secure journal.  On such boards, upon loading a BLE application, an assert error occurs with a message appearing on the console similar to the one below::
+
+  ASSERT ERR(0) at <zephyrproject-root>/atmosic-private/modules/hal_atmosic/ATM34xx/drivers/eui/eui.c:129
+
+To avoid this error, the BLE application must be built with an option to allocate a random BD address.  This can be done by adding ``-DCONFIG_ATM_EUI_ALLOW_RANDOM=y`` to the build options.
+
+
 Non-MCUboot Option
 ------------------
 
@@ -266,20 +276,14 @@ flash -- into a single binary archive.
 +---------------+-----------------------------------------------------+
 |   .bin        |  binary file, contains flash or nvds data only.     |
 +---------------+-----------------------------------------------------+
-|   .elf        |  elf file, a common standard file format, consists  |
-|               |  of elf headers and flash data.                     |
-+---------------+-----------------------------------------------------+
-|   .nvm        |  OTP NVDS file, contains OTP nvds data.             |
-+---------------+-----------------------------------------------------+
 
 The ISP tool, which is also shipped as a stand-alone package, can then be used
 to unpack the components of the archive and download them on a device.
 
 west atm_arch commands
 ======================
-::
 
-  atm isp archive tool
+atm isp archive tool
   -atm_isp_path ATM_ISP_PATH, --atm_isp_path ATM_ISP_PATH
                         specify atm_isp exe path path
   -d, --debug           debug enabled, default false
@@ -305,32 +309,59 @@ west atm_arch commands
   -openocd_pkg_root OPENOCD_PKG_ROOT, --openocd_pkg_root OPENOCD_PKG_ROOT
                         Path to directory where openocd and its scripts are found
 
-Generate atm isp file
-=====================
-::
+Support Linux and Windows currently. The ``--atm_isp_path`` option should be specifiec accordingly.
 
+On Linux::
+  the ``--atm_isp_path`` option should be modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp
+
+On Windows::
+  the ``--atm_isp_path`` option should be modules/hal/atmosic_lib/tools/atm_arch/bin/Windows_NT/atm_isp.exe
+
+When ``-DCONFIG_SPE_PATH`` has been sepcified, the parition_info infomation will merge from build_dir of application and spe to build_dir of application and named as parition_info.map.merge.
+
+When not use SPE::
+  the ``-p`` option should be <build_dir>/zehpyr/parition_info.map
+When use SPE::
+  the ``-p`` option should be <build_dir>/zehpyr/parition_info.map.merge
+
+
+Generate atm isp file
+---------------------
+
+Without SPE::
   west atm_arch -o <BOARD>_beacon.atm \
     -p build/<BOARD>_ns/<APP>/zephyr/partition_info.map \
     --app_file build/<BOARD>_ns/<APP>/zephyr/zephyr.signed.bin \
     --mcuboot_file build/<BOARD>/<MCUBOOT>/zephyr/zephyr.bin \
-    --atmwstk_file openair/modules/hal_atmosic/ATM34xx-2/drivers/ble/atmwstk_PD50LL.bin \
-    --atm_isp_path modules/hal/atmosic_lib/tools/atm_isp
+    --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp
+
+With SPE::
+  west atm_arch -o <BOARD>_beacon.atm \
+    -p build/<BOARD>_ns/<APP>/zephyr/partition_info.map.merge \
+    --app_file build/<BOARD>_ns/<APP>/zephyr/zephyr.signed.bin \
+    --mcuboot_file build/<BOARD>/<MCUBOOT>/zephyr/zephyr.bin \
+    --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp
+
+Without MCUBOOT::
+  west atm_arch -o <BOARD>_beacon.atm \
+    -p build/<BOARD>_ns/<APP>/zephyr/partition_info.map.merge \
+    --app_file build/<BOARD>_ns/<APP>/zephyr/zephyr.bin \
+    --spe_file build/<BOARD>/<SPE>/zephyr/zephyr.bin \
+    --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp
 
 Show atm isp file
-=================
-::
+-----------------
 
   west atm_arch -i <BOARD>_beacon.atm \
-    --atm_isp_path modules/hal/atmosic_lib/tools/atm_isp \
+    --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp \
     --show
 
 Flash atm isp file
-==================
-::
+------------------
 
   west atm_arch -i <BOARD>_beacon.atm \
-    --atm_isp_path modules/hal/atmosic_lib/tools/atm_isp \
-    --openocd_pkg_root=modules/hal/atmosic_lib \
+    --atm_isp_path modules/hal/atmosic_lib/tools/atm_arch/bin/Linux/atm_isp \
+    --openocd_pkg_root atmosic-private/modules/hal_atmosic/ATM34xx \
     --burn
 
 Programming Secure Journal
@@ -351,7 +382,7 @@ Dumping Secure Journal
 
 To dump the secure journal, run the command::
 
- west secjrnl dump --atm_plat atmx4 --device <DEVICE_ID>
+ west secjrnl dump --device <DEVICE_ID>
 
 This will dump all the TLV tags located in the secure journal.
 
@@ -360,7 +391,7 @@ Appending a tag to the Secure Journal
 
 To append a new tag to the secure journal::
 
- west secjrnl append --atm_plat atmx4 --device <DEVICE_ID> --tag=<TAG_ID> --data=<TAG_DATA>
+ west secjrnl append --device <DEVICE_ID> --tag=<TAG_ID> --data=<TAG_DATA>
 
 * replace ``<TAG_ID>`` with the appropriate tag ID (Ex: ``0xde``)
 * replace ``<TAG_DATA>`` with the data for the tag. This is passed as a string. To pass raw byte values format it like so: '\xde\xad\xbe\xef'. As such, ``--data="data"`` will result in the same output as ``--data="\x64\x61\x74\x61``.
@@ -384,7 +415,7 @@ Erasing non-ratcheted data from the Secure Journal
 
 Appended tags are not ratcheted down. this allows for prototyping with the secure journal before needing to lock down the TLVs. To support prototyping, you can erase non-ratcheted data easily via::
 
- west secjrnl erase --atm_plat atmx4 --device <DEVICE_ID>
+ west secjrnl erase --device <DEVICE_ID>
 
 
 
@@ -393,7 +424,7 @@ Ratcheting Secure Journal
 
 To ratchet data, run the command::
 
- west secjrnl ratchet_jrnl --atm_plat atmx4 --device <DEVICE_ID>
+ west secjrnl ratchet_jrnl --device <DEVICE_ID>
 
 This will list the non-ratcheted tags and confirm that you want to ratchet the tags. Confirm by typing 'yes'.
 
