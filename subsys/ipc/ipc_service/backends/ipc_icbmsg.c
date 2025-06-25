@@ -1297,6 +1297,11 @@ const static struct ipc_service_backend backend_ops = {
 };
 
 /**
+ * Required block alignment.
+ */
+#define BLOCK_ALIGNMENT sizeof(uint32_t)
+
+/**
  * Number of bytes per each ICMsg message. It is used to calculate size of ICMsg area.
  */
 #define BYTES_PER_ICMSG_MESSAGE (ROUND_UP(sizeof(struct control_message),		\
@@ -1309,10 +1314,10 @@ const static struct ipc_service_backend backend_ops = {
 	(PBUF_HEADER_OVERHEAD(GET_CACHE_ALIGNMENT(i)) + 2 * BYTES_PER_ICMSG_MESSAGE)
 
 /**
- * Returns required block alignment for instance "i".
+ * Returns required data cache alignment for instance "i".
  */
 #define GET_CACHE_ALIGNMENT(i) \
-	MAX(sizeof(uint32_t), DT_INST_PROP_OR(i, dcache_alignment, 0))
+	MAX(BLOCK_ALIGNMENT, DT_INST_PROP_OR(i, dcache_alignment, 0))
 
 /**
  * Calculates minimum size required for ICMsg region for specific number of local
@@ -1320,9 +1325,9 @@ const static struct ipc_service_backend backend_ops = {
  * because it can hold data message for each local block and release message
  * for each remote block.
  */
-#define GET_ICMSG_MIN_SIZE(i, local_blocks, remote_blocks)				\
+#define GET_ICMSG_MIN_SIZE(i, local_blocks, remote_blocks) ROUND_UP(			\
 	(ICMSG_BUFFER_OVERHEAD(i) + BYTES_PER_ICMSG_MESSAGE *				\
-	 (local_blocks + remote_blocks))
+	 (local_blocks + remote_blocks)), GET_CACHE_ALIGNMENT(i))
 
 /**
  * Calculate aligned block size by evenly dividing remaining space after removing
@@ -1330,7 +1335,7 @@ const static struct ipc_service_backend backend_ops = {
  */
 #define GET_BLOCK_SIZE(i, total_size, local_blocks, remote_blocks) ROUND_DOWN(		\
 	((total_size) - GET_ICMSG_MIN_SIZE(i, (local_blocks), (remote_blocks))) /	\
-	(local_blocks), GET_CACHE_ALIGNMENT(i))
+	(local_blocks), BLOCK_ALIGNMENT)
 
 /**
  * Calculate offset where area for blocks starts which is just after the ICMsg.
@@ -1403,11 +1408,11 @@ const static struct ipc_service_backend backend_ops = {
 	PBUF_DEFINE(tx_icbmsg_pb_##i,							\
 			GET_MEM_ADDR_INST(i, tx),					\
 			GET_ICMSG_SIZE_INST(i, tx, rx),					\
-			GET_CACHE_ALIGNMENT(i));					\
+			GET_CACHE_ALIGNMENT(i), 0, 0);					\
 	PBUF_DEFINE(rx_icbmsg_pb_##i,							\
 			GET_MEM_ADDR_INST(i, rx),					\
 			GET_ICMSG_SIZE_INST(i, rx, tx),					\
-			GET_CACHE_ALIGNMENT(i));					\
+			GET_CACHE_ALIGNMENT(i), 0, 0);					\
 	static struct backend_data backend_data_##i = {					\
 		.control_data = {							\
 			.tx_pb = &tx_icbmsg_pb_##i,					\
@@ -1419,6 +1424,7 @@ const static struct ipc_service_backend backend_ops = {
 		.control_config = {							\
 			.mbox_tx = MBOX_DT_SPEC_INST_GET(i, tx),			\
 			.mbox_rx = MBOX_DT_SPEC_INST_GET(i, rx),			\
+			.unbound_mode = ICMSG_UNBOUND_MODE_DISABLE,			\
 		},									\
 		.tx = {									\
 			.blocks_ptr = (uint8_t *)GET_BLOCKS_ADDR_INST(i, tx, rx),	\
@@ -1435,11 +1441,11 @@ const static struct ipc_service_backend backend_ops = {
 	};										\
 	BUILD_ASSERT(IS_POWER_OF_TWO(GET_CACHE_ALIGNMENT(i)),				\
 		     "This module supports only power of two cache alignment");		\
-	BUILD_ASSERT((GET_BLOCK_SIZE_INST(i, tx, rx) >= GET_CACHE_ALIGNMENT(i)) &&	\
+	BUILD_ASSERT((GET_BLOCK_SIZE_INST(i, tx, rx) >= BLOCK_ALIGNMENT) &&		\
 		     (GET_BLOCK_SIZE_INST(i, tx, rx) <					\
 		      GET_MEM_SIZE_INST(i, tx)),					\
 		     "TX region is too small for provided number of blocks");		\
-	BUILD_ASSERT((GET_BLOCK_SIZE_INST(i, rx, tx) >= GET_CACHE_ALIGNMENT(i)) &&	\
+	BUILD_ASSERT((GET_BLOCK_SIZE_INST(i, rx, tx) >= BLOCK_ALIGNMENT) &&		\
 		     (GET_BLOCK_SIZE_INST(i, rx, tx) <					\
 		      GET_MEM_SIZE_INST(i, rx)),					\
 		     "RX region is too small for provided number of blocks");		\

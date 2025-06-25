@@ -408,7 +408,7 @@ static int bmp581_channel_get(const struct device *dev, enum sensor_channel chan
 		*val = drv->last_sample.pressure;
 		return BMP5_OK;
 	case SENSOR_CHAN_AMBIENT_TEMP:
-		/* returns temperature in Celcius */
+		/* returns temperature in Celsius */
 		*val = drv->last_sample.temperature;
 		return BMP5_OK;
 	default:
@@ -540,9 +540,11 @@ static int bmp581_init(const struct device *dev)
 	return ret;
 }
 
-static const struct sensor_driver_api bmp581_driver_api = {.sample_fetch = bmp581_sample_fetch,
-							   .channel_get = bmp581_channel_get,
-							   .attr_set = bmp581_attr_set};
+static DEVICE_API(sensor, bmp581_driver_api) = {
+	.sample_fetch = bmp581_sample_fetch,
+	.channel_get = bmp581_channel_get,
+	.attr_set = bmp581_attr_set,
+};
 
 #define BMP581_CONFIG(i)                                                                           \
 	static const struct bmp581_config bmp581_config_##i = {                                    \

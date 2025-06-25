@@ -1067,7 +1067,7 @@ static int mcux_flexcomm_init(const struct device *dev)
 	return 0;
 }
 
-static const struct uart_driver_api mcux_flexcomm_driver_api = {
+static DEVICE_API(uart, mcux_flexcomm_driver_api) = {
 	.poll_in = mcux_flexcomm_poll_in,
 	.poll_out = mcux_flexcomm_poll_out,
 	.err_check = mcux_flexcomm_err_check,
@@ -1188,7 +1188,7 @@ static const struct mcux_flexcomm_config mcux_flexcomm_##n##_config = {		\
 	.clock_subsys =								\
 	(clock_control_subsys_t)DT_INST_CLOCKS_CELL(n, name),			\
 	.baud_rate = DT_INST_PROP(n, current_speed),				\
-	.parity = DT_INST_ENUM_IDX_OR(n, parity, UART_CFG_PARITY_NONE),		\
+	.parity = DT_INST_ENUM_IDX(n, parity),					\
 	.pincfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),				\
 	UART_MCUX_FLEXCOMM_IRQ_CFG_FUNC_INIT(n)					\
 	UART_MCUX_FLEXCOMM_ASYNC_CFG(n)						\

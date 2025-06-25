@@ -297,7 +297,7 @@ void spi_sedi_callback(uint32_t event, void *param)
 	}
 }
 
-static const struct spi_driver_api sedi_spi_api = {
+static DEVICE_API(spi, sedi_spi_api) = {
 	.transceive = spi_sedi_transceive,
 #ifdef CONFIG_SPI_ASYNC
 	.transceive_async = spi_sedi_transceive_async,
@@ -406,10 +406,10 @@ static int spi_sedi_device_ctrl(const struct device *dev,
 		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(num)),                        \
 		.spi_device = num, .irq_config = spi_##num##_irq_init,         \
 	};								       \
-	PM_DEVICE_DEFINE(spi_##num, spi_sedi_device_ctrl);		       \
-	DEVICE_DT_INST_DEFINE(num,					       \
+	PM_DEVICE_DT_INST_DEFINE(spi_##num, spi_sedi_device_ctrl);	       \
+	SPI_DEVICE_DT_INST_DEFINE(num,					       \
 			      spi_sedi_init,				       \
-			      PM_DEVICE_GET(spi_##num),		               \
+			      PM_DEVICE_DT_INST_GET(spi_##num),	               \
 			      &spi_##num##_data,			       \
 			      &spi_##num##_config,			       \
 			      POST_KERNEL,				       \

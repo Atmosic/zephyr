@@ -7,9 +7,17 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+#undef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L /* To get gmtime_r()'s prototype */
+
+#ifdef CONFIG_BT_CTS_HELPER_API
+#include <time.h>
+#include <zephyr/sys/timeutil.h>
+#endif
+
 #include <stdbool.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/posix/time.h>
 
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
@@ -25,9 +33,6 @@ LOG_MODULE_REGISTER(cts, CONFIG_BT_CTS_LOG_LEVEL);
 static const struct bt_cts_cb *cts_cb;
 
 #ifdef CONFIG_BT_CTS_HELPER_API
-
-#include <time.h>
-#include <zephyr/sys/timeutil.h>
 
 int bt_cts_time_to_unix_ms(const struct bt_cts_time_format *ct_time, int64_t *unix_ms)
 {
@@ -165,8 +170,8 @@ BT_GATT_SERVICE_DEFINE(cts_svc, BT_GATT_PRIMARY_SERVICE(BT_UUID_CTS),
 
 int bt_cts_init(const struct bt_cts_cb *cb)
 {
-	__ASSERT(cb == NULL, "Current Time service need valid `struct bt_cts_cb` callback");
-	__ASSERT(cb->fill_current_cts_time == NULL,
+	__ASSERT(cb != NULL, "Current Time service need valid `struct bt_cts_cb` callback");
+	__ASSERT(cb->fill_current_cts_time != NULL,
 		 "`fill_current_cts_time` callback api is required for functioning of CTS");
 	if (!cb || !cb->fill_current_cts_time) {
 		return -EINVAL;

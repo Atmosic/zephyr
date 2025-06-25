@@ -57,6 +57,7 @@ ams	AMS AG
 amstaos	AMS-Taos Inc.
 analogix	Analogix Semiconductor, Inc.
 andestech	Andes Technology Corporation
+antmicro	Antmicro
 anvo	Anvo-Systems Dresden GmbH
 aosong	Guangzhou Aosong Electronic Co., Ltd.
 ap	Angst+Pfister
@@ -249,6 +250,7 @@ fsl	Freescale Semiconductor
 ftdi	Future Technology Devices International Ltd.
 fujitsu	Fujitsu Ltd.
 futaba	Futaba Corporation
+fysetc	Shenzhen Fuyuansheng Electronic Technology Co., Ltd.
 gaisler	Gaisler
 galaxycore	Galaxycore, Inc.
 gardena	GARDENA GmbH
@@ -395,6 +397,7 @@ lxa	Linux Automation GmbH
 m5stack	M5Stack
 macnica	Macnica Americas
 madmachine	Shenzhen FeiKaiTe Technology Co., Ltd.
+makerbase	Makerbase Co., Ltd.
 makerdiary	Shenzhen Zaowubang Technology Co., Ltd.
 mantix	Mantix Display Technology Co.,Ltd.
 mapleboard	Mapleboard.org
@@ -464,6 +467,7 @@ nintendo	Nintendo
 nlt	NLT Technologies, Ltd.
 nokia	Nokia
 nordic	Nordic Semiconductor
+norik	Norik Systems
 noritake	Noritake Co., Inc. Electronics Division
 novtech	NovTech, Inc.
 nuclei	Nuclei System Technology
@@ -503,9 +507,11 @@ parade	Parade Technologies Inc.
 parallax	Parallax Inc.
 particle	Particle.io
 pda	Precision Design Associates, Inc.
+peregrine	Peregrine Consultoria e Servicos
 pericom	Pericom Technology Inc.
 pervasive	Pervasive Displays, Inc.
 phicomm	PHICOMM Co., Ltd.
+phosense	Beijing Phosense Electronic Technology Co., Ltd.
 phytec	PHYTEC
 picochip	Picochip Ltd
 pine64	Pine64
@@ -723,6 +729,7 @@ vot	Vision Optical Technology Co., Ltd.
 vxt	VXT Ltd
 wand	Wandbord (Technexion)
 waveshare	Waveshare Electronics
+wch	WinChipHead
 wd	Western Digital Corp.
 we	Würth Elektronik GmbH.
 weact	WeAct Studio

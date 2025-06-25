@@ -4,14 +4,14 @@
 
 # based on http://protips.readthedocs.io/link-roles.html
 
-from __future__ import print_function
-from __future__ import unicode_literals
 import re
 import subprocess
-from docutils import nodes
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, Final
+
+from docutils import nodes
 from sphinx.util import logging
-from typing import Final
 
 ZEPHYR_BASE: Final[str] = Path(__file__).parents[3]
 
@@ -58,8 +58,17 @@ def setup(app):
 
 
 def modulelink(default_module=None, format="blob"):
-    def role(name, rawtext, text, lineno, inliner, options={}, content=[]):
-        # Set default values
+    def role(
+        name: str,
+        rawtext: str,
+        text: str,
+        lineno: int,
+        inliner,
+        options: dict[str, Any] | None = None,
+        content: Sequence[str] = (),
+    ):
+        if options is None:
+            options = {}
         module = default_module
         rev = get_github_rev()
         config = inliner.document.settings.env.app.config
@@ -74,6 +83,12 @@ def modulelink(default_module=None, format="blob"):
         else:
             link_text = text
             link = text
+
+        line_ref = ""
+        line_match = re.search(r"(.+?)(?:#(L\d+(?:-L\d+)?))?$", link)
+        if line_match and line_match.group(2):
+            link = line_match.group(1)
+            line_ref = f"?plain=1#{line_match.group(2)}"
 
         module_match = re.search(r"(.+?):\s*(.+)", link)
         if module_match:
@@ -110,13 +125,12 @@ def modulelink(default_module=None, format="blob"):
             if not any(
                 p.match(glob)
                 for glob in config.link_roles_manifest_project_broken_links_ignore_globs
-            ):
-                if not Path(ZEPHYR_BASE, link).exists():
-                    logger.warning(
-                        f"{link} not found in {config.link_roles_manifest_project} {trace}"
-                    )
+            ) and not Path(ZEPHYR_BASE, link).exists():
+                logger.warning(
+                    f"{link} not found in {config.link_roles_manifest_project} {trace}"
+                )
 
-        url = f"{baseurl}/{format}/{rev}/{link}"
+        url = f"{baseurl}/{format}/{rev}/{link}{line_ref}"
         node = nodes.reference(rawtext, link_text, refuri=url, **options)
         return [node], []
 

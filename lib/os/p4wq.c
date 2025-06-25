@@ -104,7 +104,14 @@ static FUNC_NORETURN void p4wq_loop(void *p0, void *p1, void *p2)
 			if (!thread_was_requeued(_current)) {
 				sys_dlist_remove(&w->dlnode);
 				w->thread = NULL;
-				k_sem_give(&w->done_sem);
+
+				if (queue->done_handler) {
+					k_spin_unlock(&queue->lock, k);
+					queue->done_handler(w);
+					k = k_spin_lock(&queue->lock);
+				} else {
+					k_sem_give(&w->done_sem);
+				}
 			}
 		} else {
 			z_pend_curr(&queue->lock, k, &queue->waitq, K_FOREVER);
@@ -152,6 +159,7 @@ static int static_init(void)
 
 			if (!i || (pp->flags & K_P4WQ_QUEUE_PER_THREAD)) {
 				k_p4wq_init(q);
+				q->done_handler = pp->done_handler;
 			}
 
 			q->flags = pp->flags;
@@ -167,10 +175,6 @@ static int static_init(void)
 			k_p4wq_add_thread(q, &pp->threads[i],
 					  &pp->stacks[ssz * i],
 					  pp->stack_size);
-
-			if (pp->flags & K_P4WQ_DELAYED_START) {
-				z_mark_thread_as_suspended(&pp->threads[i]);
-			}
 
 #ifdef CONFIG_SCHED_CPU_MASK
 			if (pp->flags & K_P4WQ_USER_CPU_MASK) {
@@ -206,7 +210,6 @@ void k_p4wq_enable_static_thread(struct k_p4wq *queue, struct k_thread *thread,
 #endif
 
 	if (queue->flags & K_P4WQ_DELAYED_START) {
-		z_mark_thread_as_not_suspended(thread);
 		k_thread_start(thread);
 	}
 }
@@ -215,7 +218,11 @@ void k_p4wq_enable_static_thread(struct k_p4wq *queue, struct k_thread *thread,
  * so they can initialize in parallel instead of serially on the main
  * CPU.
  */
+#if defined(CONFIG_P4WQ_INIT_STAGE_EARLY)
+SYS_INIT(static_init, POST_KERNEL, 1);
+#else
 SYS_INIT(static_init, APPLICATION, 99);
+#endif
 
 void k_p4wq_submit(struct k_p4wq *queue, struct k_p4wq_work *item)
 {
@@ -301,7 +308,14 @@ bool k_p4wq_cancel(struct k_p4wq *queue, struct k_p4wq_work *item)
 
 	if (ret) {
 		rb_remove(&queue->queue, &item->rbnode);
-		k_sem_give(&item->done_sem);
+
+		if (queue->done_handler) {
+			k_spin_unlock(&queue->lock, k);
+			queue->done_handler(item);
+			k = k_spin_lock(&queue->lock);
+		} else {
+			k_sem_give(&item->done_sem);
+		}
 	}
 
 	k_spin_unlock(&queue->lock, k);

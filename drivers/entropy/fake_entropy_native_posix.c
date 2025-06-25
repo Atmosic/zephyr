@@ -42,7 +42,10 @@ static int entropy_native_posix_get_entropy(const struct device *dev,
 		 */
 		long value = nsi_host_random();
 
-		size_t to_copy = MIN(length, sizeof(long int));
+		/* The host random() provides a number between 0 and 2**31-1. Bit 32 is always 0.
+		 * So let's just use the lower 3 bytes discarding the upper 7 bits
+		 */
+		size_t to_copy = MIN(length, 3);
 
 		memcpy(buffer, &value, to_copy);
 		buffer += to_copy;
@@ -79,7 +82,7 @@ static int entropy_native_posix_init(const struct device *dev)
 	return 0;
 }
 
-static const struct entropy_driver_api entropy_native_posix_api_funcs = {
+static DEVICE_API(entropy, entropy_native_posix_api_funcs) = {
 	.get_entropy     = entropy_native_posix_get_entropy,
 	.get_entropy_isr = entropy_native_posix_get_entropy_isr
 };

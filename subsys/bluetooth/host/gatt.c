@@ -7,6 +7,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdint.h>
+
+#include <zephyr/bluetooth/att.h>
 #include <zephyr/kernel.h>
 #include <string.h>
 #include <errno.h>
@@ -21,15 +24,7 @@
 #include <zephyr/settings/settings.h>
 
 #if defined(CONFIG_BT_GATT_CACHING)
-#if defined(CONFIG_BT_USE_PSA_API)
 #include "psa/crypto.h"
-#else /* CONFIG_BT_USE_PSA_API */
-#include <tinycrypt/constants.h>
-#include <tinycrypt/utils.h>
-#include <tinycrypt/aes.h>
-#include <tinycrypt/cmac_mode.h>
-#include <tinycrypt/ccm_mode.h>
-#endif /* CONFIG_BT_USE_PSA_API */
 #endif /* CONFIG_BT_GATT_CACHING */
 
 #include <zephyr/bluetooth/hci.h>
@@ -37,7 +32,6 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/gatt.h>
-#include <zephyr/drivers/bluetooth/hci_driver.h>
 
 #include "common/bt_str.h"
 
@@ -110,21 +104,23 @@ static ssize_t read_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
 #if defined(CONFIG_BT_DEVICE_NAME_GATT_WRITABLE)
 
-static ssize_t write_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 const void *buf, uint16_t len, uint16_t offset,
-			 uint8_t flags)
+static ssize_t write_name(struct bt_conn *conn, const struct bt_gatt_attr *attr, const void *buf,
+			  uint16_t len, uint16_t offset, uint8_t flags)
 {
-	char value[CONFIG_BT_DEVICE_NAME_MAX] = {};
+	/* adding one to fit the terminating null character */
+	char value[CONFIG_BT_DEVICE_NAME_MAX + 1] = {};
 
-	if (offset >= sizeof(value)) {
+	if (offset >= CONFIG_BT_DEVICE_NAME_MAX) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
 	}
 
-	if (offset + len >= sizeof(value)) {
+	if (offset + len > CONFIG_BT_DEVICE_NAME_MAX) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 
 	memcpy(value, buf, len);
+
+	value[len] = '\0';
 
 	bt_set_name(value);
 
@@ -655,7 +651,7 @@ static bool cf_set_value(struct gatt_cf_cfg *cfg, const uint8_t *value, uint16_t
 	/* Set the bits for each octet */
 	for (i = 0U; i < len && i < CF_NUM_BYTES; i++) {
 		if (i == (CF_NUM_BYTES - 1)) {
-			cfg->data[i] |= value[i] & BIT_MASK(CF_NUM_BITS % 8);
+			cfg->data[i] |= value[i] & BIT_MASK(CF_NUM_BITS % BITS_PER_BYTE);
 		} else {
 			cfg->data[i] |= value[i];
 		}
@@ -703,7 +699,6 @@ static ssize_t cf_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	return len;
 }
 
-#if defined(CONFIG_BT_USE_PSA_API)
 struct gen_hash_state {
 	psa_mac_operation_t operation;
 	psa_key_id_t key;
@@ -713,20 +708,23 @@ struct gen_hash_state {
 static int db_hash_setup(struct gen_hash_state *state, uint8_t *key)
 {
 	psa_key_attributes_t key_attr = PSA_KEY_ATTRIBUTES_INIT;
+	psa_status_t ret;
 
 	psa_set_key_type(&key_attr, PSA_KEY_TYPE_AES);
 	psa_set_key_bits(&key_attr, 128);
 	psa_set_key_usage_flags(&key_attr, PSA_KEY_USAGE_SIGN_MESSAGE);
 	psa_set_key_algorithm(&key_attr, PSA_ALG_CMAC);
 
-	if (psa_import_key(&key_attr, key, 16, &(state->key)) != PSA_SUCCESS) {
-		LOG_ERR("Unable to import the key for AES CMAC");
+	ret = psa_import_key(&key_attr, key, 16, &(state->key));
+	if (ret != PSA_SUCCESS) {
+		LOG_ERR("Unable to import the key for AES CMAC %d", ret);
 		return -EIO;
 	}
 	state->operation = psa_mac_operation_init();
-	if (psa_mac_sign_setup(&(state->operation), state->key,
-			       PSA_ALG_CMAC) != PSA_SUCCESS) {
-		LOG_ERR("CMAC operation init failed");
+
+	ret = psa_mac_sign_setup(&(state->operation), state->key, PSA_ALG_CMAC);
+	if (ret != PSA_SUCCESS) {
+		LOG_ERR("CMAC operation init failed %d", ret);
 		return -EIO;
 	}
 	return 0;
@@ -734,8 +732,10 @@ static int db_hash_setup(struct gen_hash_state *state, uint8_t *key)
 
 static int db_hash_update(struct gen_hash_state *state, uint8_t *data, size_t len)
 {
-	if (psa_mac_update(&(state->operation), data, len) != PSA_SUCCESS) {
-		LOG_ERR("CMAC update failed");
+	psa_status_t ret = psa_mac_update(&(state->operation), data, len);
+
+	if (ret != PSA_SUCCESS) {
+		LOG_ERR("CMAC update failed %d", ret);
 		return -EIO;
 	}
 	return 0;
@@ -744,51 +744,14 @@ static int db_hash_update(struct gen_hash_state *state, uint8_t *data, size_t le
 static int db_hash_finish(struct gen_hash_state *state)
 {
 	size_t mac_length;
+	psa_status_t ret = psa_mac_sign_finish(&(state->operation), db_hash.hash, 16, &mac_length);
 
-	if (psa_mac_sign_finish(&(state->operation), db_hash.hash, 16,
-				&mac_length) != PSA_SUCCESS) {
-		LOG_ERR("CMAC finish failed");
+	if (ret != PSA_SUCCESS) {
+		LOG_ERR("CMAC finish failed %d", ret);
 		return -EIO;
 	}
 	return 0;
 }
-
-#else /* CONFIG_BT_USE_PSA_API */
-struct gen_hash_state {
-	struct tc_cmac_struct state;
-	struct tc_aes_key_sched_struct sched;
-	int err;
-};
-
-static int db_hash_setup(struct gen_hash_state *state, uint8_t *key)
-{
-	if (tc_cmac_setup(&(state->state), key, &(state->sched)) == TC_CRYPTO_FAIL) {
-		LOG_ERR("CMAC setup failed");
-		return -EIO;
-	}
-	return 0;
-}
-
-static int db_hash_update(struct gen_hash_state *state, uint8_t *data, size_t len)
-{
-	if (tc_cmac_update(&state->state, data, len) == TC_CRYPTO_FAIL) {
-		LOG_ERR("CMAC update failed");
-		return -EIO;
-	}
-	return 0;
-}
-
-static int db_hash_finish(struct gen_hash_state *state)
-{
-	if (tc_cmac_final(db_hash.hash, &(state->state)) == TC_CRYPTO_FAIL) {
-		LOG_ERR("CMAC finish failed");
-		return -EIO;
-	}
-	return 0;
-}
-
-
-#endif /* CONFIG_BT_USE_PSA_API */
 
 union hash_attr_value {
 	/* Bluetooth Core Specification Version 5.3 | Vol 3, Part G
@@ -1307,9 +1270,11 @@ static int gatt_register(struct bt_gatt_service *svc)
 populate:
 	/* Populate the handles and append them to the list */
 	for (; attrs && count; attrs++, count--) {
+		attrs->_auto_assigned_handle = 0;
 		if (!attrs->handle) {
 			/* Allocate handle if not set already */
 			attrs->handle = ++handle;
+			attrs->_auto_assigned_handle = 1;
 		} else if (attrs->handle > handle) {
 			/* Use existing handle if valid */
 			handle = attrs->handle;
@@ -1727,6 +1692,12 @@ static int gatt_unregister(struct bt_gatt_service *svc)
 		if (is_host_managed_ccc(attr)) {
 			gatt_unregister_ccc(attr->user_data);
 		}
+
+		/* The stack should not clear any handles set by the user. */
+		if (attr->_auto_assigned_handle) {
+			attr->handle = 0;
+			attr->_auto_assigned_handle = 0;
+		}
 	}
 
 	return 0;
@@ -1782,9 +1753,17 @@ int bt_gatt_service_register(struct bt_gatt_service *svc)
 
 int bt_gatt_service_unregister(struct bt_gatt_service *svc)
 {
+	uint16_t sc_start_handle;
+	uint16_t sc_end_handle;
 	int err;
 
 	__ASSERT(svc, "invalid parameters\n");
+
+	/* gatt_unregister() clears handles when those were auto-assigned
+	 * by host
+	 */
+	sc_start_handle = svc->attrs[0].handle;
+	sc_end_handle = svc->attrs[svc->attr_count - 1].handle;
 
 	k_sched_lock();
 
@@ -1800,8 +1779,7 @@ int bt_gatt_service_unregister(struct bt_gatt_service *svc)
 		return 0;
 	}
 
-	sc_indicate(svc->attrs[0].handle,
-		    svc->attrs[svc->attr_count - 1].handle);
+	sc_indicate(sc_start_handle, sc_end_handle);
 
 	db_changed();
 
@@ -2456,11 +2434,9 @@ static void gatt_add_nfy_to_buf(struct net_buf *buf,
 {
 	struct bt_att_notify_mult *nfy;
 
-	nfy = net_buf_add(buf, sizeof(*nfy));
+	nfy = net_buf_add(buf, sizeof(*nfy) + params->len);
 	nfy->handle = sys_cpu_to_le16(handle);
 	nfy->len = sys_cpu_to_le16(params->len);
-
-	net_buf_add(buf, params->len);
 	(void)memcpy(nfy->value, params->data, params->len);
 }
 
@@ -2571,10 +2547,8 @@ static int gatt_notify(struct bt_conn *conn, uint16_t handle,
 
 	LOG_DBG("conn %p handle 0x%04x", conn, handle);
 
-	nfy = net_buf_add(buf, sizeof(*nfy));
+	nfy = net_buf_add(buf, sizeof(*nfy) + params->len);
 	nfy->handle = sys_cpu_to_le16(handle);
-
-	net_buf_add(buf, params->len);
 	memcpy(nfy->value, params->data, params->len);
 
 	bt_att_set_tx_meta_data(buf, params->func, params->user_data, BT_ATT_CHAN_OPT(params));
@@ -2739,10 +2713,8 @@ static int gatt_indicate(struct bt_conn *conn, uint16_t handle,
 
 	bt_att_set_tx_meta_data(buf, NULL, NULL, BT_ATT_CHAN_OPT(params));
 
-	ind = net_buf_add(buf, sizeof(*ind));
+	ind = net_buf_add(buf, sizeof(*ind) + params->len);
 	ind->handle = sys_cpu_to_le16(handle);
-
-	net_buf_add(buf, params->len);
 	memcpy(ind->value, params->data, params->len);
 
 	LOG_DBG("conn %p handle 0x%04x", conn, handle);
@@ -2890,12 +2862,20 @@ struct bt_gatt_attr *bt_gatt_find_by_uuid(const struct bt_gatt_attr *attr,
 					  const struct bt_uuid *uuid)
 {
 	struct bt_gatt_attr *found = NULL;
-	uint16_t start_handle = bt_gatt_attr_value_handle(attr);
-	uint16_t end_handle = start_handle && attr_count ?
-			      start_handle + attr_count : 0xffff;
+	uint16_t start_handle = bt_gatt_attr_get_handle(attr);
+	uint16_t end_handle = start_handle && attr_count
+				      ? MIN(start_handle + attr_count, BT_ATT_LAST_ATTRIBUTE_HANDLE)
+				      : BT_ATT_LAST_ATTRIBUTE_HANDLE;
 
-	bt_gatt_foreach_attr_type(start_handle, end_handle, uuid, NULL, 1,
-				  find_next, &found);
+	if (attr != NULL && start_handle == 0U) {
+		/* If start_handle is 0 then `attr` is not in our database, and should not be used
+		 * as a starting point for the search
+		 */
+		LOG_DBG("Could not find handle of attr %p", attr);
+		return NULL;
+	}
+
+	bt_gatt_foreach_attr_type(start_handle, end_handle, uuid, NULL, 1, find_next, &found);
 
 	return found;
 }
@@ -3473,7 +3453,9 @@ static uint8_t disconnected_cb(const struct bt_gatt_attr *attr, uint16_t handle,
 bool bt_gatt_is_subscribed(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr, uint16_t ccc_type)
 {
-	const struct _bt_gatt_ccc *ccc;
+	uint16_t ccc_bits;
+	uint8_t ccc_bits_encoded[sizeof(ccc_bits)];
+	ssize_t len;
 
 	__ASSERT(conn, "invalid parameter\n");
 	__ASSERT(attr, "invalid parameter\n");
@@ -3485,18 +3467,17 @@ bool bt_gatt_is_subscribed(struct bt_conn *conn,
 	/* Check if attribute is a characteristic declaration */
 	if (!bt_uuid_cmp(attr->uuid, BT_UUID_GATT_CHRC)) {
 		uint8_t properties;
-		ssize_t len;
 
-		CHECKIF(!attr->read) {
+		if (!attr->read) {
 			LOG_ERR("Read method not set");
 			return false;
 		}
 		/* The charactestic properties is the first byte of the attribute value */
-		len = attr->read(NULL, attr, &properties, 1, 0);
+		len = attr->read(NULL, attr, &properties, sizeof(properties), 0);
 		if (len < 0) {
-			LOG_ERR("Failed to read attribute (err %zd)", len);
+			LOG_ERR("Failed to read attribute %p (err %zd)", attr, len);
 			return false;
-		} else if (len != 1) {
+		} else if (len != sizeof(properties)) {
 			LOG_ERR("Invalid read length: %zd", len);
 			return false;
 		}
@@ -3532,16 +3513,25 @@ bool bt_gatt_is_subscribed(struct bt_conn *conn,
 		return false;
 	}
 
-	ccc = attr->user_data;
+	if (!attr->read) {
+		LOG_ERR("Read method not set");
+		return false;
+	}
 
-	/* Check if the connection is subscribed */
-	for (size_t i = 0; i < BT_GATT_CCC_MAX; i++) {
-		const struct bt_gatt_ccc_cfg *cfg = &ccc->cfg[i];
+	len = attr->read(conn, attr, ccc_bits_encoded, sizeof(ccc_bits_encoded), 0);
+	if (len < 0) {
+		LOG_ERR("Failed to read attribute %p (err %zd)", attr, len);
+		return false;
+	} else if (len != sizeof(ccc_bits_encoded)) {
+		LOG_ERR("Invalid read length: %zd", len);
+		return false;
+	}
 
-		if (bt_conn_is_peer_addr_le(conn, cfg->id, &cfg->peer) &&
-		    (ccc_type & ccc->cfg[i].value)) {
-			return true;
-		}
+	ccc_bits = sys_get_le16(ccc_bits_encoded);
+
+	/* Check if the CCC bits match the subscription type */
+	if (ccc_bits & ccc_type) {
+		return true;
 	}
 
 	return false;
@@ -5271,10 +5261,18 @@ static int gatt_prepare_write(struct bt_conn *conn,
 			      struct bt_gatt_write_params *params)
 {
 	uint16_t len, req_len;
+	uint16_t mtu = bt_att_get_mtu(conn);
 
 	req_len = sizeof(struct bt_att_prepare_write_req);
 
-	len = bt_att_get_mtu(conn) - req_len - 1;
+	/** MTU size is bigger than the ATT_PREPARE_WRITE_REQ header (5 bytes),
+	 * unless there's no connection.
+	 */
+	if (mtu == 0) {
+		return -ENOTCONN;
+	}
+
+	len = mtu - req_len - 1;
 	len = MIN(params->length, len);
 	len += req_len;
 
@@ -6437,7 +6435,7 @@ static int bt_gatt_clear_cf(uint8_t id, const bt_addr_le_t *addr)
 	}
 
 	if (IS_ENABLED(CONFIG_BT_SETTINGS)) {
-		return bt_settings_delete_ccc(id, addr);
+		return bt_settings_delete_cf(id, addr);
 	}
 
 	return 0;

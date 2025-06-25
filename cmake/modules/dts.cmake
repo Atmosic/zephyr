@@ -327,8 +327,7 @@ execute_process(
   COMMAND_ERROR_IS_FATAL ANY
   )
 zephyr_file_copy(${DEVICETREE_GENERATED_H}.new ${DEVICETREE_GENERATED_H} ONLY_IF_DIFFERENT)
-file(REMOVE ${ZEPHYR_DTS}.new ${DEVICETREE_GENERATED_H}.new)
-message(STATUS "Generated zephyr.dts: ${ZEPHYR_DTS}")
+file(REMOVE ${DEVICETREE_GENERATED_H}.new)
 message(STATUS "Generated devicetree_generated.h: ${DEVICETREE_GENERATED_H}")
 
 #
@@ -349,17 +348,26 @@ endif()
 #
 # Run GEN_DTS_CMAKE_SCRIPT.
 #
+# A temporary file is copied to the original file if it differs. This prevents issue such as a
+# cycle when sysbuild is used of configuring and building multiple times due to the dts.cmake file
+# of images having a newer modification time than the sysbuild build.ninja file, despite the
+# output having not changed
+#
+set(dts_cmake_tmp ${DTS_CMAKE}.new)
 
 execute_process(
   COMMAND ${PYTHON_EXECUTABLE} ${GEN_DTS_CMAKE_SCRIPT}
   --edt-pickle ${EDT_PICKLE}
-  --cmake-out ${DTS_CMAKE}
+  --cmake-out ${dts_cmake_tmp}
   WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
   RESULT_VARIABLE ret
   )
 if(NOT "${ret}" STREQUAL "0")
   message(FATAL_ERROR "gen_dts_cmake.py failed with return code: ${ret}")
 else()
+  zephyr_file_copy(${dts_cmake_tmp} ${DTS_CMAKE} ONLY_IF_DIFFERENT)
+  file(REMOVE ${dts_cmake_tmp})
+  set(dts_cmake_tmp)
   message(STATUS "Including generated dts.cmake file: ${DTS_CMAKE}")
   include(${DTS_CMAKE})
 endif()

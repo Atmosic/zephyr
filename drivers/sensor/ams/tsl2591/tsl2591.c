@@ -418,11 +418,11 @@ static int tsl2591_setup(const struct device *dev)
 	uint8_t device_id;
 	int ret;
 
-	ret = tsl2591_reg_write(dev, TSL2591_REG_CONFIG, TSL2591_SRESET);
-	if (ret < 0) {
-		LOG_ERR("Failed to reset device");
-		return ret;
-	}
+	/* Reset the sensor. Although this is not clearly documented in the datasheet,
+	 * it is  suspected that because the sensor is reset, it doesn't explicitly send
+	 * an ACK. Thus, don't check the return code.
+	 */
+	tsl2591_reg_write(dev, TSL2591_REG_CONFIG, TSL2591_SRESET);
 
 	ret = tsl2591_reg_read(dev, TSL2591_REG_ID, &device_id, 1U);
 	if (ret < 0) {
@@ -477,7 +477,7 @@ static int tsl2591_init(const struct device *dev)
 	return 0;
 }
 
-static const struct sensor_driver_api tsl2591_driver_api = {
+static DEVICE_API(sensor, tsl2591_driver_api) = {
 #ifdef CONFIG_TSL2591_TRIGGER
 	.trigger_set = tsl2591_trigger_set,
 #endif

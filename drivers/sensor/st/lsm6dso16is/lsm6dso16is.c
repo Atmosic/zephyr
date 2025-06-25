@@ -80,21 +80,6 @@ static int lsm6dso16is_gyro_range_to_fs_val(int32_t range)
 	return -EINVAL;
 }
 
-static inline int lsm6dso16is_reboot(const struct device *dev)
-{
-	const struct lsm6dso16is_config *cfg = dev->config;
-	stmdev_ctx_t *ctx = (stmdev_ctx_t *)&cfg->ctx;
-
-	if (lsm6dso16is_boot_set(ctx, 1) < 0) {
-		return -EIO;
-	}
-
-	/* Wait sensor turn-on time as per datasheet */
-	k_sleep(K_MSEC(35)); /* turn-on time in ms */
-
-	return 0;
-}
-
 static int lsm6dso16is_accel_set_fs_raw(const struct device *dev, uint8_t fs)
 {
 	const struct lsm6dso16is_config *cfg = dev->config;
@@ -725,7 +710,7 @@ static int lsm6dso16is_channel_get(const struct device *dev,
 	return 0;
 }
 
-static const struct sensor_driver_api lsm6dso16is_driver_api = {
+static DEVICE_API(sensor, lsm6dso16is_driver_api) = {
 	.attr_set = lsm6dso16is_attr_set,
 #if CONFIG_LSM6DSO16IS_TRIGGER
 	.trigger_set = lsm6dso16is_trigger_set,

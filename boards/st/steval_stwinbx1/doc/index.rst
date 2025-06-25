@@ -31,6 +31,8 @@ NFC or USB protocols to a host application running on a smartphone/PC to impleme
 (see `Sensing`_ section for the complete lists of available
 sensors on board)
 
+.. zephyr:board-supported-hw::
+
 Hardware
 ********
 
@@ -230,23 +232,7 @@ Console
 There are two possible options for Zephyr console output:
 
 
-- through USB as USB CDC/ACM class. This is the default case present in the board dts file
-  and is enabled by :kconfig:option:`CONFIG_BOARD_SERIAL_BACKEND_CDC_ACM`.
-
-.. code-block:: dts
-   :caption: boards/st/steval_stwinbx1/steval_stwinbx1.dts
-
-   / {
-       chosen {
-          zephyr,console = &cdc_acm_uart0;
-        };
-     };
-
-     &zephyr_udc0 {
-        cdc_acm_uart0: cdc_acm_uart0 {
-                compatible = "zephyr,cdc-acm-uart";
-        };
-     };
+- through common CDC ACM UART backend configuration for all boards
 
 - through USART2 which is available on SWD connector (CN4). In this case a JTAG adapter
   can be used to connect STEVAL-STWINBX1 and have both SWD and console lines available.

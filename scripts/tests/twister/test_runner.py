@@ -56,6 +56,7 @@ def mocked_instance(tmp_path):
 def mocked_env():
     env = mock.Mock()
     options = mock.Mock()
+    options.verbose = 2
     env.options = options
     return env
 
@@ -380,6 +381,7 @@ TESTDATA_2_2 = [
       '-DSB_CONFIG_COMPILER_WARNINGS_AS_ERRORS=y',
       '-DEXTRA_GEN_EDT_ARGS=--edtlib-Werror', '-Gdummy_generator',
       f'-DPython3_EXECUTABLE={pathlib.Path(sys.executable).as_posix()}',
+      '-DZEPHYR_TOOLCHAIN_VARIANT=zephyr',
       '-S' + os.path.join('source', 'dir'),
       'arg1', 'arg2',
       '-DBOARD=<platform name>',
@@ -395,6 +397,7 @@ TESTDATA_2_2 = [
       '-DSB_CONFIG_COMPILER_WARNINGS_AS_ERRORS=n',
       '-DEXTRA_GEN_EDT_ARGS=', '-Gdummy_generator',
       f'-DPython3_EXECUTABLE={pathlib.Path(sys.executable).as_posix()}',
+      '-DZEPHYR_TOOLCHAIN_VARIANT=zephyr',
       '-Szephyr_base/share/sysbuild',
       '-DAPP_DIR=' + os.path.join('source', 'dir'),
       'arg1', 'arg2',
@@ -450,6 +453,7 @@ def test_cmake_run_cmake(
     instance_mock.build_time = 0
     instance_mock.status = TwisterStatus.NONE
     instance_mock.reason = None
+    instance_mock.toolchain = 'zephyr'
     instance_mock.testsuite = mock.Mock()
     instance_mock.testsuite.name = 'testcase'
     instance_mock.testsuite.required_snippets = ['dummy snippet 1', 'ds2']
@@ -524,7 +528,7 @@ TESTDATA_3 = [
         b'dummy edt pickle contents',
         [f'Loaded sysbuild domain data from' \
          f' {os.path.join("build", "dir", "domains.yaml")}'],
-        {os.path.join('other', 'dummy.testsuite.name'): True}
+        {os.path.join('other', 'zephyr', 'dummy.testsuite.name'): True}
     ),
     (
         'other', ['kconfig'], True,
@@ -538,7 +542,7 @@ TESTDATA_3 = [
          'CONFIG_FOO': 'no', 'dummy cache elem': 1},
         b'dummy edt pickle contents',
         [],
-        {os.path.join('other', 'dummy.testsuite.name'): False}
+        {os.path.join('other', 'zephyr', 'dummy.testsuite.name'): False}
     ),
     (
         'other', ['other'], False,
@@ -551,7 +555,7 @@ TESTDATA_3 = [
         {'ARCH': 'dummy arch', 'PLATFORM': 'other', 'env_dummy': True},
         b'dummy edt pickle contents',
         [],
-        {os.path.join('other', 'dummy.testsuite.name'): False}
+        {os.path.join('other', 'zephyr', 'dummy.testsuite.name'): False}
     ),
     (
         'other', ['other'], True,
@@ -564,7 +568,7 @@ TESTDATA_3 = [
         {},
         None,
         ['Sysbuild test will be skipped. West must be used for flashing.'],
-        {os.path.join('other', 'dummy.testsuite.name'): True}
+        {os.path.join('other', 'zephyr', 'dummy.testsuite.name'): True}
     ),
     (
         'other', ['other'], False,
@@ -578,7 +582,7 @@ TESTDATA_3 = [
          'dummy cache elem': 1},
         None,
         [],
-        {os.path.join('other', 'dummy.testsuite.name'): False}
+        {os.path.join('other', 'zephyr', 'dummy.testsuite.name'): False}
     ),
     (
         'other', ['other'], False,
@@ -592,7 +596,7 @@ TESTDATA_3 = [
          'dummy cache elem': 1},
         b'dummy edt pickle contents',
         [],
-        {os.path.join('other', 'dummy.testsuite.name'): False}
+        {os.path.join('other', 'zephyr', 'dummy.testsuite.name'): False}
     ),
     (
         'other', ['other'], False,
@@ -606,7 +610,7 @@ TESTDATA_3 = [
          'dummy cache elem': 1},
         b'dummy edt pickle contents',
         [],
-        {os.path.join('other', 'dummy.testsuite.name'): True}
+        {os.path.join('other', 'zephyr', 'dummy.testsuite.name'): True}
     ),
     (
         'other', ['other'], False,
@@ -687,7 +691,7 @@ def test_filterbuilder_parse_generated(
         cache = [cache_elem]
         return cache
 
-    def mock_open(filepath, type, *args, **kwargs):
+    def mock_open(filepath, *args, **kwargs):
         if filepath == expected_defconfig_path:
             rd = 'I am not a proper line\n' \
                  'CONFIG_FOO="no"'
@@ -722,6 +726,7 @@ def test_filterbuilder_parse_generated(
                        mocked_jobserver)
     instance_mock = mock.Mock()
     instance_mock.sysbuild = 'sysbuild' if sysbuild else None
+    instance_mock.toolchain = 'zephyr'
     fb.instance = instance_mock
     fb.env = mock.Mock()
     fb.env.options = mock.Mock()
@@ -1240,7 +1245,7 @@ TESTDATA_6 = [
         mock.ANY,
         ['run test: dummy instance name',
          'run status: dummy instance name success'],
-        {'op': 'report', 'test': mock.ANY, 'status': 'success', 'reason': 'OK'},
+        {'op': 'coverage', 'test': mock.ANY, 'status': 'success', 'reason': 'OK'},
         'success',
         'OK',
         0,
@@ -1477,6 +1482,7 @@ TESTDATA_6 = [
 def test_projectbuilder_process(
     caplog,
     mocked_jobserver,
+    tmp_path,
     message,
     instance_status,
     instance_reason,
@@ -1524,6 +1530,9 @@ def test_projectbuilder_process(
     pb.options.prep_artifacts_for_testing = options_prep_artifacts
     pb.options.runtime_artifact_cleanup = options_runtime_artifacts
     pb.options.cmake_only = options_cmake_only
+    pb.options.outdir = tmp_path
+    pb.options.log_file = None
+    pb.options.log_level = "DEBUG"
 
     pb.cmake = mock.Mock(return_value=cmake_res)
     pb.build = mock.Mock(return_value=build_res)
@@ -1561,26 +1570,83 @@ def test_projectbuilder_process(
 
 TESTDATA_7 = [
     (
+        True,
         [
-            'z_ztest_unit_test__dummy_suite_name__dummy_test_name',
-            'z_ztest_unit_test__dummy_suite_name__test_dummy_name',
+            'z_ztest_unit_test__dummy_suite1_name__dummy_test_name1',
+            'z_ztest_unit_test__dummy_suite2_name__test_dummy_name2',
             'no match'
         ],
-        ['dummy_id.dummy_name', 'dummy_id.dummy_name']
+        [
+            'dummy.test_id.dummy_suite1_name.dummy_name1',
+            'dummy.test_id.dummy_suite2_name.dummy_name2'
+        ]
     ),
     (
+        False,
+        [
+            'z_ztest_unit_test__dummy_suite1_name__dummy_test_name1',
+            'z_ztest_unit_test__dummy_suite2_name__test_dummy_name2',
+            'no match'
+        ],
+        [
+            'dummy_suite1_name.dummy_name1',
+            'dummy_suite2_name.dummy_name2'
+        ]
+    ),
+    (
+        True,
+        [
+            'z_ztest_unit_test__dummy_suite2_name__test_dummy_name2',
+            'z_ztest_unit_test__bad_suite3_name_no_test',
+            '_ZN12_GLOBAL__N_1L54z_ztest_unit_test__dummy_suite3_name__test_dummy_name4E',
+            '_ZN12_GLOBAL__N_1L54z_ztest_unit_test__dummy_suite3_name__test_bad_name1E',
+            '_ZN12_GLOBAL__N_1L51z_ztest_unit_test_dummy_suite3_name__test_bad_name2E',
+            '_ZN12_GLOBAL__N_1L54z_ztest_unit_test__dummy_suite3_name__test_dummy_name5E',
+            '_ZN15foobarnamespaceL54z_ztest_unit_test__dummy_suite3_name__test_dummy_name6E',
+        ],
+        [
+           'dummy.test_id.dummy_suite2_name.dummy_name2',
+           'dummy.test_id.dummy_suite3_name.dummy_name4',
+           'dummy.test_id.dummy_suite3_name.bad_name1E',
+           'dummy.test_id.dummy_suite3_name.dummy_name5',
+           'dummy.test_id.dummy_suite3_name.dummy_name6',
+        ]
+    ),
+    (
+        True,
+        [
+            'z_ztest_unit_test__dummy_suite2_name__test_dummy_name2',
+            'z_ztest_unit_test__bad_suite3_name_no_test',
+            '_ZN12_GLOBAL__N_1L54z_ztest_unit_test__dummy_suite3_name__test_dummy_name4E',
+            '_ZN12_GLOBAL__N_1L54z_ztest_unit_test__dummy_suite3_name__test_bad_name1E',
+            '_ZN12_GLOBAL__N_1L51z_ztest_unit_test_dummy_suite3_name__test_bad_name2E',
+            '_ZN12_GLOBAL__N_1L54z_ztest_unit_test__dummy_suite3_name__test_dummy_name5E',
+            '_ZN15foobarnamespaceL54z_ztest_unit_test__dummy_suite3_name__test_dummy_name6E',
+        ],
+        [
+           'dummy_suite2_name.dummy_name2',
+           'dummy_suite3_name.dummy_name4',
+           'dummy_suite3_name.bad_name1E',
+           'dummy_suite3_name.dummy_name5',
+           'dummy_suite3_name.dummy_name6',
+        ]
+    ),
+    (
+        True,
         ['no match'],
         []
     ),
 ]
 
 @pytest.mark.parametrize(
-    'symbols_names, added_tcs',
+    'detailed_id, symbols_names, added_tcs',
     TESTDATA_7,
-    ids=['two hits, one miss', 'nothing']
+    ids=['two hits, one miss', 'two hits short id', 'demangle', 'demangle short id', 'nothing']
 )
 def test_projectbuilder_determine_testcases(
     mocked_jobserver,
+    mocked_env,
+    detailed_id,
     symbols_names,
     added_tcs
 ):
@@ -1598,10 +1664,12 @@ def test_projectbuilder_determine_testcases(
 
     instance_mock = mock.Mock()
     instance_mock.testcases = []
-    instance_mock.testsuite.id = 'dummy_id'
-    env_mock = mock.Mock()
+    instance_mock.testsuite.id = 'dummy.test_id'
+    instance_mock.testsuite.ztest_suite_names = []
+    instance_mock.testsuite.detailed_test_id = detailed_id
+    instance_mock.compose_case_name = mock.Mock(side_effect=iter(added_tcs))
 
-    pb = ProjectBuilder(instance_mock, env_mock, mocked_jobserver)
+    pb = ProjectBuilder(instance_mock, mocked_env, mocked_jobserver)
 
     with mock.patch('twisterlib.runner.ELFFile', elf_mock), \
          mock.patch('builtins.open', mock.mock_open()):
@@ -1971,14 +2039,14 @@ TESTDATA_13 = [
         ['INFO      20/25 dummy platform' \
          '            dummy.testsuite.name' \
          '                               PASSED' \
-         ' (dummy handler type: dummy dut, 60.000s)'],
+         ' (dummy handler type: dummy dut, 60.000s <zephyr>)'],
         None
     ),
     (
         TwisterStatus.PASS, True, False, False,
         ['INFO      20/25 dummy platform' \
          '            dummy.testsuite.name' \
-         '                               PASSED (build)'],
+         '                               PASSED (build <zephyr>)'],
         None
     ),
     (
@@ -2016,6 +2084,7 @@ def test_projectbuilder_report_out(
     instance_mock.platform.name = 'dummy platform'
     instance_mock.status = status
     instance_mock.reason = 'dummy reason'
+    instance_mock.toolchain = 'zephyr'
     instance_mock.testsuite.name = 'dummy.testsuite.name'
     skip_mock_tc = mock.Mock(status=TwisterStatus.SKIP, reason=None)
     skip_mock_tc.name = 'mocked_testcase_to_skip'
@@ -2137,13 +2206,11 @@ def test_projectbuilder_cmake():
     instance_mock = mock.Mock()
     instance_mock.handler = 'dummy handler'
     instance_mock.build_dir = os.path.join('build', 'dir')
-    instance_mock.platform.name = 'frdm_k64f'
     env_mock = mock.Mock()
 
     pb = ProjectBuilder(instance_mock, env_mock, mocked_jobserver)
     pb.build_dir = 'build_dir'
-    pb.testsuite.platform = instance_mock.platform
-    pb.testsuite.extra_args = ['some', 'platform:frdm_k64f:args']
+    pb.testsuite.extra_args = ['some', 'args']
     pb.testsuite.extra_conf_files = ['some', 'files1']
     pb.testsuite.extra_overlay_confs = ['some', 'files2']
     pb.testsuite.extra_dtc_overlay_files = ['some', 'files3']
@@ -2156,7 +2223,7 @@ def test_projectbuilder_cmake():
 
     assert res == cmake_res_mock
     pb.cmake_assemble_args.assert_called_once_with(
-        ['some', 'args'],
+        pb.testsuite.extra_args,
         pb.instance.handler,
         pb.testsuite.extra_conf_files,
         pb.testsuite.extra_overlay_confs,

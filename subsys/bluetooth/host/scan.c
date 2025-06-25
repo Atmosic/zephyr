@@ -741,6 +741,28 @@ static uint8_t get_adv_type(uint8_t evt_type)
 	}
 }
 
+/* Convert Extended adv report PHY to GAP PHY */
+static uint8_t get_ext_adv_coding_sel_phy(uint8_t hci_phy)
+{
+	/* Converts from Extended adv report PHY to BT_GAP_LE_PHY_*
+	 * When Advertising Coding Selection (Host Support) is enabled
+	 * the controller will return the advertising coding scheme which
+	 * can be S=2 or S=8 data coding.
+	 */
+	switch (hci_phy) {
+	case BT_HCI_LE_ADV_EVT_PHY_1M:
+		return BT_GAP_LE_PHY_1M;
+	case BT_HCI_LE_ADV_EVT_PHY_2M:
+		return BT_GAP_LE_PHY_2M;
+	case BT_HCI_LE_ADV_EVT_PHY_CODED_S8:
+		return BT_GAP_LE_PHY_CODED_S8;
+	case BT_HCI_LE_ADV_EVT_PHY_CODED_S2:
+		return BT_GAP_LE_PHY_CODED_S2;
+	default:
+		return 0;
+	}
+}
+
 /* Convert extended adv report evt_type field to adv props */
 static uint16_t get_adv_props_extended(uint16_t evt_type)
 {
@@ -755,8 +777,15 @@ static uint16_t get_adv_props_extended(uint16_t evt_type)
 static void create_ext_adv_info(struct bt_hci_evt_le_ext_advertising_info const *const evt,
 				struct bt_le_scan_recv_info *const scan_info)
 {
-	scan_info->primary_phy = bt_get_phy(evt->prim_phy);
-	scan_info->secondary_phy = bt_get_phy(evt->sec_phy);
+	if (IS_ENABLED(CONFIG_BT_EXT_ADV_CODING_SELECTION) &&
+	    BT_FEAT_LE_ADV_CODING_SEL(bt_dev.le.features)) {
+		scan_info->primary_phy = get_ext_adv_coding_sel_phy(evt->prim_phy);
+		scan_info->secondary_phy = get_ext_adv_coding_sel_phy(evt->sec_phy);
+	} else {
+		scan_info->primary_phy = bt_get_phy(evt->prim_phy);
+		scan_info->secondary_phy = bt_get_phy(evt->sec_phy);
+	}
+
 	scan_info->tx_power = evt->tx_power;
 	scan_info->rssi = evt->rssi;
 	scan_info->sid = evt->sid;
@@ -2413,4 +2442,21 @@ int bt_le_per_adv_list_clear(void)
 bool bt_le_explicit_scanner_running(void)
 {
 	return atomic_test_bit(scan_state.scan_flags, BT_LE_SCAN_USER_EXPLICIT_SCAN);
+}
+
+bool bt_le_explicit_scanner_uses_same_params(const struct bt_conn_le_create_param *create_param)
+{
+	if (scan_state.explicit_scan_param.window != create_param->window ||
+	    scan_state.explicit_scan_param.interval != create_param->interval){
+		return false;
+	}
+
+	if (scan_state.explicit_scan_param.options & BT_LE_SCAN_OPT_CODED) {
+		if (scan_state.explicit_scan_param.window_coded != create_param->window_coded ||
+		    scan_state.explicit_scan_param.interval_coded != create_param->interval_coded){
+			return false;
+		}
+	}
+
+	return true;
 }

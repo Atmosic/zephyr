@@ -550,7 +550,7 @@ static int adxl372_attr_set_odr(const struct device *dev,
 				const struct sensor_value *val)
 {
 	enum adxl372_odr odr;
-	struct adxl372_dev_config *cfg = (struct adxl372_dev_config *)dev->config;
+	struct adxl372_data *data = dev->data;
 
 	switch (val->val1) {
 	case 400:
@@ -575,7 +575,7 @@ static int adxl372_attr_set_odr(const struct device *dev,
 	int ret = adxl372_set_odr(dev, odr);
 
 	if (ret == 0) {
-		cfg->odr = odr;
+		data->odr = odr;
 	}
 
 	return ret;
@@ -692,7 +692,7 @@ static int adxl372_channel_get(const struct device *dev,
 	return 0;
 }
 
-static const struct sensor_driver_api adxl372_api_funcs = {
+static DEVICE_API(sensor, adxl372_api_funcs) = {
 	.attr_set = adxl372_attr_set,
 	.sample_fetch = adxl372_sample_fetch,
 	.channel_get = adxl372_channel_get,

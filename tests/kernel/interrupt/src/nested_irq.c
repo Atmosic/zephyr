@@ -56,7 +56,7 @@
  */
 #define IRQ0_PRIO	IRQ_DEFAULT_PRIORITY
 #define IRQ1_PRIO	0x0
-#elif defined(CONFIG_SOC_NRF54L15_CPUFLPR)
+#elif defined(CONFIG_SOC_SERIES_NRF54LX) && defined(CONFIG_RISCV_CORE_NORDIC_VPR)
 #define IRQ0_LINE	16
 #define IRQ1_LINE	17
 
@@ -112,7 +112,7 @@ void isr0(const void *param)
 	trigger_irq(irq_line_1);
 
 	/* Wait for interrupt */
-	k_busy_wait(MS_TO_US(DURATION));
+	k_busy_wait(DURATION * USEC_PER_MSEC);
 
 	/* Validate nested ISR result token */
 	zassert_equal(isr1_result, ISR1_TOKEN, "isr1 did not execute");
@@ -160,7 +160,7 @@ ZTEST(interrupt_feature, test_nested_isr)
 	trigger_irq(irq_line_0);
 
 	/* Wait for interrupt */
-	k_busy_wait(MS_TO_US(DURATION));
+	k_busy_wait(DURATION * USEC_PER_MSEC);
 
 	/* Validate ISR result token */
 	zassert_equal(isr0_result, ISR0_TOKEN, "isr0 did not execute");

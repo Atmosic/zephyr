@@ -4,7 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <zephyr/kernel.h>
+#include <zephyr/sys/__assert.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/byteorder.h>
 
@@ -20,14 +24,15 @@ LOG_MODULE_REGISTER(usbd_uac2, CONFIG_USBD_UAC2_LOG_LEVEL);
 
 #define DT_DRV_COMPAT zephyr_uac2
 
-#define COUNT_UAC2_AS_ENDPOINTS(node)						\
+#define COUNT_UAC2_AS_ENDPOINT_BUFFERS(node)					\
 	IF_ENABLED(DT_NODE_HAS_COMPAT(node, zephyr_uac2_audio_streaming), (	\
 		+ AS_HAS_ISOCHRONOUS_DATA_ENDPOINT(node) +			\
+		+ AS_IS_USB_ISO_IN(node) /* ISO IN double buffering */ +	\
 		AS_HAS_EXPLICIT_FEEDBACK_ENDPOINT(node)))
-#define COUNT_UAC2_ENDPOINTS(i)							\
+#define COUNT_UAC2_EP_BUFFERS(i)						\
 	+ DT_PROP(DT_DRV_INST(i), interrupt_endpoint)				\
-	DT_INST_FOREACH_CHILD(i, COUNT_UAC2_AS_ENDPOINTS)
-#define UAC2_NUM_ENDPOINTS DT_INST_FOREACH_STATUS_OKAY(COUNT_UAC2_ENDPOINTS)
+	DT_INST_FOREACH_CHILD(i, COUNT_UAC2_AS_ENDPOINT_BUFFERS)
+#define UAC2_NUM_EP_BUFFERS DT_INST_FOREACH_STATUS_OKAY(COUNT_UAC2_EP_BUFFERS)
 
 /* Net buf is used mostly with external data. The main reason behind external
  * data is avoiding unnecessary isochronous data copy operations.
@@ -40,7 +45,7 @@ LOG_MODULE_REGISTER(usbd_uac2, CONFIG_USBD_UAC2_LOG_LEVEL);
  * "wasted memory" here is likely to be smaller than the memory overhead for
  * more complex "only as much as needed" schemes (e.g. heap).
  */
-UDC_BUF_POOL_DEFINE(uac2_pool, UAC2_NUM_ENDPOINTS, 6,
+UDC_BUF_POOL_DEFINE(uac2_pool, UAC2_NUM_EP_BUFFERS, 6,
 		    sizeof(struct udc_buf_info), NULL);
 
 /* 5.2.2 Control Request Layout */
@@ -80,6 +85,7 @@ struct uac2_ctx {
 	 */
 	atomic_t as_active;
 	atomic_t as_queued;
+	atomic_t as_double;
 	uint32_t fb_queued;
 };
 
@@ -207,9 +213,49 @@ static int terminal_to_as_interface(const struct device *dev, uint8_t terminal)
 void usbd_uac2_set_ops(const struct device *dev,
 		       const struct uac2_ops *ops, void *user_data)
 {
+	const struct uac2_cfg *cfg = dev->config;
 	struct uac2_ctx *ctx = dev->data;
 
 	__ASSERT(ops->sof_cb, "SOF callback is mandatory");
+	__ASSERT(ops->terminal_update_cb, "terminal_update_cb is mandatory");
+
+	for (uint8_t i = 0U; i < cfg->num_ifaces; i++) {
+		const uint16_t ep_idx = cfg->ep_indexes[i];
+
+		if (cfg->fb_indexes[i] != 0U) {
+			__ASSERT(ops->feedback_cb, "feedback_cb is mandatory");
+		}
+
+		if (ep_idx) {
+			const struct usb_ep_descriptor *desc = NULL;
+
+			if (cfg->fs_descriptors != NULL) {
+				/* If fs_descriptors is non-NULL and ep_idx is non-zero then
+				 * cfg->fs_descriptors[ep_idx] is non-NULL
+				 */
+				desc = (const struct usb_ep_descriptor *)
+					       cfg->fs_descriptors[ep_idx];
+			} else if (cfg->hs_descriptors != NULL) {
+				/* If hs_descriptors is non-NULL and ep_idx is non-zero then
+				 * cfg->hs_descriptors[ep_idx] is non-NULL
+				 */
+				desc = (const struct usb_ep_descriptor *)
+					       cfg->hs_descriptors[ep_idx];
+			}
+
+			if (desc != NULL) {
+				if (USB_EP_DIR_IS_OUT(desc->bEndpointAddress)) {
+					__ASSERT(ops->get_recv_buf, "get_recv_buf is mandatory");
+					__ASSERT(ops->data_recv_cb, "data_recv_cb is mandatory");
+				}
+
+				if (USB_EP_DIR_IS_IN(desc->bEndpointAddress)) {
+					__ASSERT(ops->buf_release_cb,
+						 "buf_release_cb is mandatory");
+				}
+			}
+		}
+	}
 
 	ctx->ops = ops;
 	ctx->user_data = user_data;
@@ -229,7 +275,6 @@ uac2_buf_alloc(const uint8_t ep, void *data, uint16_t size)
 	}
 
 	bi = udc_get_buf_info(buf);
-	memset(bi, 0, sizeof(struct udc_buf_info));
 	bi->ep = ep;
 
 	if (USB_EP_DIR_IS_OUT(ep)) {
@@ -247,6 +292,7 @@ int usbd_uac2_send(const struct device *dev, uint8_t terminal,
 	struct uac2_ctx *ctx = dev->data;
 	struct net_buf *buf;
 	const struct usb_ep_descriptor *desc;
+	atomic_t *queued_bits = &ctx->as_queued;
 	uint8_t ep = 0;
 	int as_idx = terminal_to_as_interface(dev, terminal);
 	int ret;
@@ -267,9 +313,12 @@ int usbd_uac2_send(const struct device *dev, uint8_t terminal,
 		return 0;
 	}
 
-	if (atomic_test_and_set_bit(&ctx->as_queued, as_idx)) {
-		LOG_ERR("Previous send not finished yet on 0x%02x", ep);
-		return -EAGAIN;
+	if (atomic_test_and_set_bit(queued_bits, as_idx)) {
+		queued_bits = &ctx->as_double;
+		if (atomic_test_and_set_bit(queued_bits, as_idx)) {
+			LOG_DBG("Already double queued on 0x%02x", ep);
+			return -EAGAIN;
+		}
 	}
 
 	buf = uac2_buf_alloc(ep, data, size);
@@ -278,8 +327,7 @@ int usbd_uac2_send(const struct device *dev, uint8_t terminal,
 		 * enough, but if it does all we loose is just single packet.
 		 */
 		LOG_ERR("No netbuf for send");
-		atomic_clear_bit(&ctx->as_queued, as_idx);
-		ctx->ops->buf_release_cb(dev, terminal, data, ctx->user_data);
+		atomic_clear_bit(queued_bits, as_idx);
 		return -ENOMEM;
 	}
 
@@ -287,8 +335,7 @@ int usbd_uac2_send(const struct device *dev, uint8_t terminal,
 	if (ret) {
 		LOG_ERR("Failed to enqueue net_buf for 0x%02x", ep);
 		net_buf_unref(buf);
-		atomic_clear_bit(&ctx->as_queued, as_idx);
-		ctx->ops->buf_release_cb(dev, terminal, data, ctx->user_data);
+		atomic_clear_bit(queued_bits, as_idx);
 	}
 
 	return ret;
@@ -372,7 +419,6 @@ static void write_explicit_feedback(struct usbd_class_data *const c_data,
 	}
 
 	bi = udc_get_buf_info(buf);
-	memset(bi, 0, sizeof(struct udc_buf_info));
 	bi->ep = ep;
 
 	fb_value = ctx->ops->feedback_cb(dev, terminal, ctx->user_data);
@@ -761,8 +807,8 @@ static int uac2_request(struct usbd_class_data *const c_data, struct net_buf *bu
 
 	if (is_feedback) {
 		ctx->fb_queued &= ~BIT(as_idx);
-	} else {
-		atomic_clear_bit(&ctx->as_queued, as_idx);
+	} else if (!atomic_test_and_clear_bit(&ctx->as_queued, as_idx) || buf->frags) {
+		atomic_clear_bit(&ctx->as_double, as_idx);
 	}
 
 	if (USB_EP_DIR_IS_OUT(ep)) {

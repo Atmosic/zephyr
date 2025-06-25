@@ -27,7 +27,9 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG);
 
-struct {
+extern int init_stats(struct prometheus_counter *counter);
+
+struct app_context {
 
 	struct prometheus_collector *collector;
 
@@ -38,11 +40,11 @@ struct {
 #if defined(CONFIG_NET_SAMPLE_HTTP_SERVICE)
 static uint16_t test_http_service_port = CONFIG_NET_SAMPLE_HTTP_SERVER_SERVICE_PORT;
 HTTP_SERVICE_DEFINE(test_http_service, CONFIG_NET_CONFIG_MY_IPV4_ADDR, &test_http_service_port, 1,
-		    10, NULL);
+		    10, NULL, NULL);
 
 static int dyn_handler(struct http_client_ctx *client, enum http_data_status status,
-		       uint8_t *buffer, size_t len, struct http_response_ctx *response_ctx,
-		       void *user_data)
+		       const struct http_request_ctx *request_ctx,
+		       struct http_response_ctx *response_ctx, void *user_data)
 {
 	int ret;
 	static uint8_t prom_buffer[256];
@@ -88,7 +90,7 @@ HTTP_RESOURCE_DEFINE(dyn_resource, test_http_service, "/metrics", &dyn_resource_
 #if defined(CONFIG_NET_SAMPLE_HTTPS_SERVICE)
 #include "certificate.h"
 
-static const sec_tag_t sec_tag_list_verify_none[] = {
+const sec_tag_t sec_tag_list_verify_none[] = {
 	HTTP_SERVER_CERTIFICATE_TAG,
 #if defined(CONFIG_MBEDTLS_KEY_EXCHANGE_PSK_ENABLED)
 	PSK_TAG,
@@ -97,7 +99,7 @@ static const sec_tag_t sec_tag_list_verify_none[] = {
 
 static uint16_t test_https_service_port = CONFIG_NET_SAMPLE_HTTPS_SERVER_SERVICE_PORT;
 HTTPS_SERVICE_DEFINE(test_https_service, CONFIG_NET_CONFIG_MY_IPV4_ADDR, &test_https_service_port,
-		     1, 10, NULL, sec_tag_list_verify_none, sizeof(sec_tag_list_verify_none));
+		     1, 10, NULL, NULL, sec_tag_list_verify_none, sizeof(sec_tag_list_verify_none));
 
 HTTP_RESOURCE_DEFINE(index_html_gz_resource_https, test_https_service, "/metrics",
 		     &dyn_resource_detail);
@@ -145,18 +147,8 @@ static void setup_tls(void)
 #endif /* defined(CONFIG_NET_SAMPLE_HTTPS_SERVICE) */
 }
 
-struct prometheus_metric http_request_counter = {
-	.type = PROMETHEUS_COUNTER,
-	.name = "http_request_counter",
-	.description = "HTTP request counter",
-	.num_labels = 1,
-	.labels = {{
-		.key = "http_request",
-		.value = "request_count",
-	}},
-};
-
-PROMETHEUS_COUNTER_DEFINE(test_counter, &http_request_counter);
+PROMETHEUS_COUNTER_DEFINE(http_request_counter, "HTTP request counter",
+			  ({ .key = "http_request", .value = "request_count" }), NULL);
 
 PROMETHEUS_COLLECTOR_DEFINE(test_collector);
 
@@ -165,10 +157,14 @@ int main(void)
 	/* Create a mock collector with different types of metrics */
 	prom_context.collector = &test_collector;
 
-	prom_context.counter = &test_counter;
+	prom_context.counter = &http_request_counter;
 	prometheus_counter_inc(prom_context.counter);
 
-	prometheus_collector_register_metric(prom_context.collector, prom_context.counter->base);
+	prometheus_collector_register_metric(prom_context.collector, &prom_context.counter->base);
+
+#if defined(CONFIG_NET_STATISTICS_VIA_PROMETHEUS)
+	(void)init_stats(prom_context.counter);
+#endif
 
 	setup_tls();
 

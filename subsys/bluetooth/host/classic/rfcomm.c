@@ -17,7 +17,6 @@
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
-#include <zephyr/drivers/bluetooth/hci_driver.h>
 #include <zephyr/bluetooth/l2cap.h>
 
 #include <zephyr/bluetooth/classic/rfcomm.h>
@@ -37,7 +36,7 @@ LOG_MODULE_REGISTER(bt_rfcomm);
 #define RFCOMM_MIN_MTU		BT_RFCOMM_SIG_MIN_MTU
 #define RFCOMM_DEFAULT_MTU	127
 
-#define RFCOMM_MAX_CREDITS		(CONFIG_BT_BUF_ACL_RX_COUNT - 1)
+#define RFCOMM_MAX_CREDITS		(BT_BUF_ACL_RX_COUNT - 1)
 #define RFCOMM_CREDITS_THRESHOLD	(RFCOMM_MAX_CREDITS / 2)
 #define RFCOMM_DEFAULT_CREDIT		RFCOMM_MAX_CREDITS
 
@@ -200,15 +199,32 @@ rfcomm_sessions_lookup_bt_conn(struct bt_conn *conn)
 
 int bt_rfcomm_server_register(struct bt_rfcomm_server *server)
 {
-	if (server->channel < RFCOMM_CHANNEL_START ||
-	    server->channel > RFCOMM_CHANNEL_END || !server->accept) {
+	if (server->channel > RFCOMM_CHANNEL_END || !server->accept) {
 		return -EINVAL;
 	}
 
-	/* Check if given channel is already in use */
-	if (rfcomm_server_lookup_channel(server->channel)) {
-		LOG_DBG("Channel already registered");
-		return -EADDRINUSE;
+	if (!server->channel) {
+		uint8_t chan = (uint8_t)BT_RFCOMM_CHAN_DYNAMIC_START;
+
+		for (; chan <= RFCOMM_CHANNEL_END; chan++) {
+			/* Check if given channel is already in use */
+			if (!rfcomm_server_lookup_channel(chan)) {
+				server->channel = chan;
+				LOG_DBG("Allocated channel 0x%02x for new server", chan);
+				break;
+			}
+		}
+
+		if (!server->channel) {
+			LOG_WRN("No free dynamic rfcomm channels available");
+			return -EADDRNOTAVAIL;
+		}
+	} else {
+		/* Check if given channel is already in use */
+		if (rfcomm_server_lookup_channel(server->channel)) {
+			LOG_WRN("Channel already registered");
+			return -EADDRINUSE;
+		}
 	}
 
 	LOG_DBG("Channel 0x%02x", server->channel);
@@ -479,7 +495,7 @@ static struct bt_rfcomm_dlc *rfcomm_dlc_accept(struct bt_rfcomm_session *session
 		return NULL;
 	}
 
-	if (server->accept(session->br_chan.chan.conn, &dlc) < 0) {
+	if (server->accept(session->br_chan.chan.conn, server, &dlc) < 0) {
 		LOG_DBG("Incoming connection rejected");
 		return NULL;
 	}

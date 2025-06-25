@@ -13,7 +13,7 @@ if NET_IPV4
 
 config NET_IF_MAX_IPV4_COUNT
 	int "Max number of IPv4 network interfaces in the system"
-	default NET_VLAN_COUNT if NET_VLAN
+	default NET_VLAN_COUNT if NET_VLAN && NET_VLAN_COUNT > 0
 	default 2 if NET_LOOPBACK
 	default 1
 	help
@@ -30,6 +30,15 @@ config NET_IF_MCAST_IPV4_ADDR_COUNT
 	int "Max number of multicast IPv4 addresses per network interface"
 	default 2 if NET_IPV4_IGMP
 	default 1
+
+config NET_IPV4_DEFAULT_NETMASK
+	int "The default netmask length for registered IPv4 addresses"
+	range 1 32
+	default 24
+	help
+	  The default netmask length for the registered IPv4 addresses.
+	  The application can set a custom netmask with
+	  net_if_ipv4_set_netmask_by_addr() API if needed.
 
 if NET_NATIVE_IPV4
 
@@ -150,6 +159,18 @@ config NET_IPV4_FRAGMENT_TIMEOUT
 	help
 	  How long to wait for IPv4 fragment to arrive before the reassembly
 	  will timeout. This value is in seconds.
+
+config NET_IPV4_PMTU
+	bool "IPv4 Path MTU Discovery"
+	help
+	  Enables IPv4 Path MTU Discovery (see RFC 1191)
+
+config NET_IPV4_PMTU_DESTINATION_CACHE_ENTRIES
+	int "Number of IPv4 PMTU destination cache entries"
+	default 3
+	depends on NET_IPV4_PMTU
+	help
+	  How many PMTU entries we can track for each destination address.
 
 module = NET_IPV4
 module-dep = NET_LOG

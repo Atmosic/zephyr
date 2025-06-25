@@ -26,7 +26,7 @@ static int iis3dhhc_sample_fetch(const struct device *dev,
 	struct iis3dhhc_data *data = dev->data;
 	int16_t raw_accel[3];
 
-	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL);
+	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ACCEL_XYZ || chan == SENSOR_CHAN_ALL);
 
 	iis3dhhc_acceleration_raw_get(data->ctx, raw_accel);
 	data->acc[0] = raw_accel[0];
@@ -141,7 +141,7 @@ static int iis3dhhc_attr_set(const struct device *dev,
 	return 0;
 }
 
-static const struct sensor_driver_api iis3dhhc_api_funcs = {
+static DEVICE_API(sensor, iis3dhhc_api_funcs) = {
 	.attr_set = iis3dhhc_attr_set,
 	.sample_fetch = iis3dhhc_sample_fetch,
 	.channel_get = iis3dhhc_channel_get,

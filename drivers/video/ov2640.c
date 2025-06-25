@@ -490,7 +490,7 @@ static int ov2640_write_reg(const struct i2c_dt_spec *spec, uint8_t reg_addr,
 	 * just to be sure that the connection error is not caused by driver
 	 * itself.
 	 */
-	while (tries--) {
+	while (tries-- > 0) {
 		if (!i2c_reg_write_byte_dt(spec, reg_addr, value)) {
 			return 0;
 		}
@@ -513,7 +513,7 @@ static int ov2640_read_reg(const struct i2c_dt_spec *spec, uint8_t reg_addr)
 	 * just to be sure that the connection error is not caused by driver
 	 * itself.
 	 */
-	while (tries--) {
+	while (tries-- > 0) {
 		if (!i2c_reg_read_byte_dt(spec, reg_addr, &value)) {
 			return value;
 		}
@@ -910,12 +910,7 @@ static int ov2640_get_fmt(const struct device *dev,
 	return 0;
 }
 
-static int ov2640_stream_start(const struct device *dev)
-{
-	return 0;
-}
-
-static int ov2640_stream_stop(const struct device *dev)
+static int ov2640_set_stream(const struct device *dev, bool enable)
 {
 	return 0;
 }
@@ -940,28 +935,28 @@ static int ov2640_set_ctrl(const struct device *dev,
 	case VIDEO_CID_VFLIP:
 		ret |= ov2640_set_vertical_flip(dev, (int)value);
 		break;
-	case VIDEO_CID_CAMERA_EXPOSURE:
+	case VIDEO_CID_EXPOSURE:
 		ret |= ov2640_set_exposure_ctrl(dev, (int)value);
 		break;
-	case VIDEO_CID_CAMERA_GAIN:
+	case VIDEO_CID_GAIN:
 		ret |= ov2640_set_gain_ctrl(dev, (int)value);
 		break;
-	case VIDEO_CID_CAMERA_BRIGHTNESS:
+	case VIDEO_CID_BRIGHTNESS:
 		ret |= ov2640_set_brightness(dev, (int)value);
 		break;
-	case VIDEO_CID_CAMERA_SATURATION:
+	case VIDEO_CID_SATURATION:
 		ret |= ov2640_set_saturation(dev, (int)value);
 		break;
-	case VIDEO_CID_CAMERA_WHITE_BAL:
+	case VIDEO_CID_WHITE_BALANCE_TEMPERATURE:
 		ret |= ov2640_set_white_bal(dev, (int)value);
 		break;
-	case VIDEO_CID_CAMERA_CONTRAST:
+	case VIDEO_CID_CONTRAST:
 		ret |= ov2640_set_contrast(dev, (int)value);
 		break;
-	case VIDEO_CID_CAMERA_TEST_PATTERN:
+	case VIDEO_CID_TEST_PATTERN:
 		ret |= ov2640_set_colorbar(dev, (int)value);
 		break;
-	case VIDEO_CID_CAMERA_QUALITY:
+	case VIDEO_CID_JPEG_COMPRESSION_QUALITY:
 		ret |= ov2640_set_quality(dev, (int)value);
 		break;
 	default:
@@ -971,12 +966,11 @@ static int ov2640_set_ctrl(const struct device *dev,
 	return ret;
 }
 
-static const struct video_driver_api ov2640_driver_api = {
+static DEVICE_API(video, ov2640_driver_api) = {
 	.set_format = ov2640_set_fmt,
 	.get_format = ov2640_get_fmt,
 	.get_caps = ov2640_get_caps,
-	.stream_start = ov2640_stream_start,
-	.stream_stop = ov2640_stream_stop,
+	.set_stream = ov2640_set_stream,
 	.set_ctrl = ov2640_set_ctrl,
 };
 

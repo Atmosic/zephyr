@@ -13,13 +13,13 @@ TEST_CASES = [
         "config": None,
         "bitstream": None,
         "fsbl": None,
-        "expected_cmd": ["xsdb", "default_cfg_path"],
+        "expected_cmd": ["xsdb", "default_cfg_path", RC_KERNEL_ELF],
     },
     {
         "config": "custom_cfg_path",
         "bitstream": None,
         "fsbl": None,
-        "expected_cmd": ["xsdb", "custom_cfg_path"],
+        "expected_cmd": ["xsdb", "custom_cfg_path", RC_KERNEL_ELF],
     },
     {
         "config": None,
@@ -41,6 +41,7 @@ TEST_CASES = [
     },
 ]
 
+
 @pytest.mark.parametrize("tc", TEST_CASES)
 @patch("runners.xsdb.os.path.exists", return_value=True)
 @patch("runners.xsdb.XSDBBinaryRunner.check_call")
@@ -58,6 +59,7 @@ def test_xsdbbinaryrunner_init(check_call, path_exists, tc, runner_config):
     runner.do_run("flash")
 
     assert check_call.call_args_list == [call(tc["expected_cmd"])]
+
 
 @pytest.mark.parametrize("tc", TEST_CASES)
 @patch("runners.xsdb.os.path.exists", return_value=True)
