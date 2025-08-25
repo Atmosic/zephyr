@@ -91,6 +91,9 @@ static const struct espi_npcx_vw_ex espi_npcx_vw_ex_0[] = {
 #define NPCX_ESPI_MAXFREQ_50         3
 #define NPCX_ESPI_MAXFREQ_66         4
 
+/* SLP_S3/SLP_S4/SLP_S5 Virtual Wire belong to Virtual Wire Index 2 */
+#define ESPI_VW_SLP_SX_INDEX         0x02
+
 /* Minimum delay before acknowledging a virtual wire */
 #define NPCX_ESPI_VWIRE_ACK_DELAY    10ul /* 10 us */
 
@@ -498,6 +501,14 @@ static void espi_vw_config_input(const struct device *dev,
 	struct espi_reg *const inst = HAL_INSTANCE(dev);
 	int idx = config_in->reg_idx;
 
+	if (IS_ENABLED(CONFIG_ESPI_NPCX_RESET_SLP_SX_VW_ON_ESPI_RST)) {
+		uint8_t vwire_index = GET_FIELD(inst->VWEVMS[idx], NPCX_VWEVMS_INDEX);
+
+		if (vwire_index == ESPI_VW_SLP_SX_INDEX) {
+			inst->VWEVMS[idx] |= BIT(NPCX_VWEVMS_ENESPIRST);
+		}
+	}
+
 	/* IE & WE bits are already set? */
 	if (IS_BIT_SET(inst->VWEVMS[idx], NPCX_VWEVMS_IE) &&
 	    IS_BIT_SET(inst->VWEVMS[idx], NPCX_VWEVMS_WE)) {
@@ -872,8 +883,11 @@ static int espi_npcx_receive_vwire(const struct device *dev,
 
 			val = GET_FIELD(inst->VWEVMS[reg_idx],
 							NPCX_VWEVMS_WIRE);
-			val &= GET_FIELD(inst->VWEVMS[reg_idx],
+
+			if (IS_ENABLED(CONFIG_ESPI_VWIRE_VALID_BIT_CHECK)) {
+				val &= GET_FIELD(inst->VWEVMS[reg_idx],
 							NPCX_VWEVMS_VALID);
+			}
 
 			*level = !!(val & bitmask);
 			return 0;
@@ -888,8 +902,12 @@ static int espi_npcx_receive_vwire(const struct device *dev,
 
 			val = GET_FIELD(inst->VWEVSM[reg_idx],
 							NPCX_VWEVSM_WIRE);
-			val &= GET_FIELD(inst->VWEVSM[reg_idx],
+
+			if (IS_ENABLED(CONFIG_ESPI_VWIRE_VALID_BIT_CHECK)) {
+				val &= GET_FIELD(inst->VWEVSM[reg_idx],
 							NPCX_VWEVSM_VALID);
+			}
+
 			*level = !!(val & bitmask);
 			return 0;
 		}
@@ -1340,7 +1358,7 @@ void npcx_espi_disable_interrupts(const struct device *dev)
 /* eSPI driver registration */
 static int espi_npcx_init(const struct device *dev);
 
-static const struct espi_driver_api espi_npcx_driver_api = {
+static DEVICE_API(espi, espi_npcx_driver_api) = {
 	.config = espi_npcx_configure,
 	.get_channel_status = espi_npcx_channel_ready,
 	.send_vwire = espi_npcx_send_vwire,

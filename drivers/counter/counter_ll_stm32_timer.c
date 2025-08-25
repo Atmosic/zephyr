@@ -383,7 +383,10 @@ static int counter_stm32_get_tim_clk(const struct stm32_pclken *pclken, uint32_t
 		return r;
 	}
 
-#if defined(CONFIG_SOC_SERIES_STM32H7X)
+#if defined(CONFIG_SOC_SERIES_STM32WB0X)
+	/* Timers are clocked by SYSCLK on STM32WB0 */
+	apb_psc = 1;
+#elif defined(CONFIG_SOC_SERIES_STM32H7X)
 	if (pclken->bus == STM32_CLOCK_BUS_APB1) {
 		apb_psc = STM32_D2PPRE1;
 	} else {
@@ -570,7 +573,7 @@ static void counter_stm32_alarm_irq_handle(const struct device *dev, uint32_t id
 	}
 }
 
-static const struct counter_driver_api counter_stm32_driver_api = {
+static DEVICE_API(counter, counter_stm32_driver_api) = {
 	.start = counter_stm32_start,
 	.stop = counter_stm32_stop,
 	.get_value = counter_stm32_get_value,

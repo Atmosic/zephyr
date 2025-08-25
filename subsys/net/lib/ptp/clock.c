@@ -262,7 +262,7 @@ const struct ptp_clock *ptp_clock_init(void)
 	dds->n_ports = 0;
 	dds->time_receiver_only = IS_ENABLED(CONFIG_PTP_TIME_RECEIVER_ONLY) ? true : false;
 
-	dds->clk_quality.class = dds->time_receiver_only ? 255 : 248;
+	dds->clk_quality.cls = dds->time_receiver_only ? 255 : 248;
 	dds->clk_quality.accuracy = CONFIG_PTP_CLOCK_ACCURACY;
 	/* 0xFFFF means that value has not been computed - IEEE 1588-2019 7.6.3.3 */
 	dds->clk_quality.offset_scaled_log_variance = 0xFFFF;
@@ -509,7 +509,7 @@ int ptp_clock_management_msg_process(struct ptp_port *port, struct ptp_msg *msg)
 void ptp_clock_synchronize(uint64_t ingress, uint64_t egress)
 {
 	int64_t offset;
-	uint64_t delay = ptp_clk.current_ds.mean_delay >> 16;
+	int64_t delay = ptp_clk.current_ds.mean_delay >> 16;
 
 	ptp_clk.timestamp.t1 = egress;
 	ptp_clk.timestamp.t2 = ingress;
@@ -518,7 +518,7 @@ void ptp_clock_synchronize(uint64_t ingress, uint64_t egress)
 		return;
 	}
 
-	offset = ptp_clk.timestamp.t2 - ptp_clk.timestamp.t1 - delay;
+	offset = (int64_t)(ptp_clk.timestamp.t2 - ptp_clk.timestamp.t1) - delay;
 
 	/* If diff is too big, ptp_clk needs to be set first. */
 	if ((offset > (int64_t)NSEC_PER_SEC) || (offset < -(int64_t)NSEC_PER_SEC)) {
@@ -529,8 +529,8 @@ void ptp_clock_synchronize(uint64_t ingress, uint64_t egress)
 
 		ptp_clock_get(ptp_clk.phc, &current);
 
-		current.second -= (uint64_t)(offset / NSEC_PER_SEC);
-		dest_nsec = (int32_t)(current.nanosecond - (uint32_t)(offset % NSEC_PER_SEC));
+		current.second = (uint64_t)(current.second - (offset / NSEC_PER_SEC));
+		dest_nsec = (int32_t)(current.nanosecond - (offset % NSEC_PER_SEC));
 
 		if (dest_nsec < 0) {
 			current.second--;
@@ -559,8 +559,9 @@ void ptp_clock_delay(uint64_t egress, uint64_t ingress)
 	ptp_clk.timestamp.t3 = egress;
 	ptp_clk.timestamp.t4 = ingress;
 
-	delay = ((ptp_clk.timestamp.t2 - ptp_clk.timestamp.t3) +
-		 (ptp_clk.timestamp.t4 - ptp_clk.timestamp.t1)) / 2;
+	delay = ((int64_t)(ptp_clk.timestamp.t2 - ptp_clk.timestamp.t3) +
+		 (int64_t)(ptp_clk.timestamp.t4 - ptp_clk.timestamp.t1)) /
+		2LL;
 
 	LOG_DBG("Delay %lldns", delay);
 	ptp_clk.current_ds.mean_delay = clock_ns_to_timeinterval(delay);

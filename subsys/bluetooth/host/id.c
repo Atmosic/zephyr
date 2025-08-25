@@ -1,13 +1,15 @@
 /*
- * Copyright (c) 2017-2024 Nordic Semiconductor ASA
+ * Copyright (c) 2017-2025 Nordic Semiconductor ASA
  * Copyright (c) 2015-2016 Intel Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/settings/settings.h>
 #include <zephyr/sys/byteorder.h>
@@ -17,7 +19,6 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci_vs.h>
 #include <zephyr/bluetooth/buf.h>
-#include <zephyr/drivers/bluetooth/hci_driver.h>
 #include <zephyr/sys/__assert.h>
 
 #include "hci_core.h"
@@ -266,7 +267,7 @@ static void adv_rpa_clear_data(struct bt_le_ext_adv *adv, void *data)
 		atomic_clear_bit(adv->flags, BT_ADV_RPA_VALID);
 		bt_addr_copy(&bt_dev.rpa[adv->id], BT_ADDR_NONE);
 	} else {
-		LOG_WRN("Adv sets rpa expired cb with id %d returns false\n", adv->id);
+		LOG_WRN("Adv sets rpa expired cb with id %d returns false", adv->id);
 	}
 }
 #endif
@@ -285,6 +286,9 @@ static void le_rpa_invalidate(void)
 			return;
 		}
 		bool rpa_expired_data[bt_dev.id_count];
+		for (uint8_t i = 0; i < bt_dev.id_count; i++) {
+			rpa_expired_data[i] = true;
+		}
 
 		bt_le_ext_adv_foreach(adv_rpa_invalidate, &rpa_expired_data);
 #if defined(CONFIG_BT_RPA_SHARING)
@@ -974,6 +978,11 @@ void find_rl_conflict(struct bt_keys *resident, void *user_data)
 			bt_irk_eq(&conflict->candidate->irk, &resident->irk));
 
 	if (addr_conflict || irk_conflict) {
+		LOG_DBG("Resident : addr %s and IRK %s", bt_addr_le_str(&resident->addr),
+			bt_hex(resident->irk.val, sizeof(resident->irk.val)));
+		LOG_DBG("Candidate: addr %s and IRK %s", bt_addr_le_str(&conflict->candidate->addr),
+			bt_hex(conflict->candidate->irk.val, sizeof(conflict->candidate->irk.val)));
+
 		conflict->found = resident;
 	}
 }
@@ -2129,7 +2138,12 @@ int bt_le_ext_adv_oob_get_local(struct bt_le_ext_adv *adv,
 #if !defined(CONFIG_BT_SMP_SC_PAIR_ONLY)
 int bt_le_oob_set_legacy_tk(struct bt_conn *conn, const uint8_t *tk)
 {
-	CHECKIF(conn == NULL || tk == NULL) {
+	if (!bt_conn_is_type(conn, BT_CONN_TYPE_LE)) {
+		LOG_DBG("Invalid connection type: %u for %p", conn->type, conn);
+		return -EINVAL;
+	}
+
+	CHECKIF(tk == NULL) {
 		return -EINVAL;
 	}
 
@@ -2142,7 +2156,8 @@ int bt_le_oob_set_sc_data(struct bt_conn *conn,
 			  const struct bt_le_oob_sc_data *oobd_local,
 			  const struct bt_le_oob_sc_data *oobd_remote)
 {
-	CHECKIF(conn == NULL) {
+	if (!bt_conn_is_type(conn, BT_CONN_TYPE_LE)) {
+		LOG_DBG("Invalid connection type: %u for %p", conn->type, conn);
 		return -EINVAL;
 	}
 
@@ -2157,7 +2172,9 @@ int bt_le_oob_get_sc_data(struct bt_conn *conn,
 			  const struct bt_le_oob_sc_data **oobd_local,
 			  const struct bt_le_oob_sc_data **oobd_remote)
 {
-	CHECKIF(conn == NULL) {
+	if (!bt_conn_is_type(conn, BT_CONN_TYPE_LE)) {
+		LOG_ERR("Invalid connection: %p", conn);
+		LOG_ERR("Invalid connection type: %u for %p", conn->handle, conn);
 		return -EINVAL;
 	}
 

@@ -417,8 +417,6 @@ void ull_sync_iso_setup(struct ll_sync_iso_set *sync_iso,
 	struct pdu_big_info *bi;
 	uint32_t ready_delay_us;
 	uint32_t ticks_expire;
-	uint32_t ctrl_spacing;
-	uint32_t pdu_spacing;
 	uint32_t interval_us;
 	uint32_t ticks_diff;
 	struct pdu_adv *pdu;
@@ -485,13 +483,27 @@ void ull_sync_iso_setup(struct ll_sync_iso_set *sync_iso,
 	lll->sub_interval = PDU_BIG_INFO_SUB_INTERVAL_GET(bi);
 	lll->max_pdu = bi->max_pdu;
 	lll->pto = PDU_BIG_INFO_PTO_GET(bi);
+	lll->bis_spacing = PDU_BIG_INFO_SPACING_GET(bi);
+	lll->irc = PDU_BIG_INFO_IRC_GET(bi);
 	if (lll->pto) {
-		lll->ptc = lll->bn;
+		uint8_t nse;
+
+		nse = lll->irc * lll->bn; /* 4 bits * 3 bits, total 7 bits */
+		if (nse >= lll->nse) {
+			return;
+		}
+
+		lll->ptc = lll->nse - nse;
+
+		/* FIXME: Do not remember why ptc is 4 bits, it should be 5 bits as ptc is a
+		 *        running buffer offset related to nse.
+		 *        Fix ptc and ptc_curr definitions, until then we keep an assertion check
+		 *        here.
+		 */
+		LL_ASSERT(lll->ptc <= BIT_MASK(4));
 	} else {
 		lll->ptc = 0U;
 	}
-	lll->bis_spacing = PDU_BIG_INFO_SPACING_GET(bi);
-	lll->irc = PDU_BIG_INFO_IRC_GET(bi);
 	lll->sdu_interval = PDU_BIG_INFO_SDU_INTERVAL_GET(bi);
 
 	/* Pick the 39-bit payload count, 1 MSb is framing bit */
@@ -581,11 +593,6 @@ void ull_sync_iso_setup(struct ll_sync_iso_set *sync_iso,
 	interval_us -= lll->window_widening_periodic_us;
 
 	/* Calculate ISO Receiver BIG event timings */
-	pdu_spacing = PDU_BIS_US(lll->max_pdu, lll->enc, lll->phy,
-				 PHY_FLAGS_S8) +
-		      EVENT_MSS_US;
-	ctrl_spacing = PDU_BIS_US(sizeof(struct pdu_big_ctrl), lll->enc,
-				  lll->phy, PHY_FLAGS_S8);
 
 	/* Number of maximum BISes to sync from the first BIS to sync */
 	/* NOTE: When ULL scheduling is implemented for subevents, then update
@@ -605,26 +612,39 @@ void ull_sync_iso_setup(struct ll_sync_iso_set *sync_iso,
 	 */
 
 	if (IS_ENABLED(CONFIG_BT_CTLR_SYNC_ISO_RESERVE_MAX)) {
-		/* Maximum time reservation for both sequential and interleaved
+		uint32_t ctrl_spacing_us;
+
+		/* Maximum time reservation for sequential and interleaved
 		 * packing.
 		 */
-		slot_us = (pdu_spacing * lll->nse * num_bis) + ctrl_spacing;
+		if (lll->bis_spacing >= (lll->sub_interval * lll->nse)) {
+			slot_us = lll->sub_interval * lll->nse * num_bis;
+		} else {
+			slot_us = lll->bis_spacing * lll->nse * num_bis;
+		}
+
+		ctrl_spacing_us = PDU_BIS_US(sizeof(struct pdu_big_ctrl),
+					     lll->enc, lll->phy, PHY_FLAGS_S8);
+		slot_us += ctrl_spacing_us;
 
 	} else if (lll->bis_spacing >= (lll->sub_interval * lll->nse)) {
 		/* Time reservation omitting PTC subevents in sequential
 		 * packing.
 		 */
-		slot_us = pdu_spacing * ((lll->nse * num_bis) - lll->ptc);
+		slot_us = lll->sub_interval * ((lll->nse * num_bis) - lll->ptc);
 
 	} else {
 		/* Time reservation omitting PTC subevents in interleaved
 		 * packing.
 		 */
-		slot_us = pdu_spacing * ((lll->nse - lll->ptc) * num_bis);
+		slot_us = lll->bis_spacing * ((lll->nse - lll->ptc) * num_bis);
 	}
 
 	/* Add radio ready delay */
 	slot_us += ready_delay_us;
+	slot_us += lll->window_widening_periodic_us << 1U;
+	slot_us += EVENT_JITTER_US << 1U;
+	slot_us += EVENT_TICKER_RES_MARGIN_US << 2U;
 
 	/* Add implementation defined radio event overheads */
 	if (IS_ENABLED(CONFIG_BT_CTLR_EVENT_OVERHEAD_RESERVE_MAX)) {

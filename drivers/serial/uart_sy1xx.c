@@ -11,22 +11,24 @@
 #include <zephyr/sys/printk.h>
 #include <udma.h>
 #include <pad_ctrl.h>
+#include <zephyr/drivers/pinctrl.h>
 
 struct sy1xx_uart_config {
 	uint32_t base;
 	uint32_t inst;
+	const struct pinctrl_dev_config *pcfg;
 };
 
 typedef struct {
 	uint16_t data_len;
 	uint8_t *data;
-} uartTransfer_t;
+} sy1xx_uartTransfer_t;
 
 typedef enum {
 	DRIVERS_UART_STOP_1,
 	DRIVERS_UART_STOP_1_5,
 	DRIVERS_UART_STOP_2
-} uart_stop_t;
+} sy1xx_uart_stop_t;
 
 typedef enum {
 	DRIVERS_UART_PAR_NONE,
@@ -34,13 +36,13 @@ typedef enum {
 	DRIVERS_UART_PAR_ODD,
 	DRIVERS_UART_PAR_MARK,
 	DRIVERS_UART_PAR_SPACE
-} uart_parity_t;
+} sy1xx_uart_parity_t;
 
 typedef struct {
 	uint32_t baudrate;
-	uart_stop_t stopbits;
-	uart_parity_t parity;
-} uartConfig_t;
+	sy1xx_uart_stop_t stopbits;
+	sy1xx_uart_parity_t parity;
+} sy1xx_uartConfig_t;
 
 #define DEVICE_MAX_BUFFER_SIZE (512)
 
@@ -50,10 +52,10 @@ struct sy1xx_uart_data {
 };
 
 /* prototypes */
-static int32_t drivers_uart_read(const struct device *dev, uartTransfer_t *request);
-static int32_t drivers_uart_write(const struct device *dev, uartTransfer_t *request);
+static int32_t sy1xx_uart_read(const struct device *dev, sy1xx_uartTransfer_t *request);
+static int32_t sy1xx_uart_write(const struct device *dev, sy1xx_uartTransfer_t *request);
 
-static int32_t drivers_uart_configure(const struct device *dev, uartConfig_t *uart_cfg)
+static int32_t sy1xx_uart_configure(const struct device *dev, sy1xx_uartConfig_t *uart_cfg)
 {
 	struct sy1xx_uart_config *config = (struct sy1xx_uart_config *)dev->config;
 
@@ -66,7 +68,7 @@ static int32_t drivers_uart_configure(const struct device *dev, uartConfig_t *ua
 	 * and then will restart from 0, so we must give div - 1 as
 	 * divider
 	 */
-	int32_t divider = soc_get_peripheral_clock() / uart_cfg->baudrate - 1;
+	uint32_t divider = sy1xx_soc_get_peripheral_clock() / uart_cfg->baudrate - 1;
 
 	/*
 	 * [31:16]: clock divider (from SoC clock)
@@ -85,17 +87,17 @@ static int32_t drivers_uart_configure(const struct device *dev, uartConfig_t *ua
 	volatile uint32_t setup = 0x0306 | uart_cfg->parity;
 
 	setup |= ((divider) << 16);
-	UDMA_WRITE_REG(config->base, UDMA_SETUP_REG, setup);
+	SY1XX_UDMA_WRITE_REG(config->base, SY1XX_UDMA_SETUP_REG, setup);
 
 	/* start initial reading request to get the dma running */
 	uint8_t dummy_data[10];
 
-	uartTransfer_t dummy_request = {
+	sy1xx_uartTransfer_t dummy_request = {
 		.data_len = 10,
 		.data = (uint8_t *)dummy_data,
 	};
 
-	drivers_uart_read(dev, &dummy_request);
+	sy1xx_uart_read(dev, &dummy_request);
 	return 0;
 }
 
@@ -105,7 +107,7 @@ static int32_t drivers_uart_configure(const struct device *dev, uartConfig_t *ua
  *  -   0: OK
  *  - > 0: Busy
  */
-int32_t drivers_uart_read(const struct device *dev, uartTransfer_t *request)
+int32_t sy1xx_uart_read(const struct device *dev, sy1xx_uartTransfer_t *request)
 {
 	struct sy1xx_uart_config *config = (struct sy1xx_uart_config *)dev->config;
 	struct sy1xx_uart_data *data = (struct sy1xx_uart_data *)dev->data;
@@ -125,7 +127,7 @@ int32_t drivers_uart_read(const struct device *dev, uartTransfer_t *request)
 	int32_t ret = 0;
 
 	/* rx is ready */
-	int32_t remaining_bytes = UDMA_READ_REG(config->base, UDMA_RX_SIZE_REG);
+	int32_t remaining_bytes = SY1XX_UDMA_READ_REG(config->base, SY1XX_UDMA_RX_SIZE_REG);
 	int32_t bytes_transferred = (DEVICE_MAX_BUFFER_SIZE - remaining_bytes);
 
 	if (bytes_transferred > 0) {
@@ -140,10 +142,10 @@ int32_t drivers_uart_read(const struct device *dev, uartTransfer_t *request)
 		request->data_len = bytes_transferred;
 
 		/* stop and restart receiving */
-		UDMA_CANCEL_RX(config->base);
+		SY1XX_UDMA_CANCEL_RX(config->base);
 
 		/* start another read request, with maximum buffer size */
-		UDMA_START_RX(config->base, (int32_t)data->read, DEVICE_MAX_BUFFER_SIZE, 0);
+		SY1XX_UDMA_START_RX(config->base, (int32_t)data->read, DEVICE_MAX_BUFFER_SIZE, 0);
 
 		/* return: some data received */
 		ret = 0;
@@ -162,7 +164,7 @@ int32_t drivers_uart_read(const struct device *dev, uartTransfer_t *request)
  *  -   0: OK
  *  - > 0: Busy
  */
-int32_t drivers_uart_write(const struct device *dev, uartTransfer_t *request)
+int32_t sy1xx_uart_write(const struct device *dev, sy1xx_uartTransfer_t *request)
 {
 	struct sy1xx_uart_config *config = (struct sy1xx_uart_config *)dev->config;
 	struct sy1xx_uart_data *data = (struct sy1xx_uart_data *)dev->data;
@@ -180,15 +182,15 @@ int32_t drivers_uart_write(const struct device *dev, uartTransfer_t *request)
 		return -2;
 	}
 
-	if (0 == UDMA_IS_FINISHED_TX(config->base)) {
+	if (0 == SY1XX_UDMA_IS_FINISHED_TX(config->base)) {
 		/* writing not finished => busy */
 		return 1;
 	}
 
-	uint32_t remaining_bytes = UDMA_GET_REMAINING_TX(config->base);
+	uint32_t remaining_bytes = SY1XX_UDMA_GET_REMAINING_TX(config->base);
 
 	if (remaining_bytes != 0) {
-		UDMA_CANCEL_TX(config->base);
+		SY1XX_UDMA_CANCEL_TX(config->base);
 		return -3;
 	}
 
@@ -198,7 +200,7 @@ int32_t drivers_uart_write(const struct device *dev, uartTransfer_t *request)
 	}
 
 	/* start new transmission */
-	UDMA_START_TX(config->base, (uint32_t)data->write, request->data_len, 0);
+	SY1XX_UDMA_START_TX(config->base, (uint32_t)data->write, request->data_len, 0);
 
 	/* success */
 	return 0;
@@ -207,14 +209,14 @@ int32_t drivers_uart_write(const struct device *dev, uartTransfer_t *request)
 /*
  * it should be avoided to read single characters only
  */
-static int sensry_uart_poll_in(const struct device *dev, unsigned char *c)
+static int sy1xx_uart_poll_in(const struct device *dev, unsigned char *c)
 {
-	uartTransfer_t request = {
+	sy1xx_uartTransfer_t request = {
 		.data_len = 1,
 		.data = c,
 	};
 
-	if (0 == drivers_uart_read(dev, &request)) {
+	if (0 == sy1xx_uart_read(dev, &request)) {
 		return 0;
 	}
 
@@ -224,21 +226,21 @@ static int sensry_uart_poll_in(const struct device *dev, unsigned char *c)
 /*
  * it should be avoided to write single characters only
  */
-static void sensry_uart_poll_out(const struct device *dev, unsigned char c)
+static void sy1xx_uart_poll_out(const struct device *dev, unsigned char c)
 {
-	uartTransfer_t request = {
+	sy1xx_uartTransfer_t request = {
 		.data_len = 1,
 		.data = &c,
 	};
 
 	while (1) {
-		if (0 == drivers_uart_write(dev, &request)) {
+		if (0 == sy1xx_uart_write(dev, &request)) {
 			break;
 		}
 	}
 }
 
-static int sensry_uart_err_check(const struct device *dev)
+static int sy1xx_uart_err_check(const struct device *dev)
 {
 	int err = 0;
 
@@ -256,55 +258,45 @@ static int sy1xx_uart_init(const struct device *dev)
 	}
 
 	/* UDMA clock enable */
-	drivers_udma_enable_clock(DRIVERS_UDMA_UART, config->inst);
+	sy1xx_udma_enable_clock(SY1XX_UDMA_MODULE_UART, config->inst);
 
 	/* PAD config */
-	uint32_t pad_config_tx =
-		PAD_CONFIG(0, PAD_SMT_DISABLE, PAD_SLEW_LOW, PAD_PULLUP_DIS, PAD_PULLDOWN_DIS,
-			   PAD_DRIVE_2PF, PAD_PMOD_NORMAL, PAD_DIR_OUTPUT);
+	int32_t ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 
-	uint32_t pad_config_rx =
-		PAD_CONFIG(8, PAD_SMT_DISABLE, PAD_SLEW_LOW, PAD_PULLUP_DIS, PAD_PULLDOWN_DIS,
-			   PAD_DRIVE_2PF, PAD_PMOD_NORMAL, PAD_DIR_INPUT);
+	if (ret < 0) {
+		return ret;
+	}
 
-	uint32_t pad_config_cts =
-		PAD_CONFIG(16, PAD_SMT_DISABLE, PAD_SLEW_LOW, PAD_PULLUP_EN, PAD_PULLDOWN_DIS,
-			   PAD_DRIVE_2PF, PAD_PMOD_NORMAL, PAD_DIR_INPUT);
-
-	uint32_t pad_config_rts =
-		PAD_CONFIG(24, PAD_SMT_DISABLE, PAD_SLEW_LOW, PAD_PULLUP_DIS, PAD_PULLDOWN_DIS,
-			   PAD_DRIVE_2PF, PAD_PMOD_NORMAL, PAD_DIR_OUTPUT);
-
-	sys_write32((pad_config_tx | pad_config_rx | pad_config_cts | pad_config_rts),
-		    PAD_CONFIG_ADDR_UART + (config->inst * 4 + 0));
-
-	uartConfig_t default_config = {
+	sy1xx_uartConfig_t default_config = {
 		.baudrate = 1000000,
 		.parity = DRIVERS_UART_PAR_NONE,
 		.stopbits = DRIVERS_UART_STOP_1,
 	};
 
-	UDMA_CANCEL_RX(config->base);
-	UDMA_CANCEL_TX(config->base);
+	SY1XX_UDMA_CANCEL_RX(config->base);
+	SY1XX_UDMA_CANCEL_TX(config->base);
 
-	drivers_uart_configure(dev, &default_config);
+	sy1xx_uart_configure(dev, &default_config);
 
 	return 0;
 }
 
-static const struct uart_driver_api sy1xx_uart_driver_api = {
+static DEVICE_API(uart, sy1xx_uart_driver_api) = {
 
-	.poll_in = sensry_uart_poll_in,
-	.poll_out = sensry_uart_poll_out,
-	.err_check = sensry_uart_err_check,
+	.poll_in = sy1xx_uart_poll_in,
+	.poll_out = sy1xx_uart_poll_out,
+	.err_check = sy1xx_uart_err_check,
 
 };
 
 #define SYS1XX_UART_INIT(n)                                                                        \
                                                                                                    \
+	PINCTRL_DT_INST_DEFINE(n);                                                                 \
+                                                                                                   \
 	static const struct sy1xx_uart_config sy1xx_uart_##n##_cfg = {                             \
 		.base = (uint32_t)DT_INST_REG_ADDR(n),                                             \
 		.inst = (uint32_t)DT_INST_PROP(n, instance),                                       \
+		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),                                         \
 	};                                                                                         \
                                                                                                    \
 	static struct sy1xx_uart_data __attribute__((section(".udma_access")))                     \

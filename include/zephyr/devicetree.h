@@ -13,8 +13,8 @@
  * API for accessing the current application's devicetree macros.
  */
 
-#ifndef DEVICETREE_H
-#define DEVICETREE_H
+#ifndef ZEPHYR_INCLUDE_DEVICETREE_H_
+#define ZEPHYR_INCLUDE_DEVICETREE_H_
 
 #include <zephyr/devicetree_generated.h>
 #include <zephyr/irq_multilevel.h>
@@ -234,6 +234,23 @@
  * @return node identifier for the node with that alias
  */
 #define DT_ALIAS(alias) DT_CAT(DT_N_ALIAS_, alias)
+
+/**
+ * @brief Test if the devicetree has a given alias
+ * @param alias_name lowercase-and-underscores devicetree alias name
+ * @return 1 if the alias exists and refers to a node, 0 otherwise
+ */
+#define DT_HAS_ALIAS(alias_name) DT_NODE_EXISTS(DT_ALIAS(alias_name))
+
+/**
+ * @brief Get the hash associated with a DT node
+ *
+ * Get the hash for the specified node_id. The hash is calculated on the
+ * full devicetree path of the node.
+ * @param node_id node identifier
+ * @return hash value as a preprocessor token
+ */
+#define DT_NODE_HASH(node_id) DT_CAT(node_id, _HASH)
 
 /**
  * @brief Get a node identifier for an instance of a compatible
@@ -890,6 +907,17 @@
  */
 #define DT_PROP_BY_IDX(node_id, prop, idx) \
 	DT_CAT5(node_id, _P_, prop, _IDX_, idx)
+
+/**
+ * @brief Get the last element of an array type property
+ *
+ * @param node_id node identifier
+ * @param prop lowercase-and-underscores property name
+ *
+ * @return a representation of the last element of the property
+ */
+#define DT_PROP_LAST(node_id, prop) \
+	DT_PROP_BY_IDX(node_id, prop, UTIL_DEC(DT_PROP_LEN(node_id, prop)))
 
 /**
  * @brief Like DT_PROP(), but with a fallback to @p default_value
@@ -2901,6 +2929,36 @@
  * @defgroup devicetree-generic-foreach "For-each" macros
  * @ingroup devicetree
  * @{
+ *
+ * IMPORTANT: you can't use the DT for-each macros in their own expansions.
+ *
+ * For example, something like this won't work the way you might expect:
+ *
+ * @code{.c}
+ * #define FOO(node_id) [...] DT_FOREACH_NODE(...) [...]
+ * DT_FOREACH_NODE(FOO)
+ * @endcode
+ *
+ * In this example, the C preprocessor won't expand the
+ * DT_FOREACH_NODE() macro inside of FOO() while it's already
+ * expanding DT_FOREACH_NODE() at the top level of the file.
+ *
+ * This is true of any macro, not just DT_FOREACH_NODE(). The C
+ * language works this way to avoid infinite recursions inside of
+ * macro expansions.
+ *
+ * If you need to "nest" calls to one of these macros, you can work
+ * around this preprocessor limitation by using a different, related
+ * macro instead, like this:
+ *
+ * @code{.c}
+ * #define BAR(node_id) [...] DT_FOREACH_NODE_VARGS(...) [...]
+ * DT_FOREACH_NODE(BAR)
+ * @endcode
+ *
+ * Here, we use DT_FOREACH_NODE_VARGS() "inside" BAR() "inside"
+ * DT_FOREACH_NODE(). Because of this, the preprocessor will expand
+ * both DT_FOREACH_NODE_VARGS() and DT_FOREACH_NODE() as expected.
  */
 
 /**
@@ -2956,6 +3014,55 @@
  * @param ... variable number of arguments to pass to @p fn
  */
 #define DT_FOREACH_STATUS_OKAY_NODE_VARGS(fn, ...) DT_FOREACH_OKAY_VARGS_HELPER(fn, __VA_ARGS__)
+
+/**
+ * @brief Invokes @p fn for each ancestor of @p node_id
+ *
+ * The macro @p fn must take one parameter, which will be the identifier
+ * of a child node of @p node_id to enable traversal of all ancestor nodes.
+ *
+ * The ancestor will be iterated over in the same order as they
+ * appear in the final devicetree.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     n: node1 {
+ *             foobar = "foo1";
+ *
+ *             n_2: node2 {
+ *                        foobar = "foo2";
+ *
+ *                        n_3: node3 {
+ *                                   foobar = "foo3";
+ *                        };
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     #define GET_PROP(n) DT_PROP(n, foobar),
+ *
+ *     const char *ancestor_names[] = {
+ *         DT_FOREACH_ANCESTOR(DT_NODELABEL(n_3), GET_PROP)
+ *     };
+ * @endcode
+ *
+ * This expands to:
+ *
+ * @code{.c}
+ *     const char *ancestor_names[] = {
+ *         "foo2", "foo1",
+ *     };
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @param fn macro to invoke
+ */
+#define DT_FOREACH_ANCESTOR(node_id, fn) \
+	DT_CAT(node_id, _FOREACH_ANCESTOR)(fn)
 
 /**
  * @brief Invokes @p fn for each child of @p node_id
@@ -4598,7 +4705,7 @@
 #define DT_INST_STRING_UNQUOTED_OR(inst, name, default_value) \
 	DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), name, default_value)
 
-/*
+/**
  * @brief Test if any enabled node with the given compatible is on
  *        the given bus type
  *
@@ -4759,6 +4866,56 @@
  */
 #define DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(compat, prop) \
 	(DT_COMPAT_FOREACH_STATUS_OKAY_VARGS(compat, DT_COMPAT_NODE_HAS_PROP_AND_OR, prop) 0)
+
+/**
+ * @brief Check if any `DT_DRV_COMPAT` node with status `okay` has a given
+ *        boolean property that exists.
+ *
+ * This differs from @ref DT_ANY_INST_HAS_PROP_STATUS_OKAY because even when not present
+ * on a node, the boolean property is generated with a value of 0 and therefore exists.
+ *
+ * @param prop lowercase-and-underscores property name
+ *
+ * Example devicetree overlay:
+ *
+ * @code{.dts}
+ *     &i2c0 {
+ *         sensor0: sensor@0 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <0>;
+ *             foo;
+ *             bar;
+ *         };
+ *
+ *         sensor1: sensor@1 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <1>;
+ *             foo;
+ *         };
+ *
+ *         sensor2: sensor@2 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "disabled";
+ *             reg = <2>;
+ *             baz;
+ *         };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     #define DT_DRV_COMPAT vnd_some_sensor
+ *
+ *     DT_ANY_INST_HAS_BOOL_STATUS_OKAY(foo) // 1
+ *     DT_ANY_INST_HAS_BOOL_STATUS_OKAY(bar) // 1
+ *     DT_ANY_INST_HAS_BOOL_STATUS_OKAY(baz) // 0
+ * @endcode
+ */
+#define DT_ANY_INST_HAS_BOOL_STATUS_OKAY(prop) \
+	COND_CODE_1(IS_EMPTY(DT_ANY_INST_HAS_BOOL_STATUS_OKAY_(prop)), (0), (1))
 
 /**
  * @brief Call @p fn on all nodes with compatible `DT_DRV_COMPAT`
@@ -5057,6 +5214,35 @@
 #define DT_ANY_INST_HAS_PROP_STATUS_OKAY_(prop)	\
 	DT_INST_FOREACH_STATUS_OKAY_VARGS(DT_ANY_INST_HAS_PROP_STATUS_OKAY__, prop)
 
+/** @brief Helper for DT_ANY_INST_HAS_BOOL_STATUS_OKAY_
+ *
+ * This macro generates token "1," for instance of a device,
+ * identified by index @p idx, if instance has boolean property
+ * @p prop with value 1.
+ *
+ * @param idx instance number
+ * @param prop property to check for
+ *
+ * @return Macro evaluates to `1,` if instance property value is 1,
+ * otherwise it evaluates to literal nothing.
+ */
+#define DT_ANY_INST_HAS_BOOL_STATUS_OKAY__(idx, prop)	\
+	COND_CODE_1(DT_INST_PROP(idx, prop), (1,), ())
+/** @brief Helper for DT_ANY_INST_HAS_BOOL_STATUS_OKAY
+ *
+ * This macro uses DT_ANY_INST_HAS_BOOL_STATUS_OKAY_ with
+ * DT_INST_FOREACH_STATUS_OKAY_VARG to generate comma separated list of 1,
+ * where each 1 on the list represents instance that has a property
+ * @p prop of value 1; the list may be empty, and the upper bound on number of
+ * list elements is number of device instances.
+ *
+ * @param prop property to check
+ *
+ * @return Evaluates to list of 1s (e.g: 1,1,1,) or nothing.
+ */
+#define DT_ANY_INST_HAS_BOOL_STATUS_OKAY_(prop)	\
+	DT_INST_FOREACH_STATUS_OKAY_VARGS(DT_ANY_INST_HAS_BOOL_STATUS_OKAY__, prop)
+
 #define DT_PATH_INTERNAL(...) \
 	UTIL_CAT(DT_ROOT, MACRO_MAP_CAT(DT_S_PREFIX, __VA_ARGS__))
 /** @brief DT_PATH_INTERNAL() helper: prepends _S_ to a node name
@@ -5156,5 +5342,6 @@
 #include <zephyr/devicetree/can.h>
 #include <zephyr/devicetree/reset.h>
 #include <zephyr/devicetree/mbox.h>
+#include <zephyr/devicetree/port-endpoint.h>
 
-#endif /* DEVICETREE_H */
+#endif /* ZEPHYR_INCLUDE_DEVICETREE_H_ */

@@ -77,7 +77,8 @@ static void flash_driver_before(void *arg)
 		TC_PRINT("No devices with erase requirement present\n");
 		erase_value = 0x55;
 		page_info.start_offset = TEST_AREA_OFFSET;
-		page_info.size = TEST_AREA_MAX - TEST_AREA_OFFSET;
+		/* test_flash_copy uses 2 pages, so split the test area */
+		page_info.size = (TEST_AREA_MAX - TEST_AREA_OFFSET) / 2;
 	}
 
 
@@ -100,6 +101,10 @@ static void flash_driver_before(void *arg)
 	/* Check if tested region fits in flash */
 	zassert_true((TEST_AREA_OFFSET + EXPECTED_SIZE) <= TEST_AREA_MAX,
 		     "Test area exceeds flash size");
+
+	/* Check if test region is suitable for test_flash_copy */
+	zassert_true((TEST_AREA_OFFSET + 2 * page_info.size) <= TEST_AREA_MAX,
+		     "test_flash_copy needs 2 flash pages");
 
 	/* Check if flash is cleared */
 	if (IS_ENABLED(CONFIG_FLASH_HAS_EXPLICIT_ERASE) && ebw_required) {
@@ -325,6 +330,20 @@ static bool flash_callback(const struct flash_pages_info *info, void *data)
 	return true;
 }
 
+ZTEST(flash_driver, test_get_size)
+{
+#if CONFIG_TEST_DRIVER_FLASH_SIZE != -1
+	uint64_t size;
+
+	zassert_ok(flash_get_size(flash_dev, &size));
+	zassert_equal(size, (uint64_t)CONFIG_TEST_DRIVER_FLASH_SIZE, "Expected %llu, got %llu\n",
+		      (uint64_t)CONFIG_TEST_DRIVER_FLASH_SIZE, size);
+#else
+	/* The test is sipped only because there is no uniform way to get device size */
+	ztest_test_skip();
+#endif
+}
+
 ZTEST(flash_driver, test_flash_page_layout)
 {
 	int rc;
@@ -397,8 +416,10 @@ static void test_flash_copy_inner(const struct device *src_dev, off_t src_offset
 
 	if ((expected_result == 0) && (size != 0) && (src_offset != dst_offset)) {
 		/* verify a successful copy */
-		zassert_ok(flash_read(flash_dev, TEST_AREA_OFFSET, expected, EXPECTED_SIZE));
-		for (int i = 0; i < EXPECTED_SIZE; i++) {
+		off_t copy_size = MIN(size, EXPECTED_SIZE);
+
+		zassert_ok(flash_read(flash_dev, TEST_AREA_OFFSET, expected, copy_size));
+		for (int i = 0; i < copy_size; i++) {
 			zassert_equal(buf[i], 0xaa, "incorrect data (%02x) at %d", buf[i], i);
 		}
 	}

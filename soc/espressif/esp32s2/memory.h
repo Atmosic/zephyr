@@ -7,8 +7,8 @@
 /* SRAM0 (32k) with adjacted SRAM1 (288k)
  * Ibus and Dbus address space
  */
-#define SRAM_IRAM_START  0x40020000
-#define SRAM_DRAM_START  0x3ffb0000
+#define SRAM_IRAM_START  (SRAM_DRAM_START + IRAM_DRAM_OFFSET)
+#define SRAM_DRAM_START  DT_REG_ADDR(DT_NODELABEL(sram0))
 #define SRAM_CACHE_SIZE  (CONFIG_ESP32S2_INSTRUCTION_CACHE_SIZE + CONFIG_ESP32S2_DATA_CACHE_SIZE)
 
 /** Simplified memory map for the bootloader.
@@ -53,16 +53,19 @@
 #define BOOTLOADER_DRAM_SEG_START \
 	(BOOTLOADER_IRAM_SEG_START - BOOTLOADER_DRAM_SEG_LEN - IRAM_DRAM_OFFSET)
 
+/* Cached memories */
+#define ICACHE0_START DT_REG_ADDR(DT_NODELABEL(icache0))
+#define ICACHE0_SIZE  DT_REG_SIZE(DT_NODELABEL(icache0))
+#define DCACHE0_START DT_REG_ADDR(DT_NODELABEL(dcache0))
+#define DCACHE0_SIZE  DT_REG_SIZE(DT_NODELABEL(dcache0))
+#define DCACHE1_START DT_REG_ADDR(DT_NODELABEL(dcache1))
+#define DCACHE1_SIZE  DT_REG_SIZE(DT_NODELABEL(dcache1))
+
+#define CACHE_ALIGN       CONFIG_MMU_PAGE_SIZE
+
 /* Flash */
 #ifdef CONFIG_FLASH_SIZE
 #define FLASH_SIZE        CONFIG_FLASH_SIZE
 #else
 #define FLASH_SIZE        0x400000
 #endif
-
-/* Cached memories */
-#define CACHE_ALIGN       CONFIG_MMU_PAGE_SIZE
-#define IROM_SEG_ORG      0x40080000
-#define IROM_SEG_LEN      0x780000
-#define DROM_SEG_ORG      0x3f000000
-#define DROM_SEG_LEN      FLASH_SIZE

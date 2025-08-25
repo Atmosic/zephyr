@@ -23,12 +23,39 @@ static sys_slist_t _llext_list = SYS_SLIST_STATIC_INIT(&_llext_list);
 
 static struct k_mutex llext_lock = Z_MUTEX_INITIALIZER(llext_lock);
 
+int llext_section_shndx(const struct llext_loader *ldr, const struct llext *ext,
+			const char *sect_name)
+{
+	unsigned int i;
+
+	for (i = 1; i < ext->sect_cnt; i++) {
+		const char *name = llext_string(ldr, ext, LLEXT_MEM_SHSTRTAB,
+						ext->sect_hdrs[i].sh_name);
+
+		if (!strcmp(name, sect_name)) {
+			return i;
+		}
+	}
+
+	return -ENOENT;
+}
+
+int llext_get_section_header(struct llext_loader *ldr, struct llext *ext, const char *search_name,
+			     elf_shdr_t *shdr)
+{
+	int ret;
+
+	ret = llext_section_shndx(ldr, ext, search_name);
+	if (ret < 0) {
+		return ret;
+	}
+
+	*shdr = ext->sect_hdrs[ret];
+	return 0;
+}
+
 ssize_t llext_find_section(struct llext_loader *ldr, const char *search_name)
 {
-	/* Note that this API is used after llext_load(), so the ldr->sect_hdrs
-	 * cache is already freed. A direct search covers all situations.
-	 */
-
 	elf_shdr_t *shdr;
 	unsigned int i;
 	size_t pos;
@@ -181,60 +208,17 @@ out:
 
 #include <zephyr/logging/log_ctrl.h>
 
-static void llext_log_flush(void)
-{
-#ifdef CONFIG_LOG_MODE_DEFERRED
-	extern struct k_thread logging_thread;
-	int cur_prio = k_thread_priority_get(k_current_get());
-	int log_prio = k_thread_priority_get(&logging_thread);
-	int target_prio;
-	bool adjust_cur, adjust_log;
-
-	/*
-	 * Our goal is to raise the logger thread priority above current, but if
-	 * current has the highest possble priority, both need to be adjusted,
-	 * particularly if the logger thread has the lowest possible priority
-	 */
-	if (log_prio < cur_prio) {
-		adjust_cur = false;
-		adjust_log = false;
-		target_prio = 0;
-	} else if (cur_prio == K_HIGHEST_THREAD_PRIO) {
-		adjust_cur = true;
-		adjust_log = true;
-		target_prio = cur_prio;
-		k_thread_priority_set(k_current_get(), cur_prio + 1);
-	} else {
-		adjust_cur = false;
-		adjust_log = true;
-		target_prio = cur_prio - 1;
-	}
-
-	/* adjust logging thread priority if needed */
-	if (adjust_log) {
-		k_thread_priority_set(&logging_thread, target_prio);
-	}
-
-	log_thread_trigger();
-	k_yield();
-
-	if (adjust_log) {
-		k_thread_priority_set(&logging_thread, log_prio);
-	}
-	if (adjust_cur) {
-		k_thread_priority_set(&logging_thread, cur_prio);
-	}
-#endif
-}
-
 int llext_unload(struct llext **ext)
 {
 	__ASSERT(*ext, "Expected non-null extension");
 	struct llext *tmp = *ext;
 
-	k_mutex_lock(&llext_lock, K_FOREVER);
+	/* Flush pending log messages, as the deferred formatting may be referencing
+	 * strings/args in the extension we are about to unload
+	 */
+	log_flush();
 
-	llext_log_flush();
+	k_mutex_lock(&llext_lock, K_FOREVER);
 
 	__ASSERT(tmp->use_count, "A valid LLEXT cannot have a zero use-count!");
 
@@ -252,6 +236,10 @@ int llext_unload(struct llext **ext)
 
 	*ext = NULL;
 	k_mutex_unlock(&llext_lock);
+
+	if (tmp->sect_hdrs_on_heap) {
+		llext_free(tmp->sect_hdrs);
+	}
 
 	llext_free_regions(tmp);
 	llext_free(tmp->sym_tab.syms);

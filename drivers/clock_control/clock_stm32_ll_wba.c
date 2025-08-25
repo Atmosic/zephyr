@@ -120,10 +120,12 @@ static inline int stm32_clock_control_configure(const struct device *dev,
 		return err;
 	}
 
-	sys_clear_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_CLOCK_REG_GET(pclken->enr),
-		       STM32_CLOCK_MASK_GET(pclken->enr) << STM32_CLOCK_SHIFT_GET(pclken->enr));
-	sys_set_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_CLOCK_REG_GET(pclken->enr),
-		     STM32_CLOCK_VAL_GET(pclken->enr) << STM32_CLOCK_SHIFT_GET(pclken->enr));
+	sys_clear_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_DT_CLKSEL_REG_GET(pclken->enr),
+		       STM32_DT_CLKSEL_MASK_GET(pclken->enr) <<
+			STM32_DT_CLKSEL_SHIFT_GET(pclken->enr));
+	sys_set_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_DT_CLKSEL_REG_GET(pclken->enr),
+		     STM32_DT_CLKSEL_VAL_GET(pclken->enr) <<
+			STM32_DT_CLKSEL_SHIFT_GET(pclken->enr));
 
 	return 0;
 #else
@@ -271,6 +273,10 @@ static int stm32_clock_control_get_subsys_rate(const struct device *dev,
 		return -ENOTSUP;
 	}
 
+	if (pclken->div) {
+		*rate /= (pclken->div + 1);
+	}
+
 	return 0;
 }
 
@@ -299,7 +305,7 @@ static enum clock_control_status stm32_clock_control_get_status(const struct dev
 	}
 }
 
-static const struct clock_control_driver_api stm32_clock_control_api = {
+static DEVICE_API(clock_control, stm32_clock_control_api) = {
 	.on = stm32_clock_control_on,
 	.off = stm32_clock_control_off,
 	.get_rate = stm32_clock_control_get_subsys_rate,

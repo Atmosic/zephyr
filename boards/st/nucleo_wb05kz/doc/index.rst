@@ -30,29 +30,19 @@ More information about STM32WB05KZV can be found here:
 Supported Features
 ==================
 
-The Zephyr ``nucleo_wb05kz`` board target supports the following hardware features:
+.. zephyr:board-supported-hw::
 
-+-----------+------------+-------------------------------------+
-| Interface | Controller | Driver/Component                    |
-+===========+============+=====================================+
-| NVIC      | on-chip    | nested vector interrupt controller  |
-+-----------+------------+-------------------------------------+
-| UART      | on-chip    | serial port-polling;                |
-|           |            | serial port-interrupt               |
-+-----------+------------+-------------------------------------+
-| PINMUX    | on-chip    | pinmux                              |
-+-----------+------------+-------------------------------------+
-| GPIO      | on-chip    | gpio                                |
-+-----------+------------+-------------------------------------+
-| FLASH     | on-chip    | internal flash memory               |
-+-----------+------------+-------------------------------------+
+Bluetooh support
+----------------
 
+BLE support is enabled; however, to build a Zephyr sample using this board,
+you first need to fetch the Bluetooth controller library into Zephyr as a binary BLOB.
 
-Other hardware features are not yet supported on this Zephyr port.
+To fetch binary BLOBs:
 
-The default configuration can be found in the defconfig file:
-:zephyr_file:`boards/st/nucleo_wb09ke/nucleo_wb09ke_defconfig`
+.. code-block:: console
 
+   west blobs fetch hal_stm32
 
 Connections and IOs
 ===================

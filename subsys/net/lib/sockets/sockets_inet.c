@@ -63,6 +63,11 @@ static void zsock_flush_queue(struct net_context *ctx)
 	while ((p = k_fifo_get(&ctx->recv_q, K_NO_WAIT)) != NULL) {
 		if (is_listen) {
 			NET_DBG("discarding ctx %p", p);
+
+			/* Note that we must release all the packets we
+			 * might have received to the accepted socket.
+			 */
+			zsock_flush_queue(p);
 			net_context_put(p);
 		} else {
 			NET_DBG("discarding pkt %p", p);
@@ -1047,13 +1052,13 @@ static int update_msg_controllen(struct msghdr *msg)
 	return 0;
 }
 
-static inline ssize_t zsock_recv_dgram(struct net_context *ctx,
-				       struct msghdr *msg,
-				       void *buf,
-				       size_t max_len,
-				       int flags,
-				       struct sockaddr *src_addr,
-				       socklen_t *addrlen)
+static ssize_t zsock_recv_dgram(struct net_context *ctx,
+				struct msghdr *msg,
+				void *buf,
+				size_t max_len,
+				int flags,
+				struct sockaddr *src_addr,
+				socklen_t *addrlen)
 {
 	k_timeout_t timeout = K_FOREVER;
 	size_t recv_len = 0;
@@ -1164,15 +1169,12 @@ static inline ssize_t zsock_recv_dgram(struct net_context *ctx,
 
 			if (len <= tmp_read_len) {
 				tmp_read_len -= len;
-				msg->msg_iov[iovec].iov_len = len;
 				iovec++;
 			} else {
 				errno = EINVAL;
 				return -1;
 			}
 		}
-
-		msg->msg_iovlen = iovec;
 
 		if (recv_len != read_len) {
 			msg->msg_flags |= ZSOCK_MSG_TRUNC;
@@ -1325,7 +1327,7 @@ static ssize_t zsock_recv_stream_timed(struct net_context *ctx, struct msghdr *m
 {
 	int res;
 	k_timepoint_t end;
-	size_t recv_len = 0, iovec = 0, available_len, max_iovlen = 0;
+	size_t recv_len = 0, iovec = 0, available_len;
 	const bool waitall = (flags & ZSOCK_MSG_WAITALL) == ZSOCK_MSG_WAITALL;
 
 	if (msg != NULL && buf == NULL) {
@@ -1335,8 +1337,6 @@ static ssize_t zsock_recv_stream_timed(struct net_context *ctx, struct msghdr *m
 
 		buf = msg->msg_iov[iovec].iov_base;
 		available_len = msg->msg_iov[iovec].iov_len;
-		msg->msg_iov[iovec].iov_len = 0;
-		max_iovlen = msg->msg_iovlen;
 	}
 
 	for (end = sys_timepoint_calc(timeout); max_len > 0; timeout = sys_timepoint_timeout(end)) {
@@ -1365,7 +1365,6 @@ again:
 				return -EAGAIN;
 			}
 
-			msg->msg_iov[iovec].iov_len += res;
 			buf = (uint8_t *)(msg->msg_iov[iovec].iov_base) + res;
 			max_len -= res;
 
@@ -1373,14 +1372,12 @@ again:
 				/* All data to this iovec was written */
 				iovec++;
 
-				if (iovec == max_iovlen) {
+				if (iovec == msg->msg_iovlen) {
 					break;
 				}
 
-				msg->msg_iovlen = iovec;
 				buf = msg->msg_iov[iovec].iov_base;
 				available_len = msg->msg_iov[iovec].iov_len;
-				msg->msg_iov[iovec].iov_len = 0;
 
 				/* If there is more data, read it now and do not wait */
 				if (buf != NULL && available_len > 0) {
@@ -1612,6 +1609,99 @@ static enum tcp_conn_option get_tcp_option(int optname)
 	return -EINVAL;
 }
 
+static int ipv4_multicast_if(struct net_context *ctx, const void *optval,
+			     socklen_t optlen, bool do_get)
+{
+	struct net_if *iface = NULL;
+	int ifindex, ret;
+
+	if (do_get) {
+		struct net_if_addr *ifaddr;
+		size_t len = sizeof(ifindex);
+
+		if (optval == NULL || (optlen != sizeof(struct in_addr))) {
+			errno = EINVAL;
+			return -1;
+		}
+
+		ret = net_context_get_option(ctx, NET_OPT_MCAST_IFINDEX,
+					     &ifindex, &len);
+		if (ret < 0) {
+			errno  = -ret;
+			return -1;
+		}
+
+		if (ifindex == 0) {
+			/* No interface set */
+			((struct in_addr *)optval)->s_addr = INADDR_ANY;
+			return 0;
+		}
+
+		ifaddr = net_if_ipv4_addr_get_first_by_index(ifindex);
+		if (ifaddr == NULL) {
+			errno = ENOENT;
+			return -1;
+		}
+
+		net_ipaddr_copy((struct in_addr *)optval, &ifaddr->address.in_addr);
+
+		return 0;
+	}
+
+	/* setsockopt() can accept either struct ip_mreqn or
+	 * struct ip_mreq. We need to handle both cases.
+	 */
+	if (optval == NULL || (optlen != sizeof(struct ip_mreqn) &&
+			       optlen != sizeof(struct ip_mreq))) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (optlen == sizeof(struct ip_mreqn)) {
+		struct ip_mreqn *mreqn = (struct ip_mreqn *)optval;
+
+		if (mreqn->imr_ifindex != 0) {
+			iface = net_if_get_by_index(mreqn->imr_ifindex);
+
+		} else if (mreqn->imr_address.s_addr != INADDR_ANY) {
+			struct net_if_addr *ifaddr;
+
+			ifaddr = net_if_ipv4_addr_lookup(&mreqn->imr_address, &iface);
+			if (ifaddr == NULL) {
+				errno = ENOENT;
+				return -1;
+			}
+		}
+	} else {
+		struct ip_mreq *mreq = (struct ip_mreq *)optval;
+
+		if (mreq->imr_interface.s_addr != INADDR_ANY) {
+			struct net_if_addr *ifaddr;
+
+			ifaddr = net_if_ipv4_addr_lookup(&mreq->imr_interface, &iface);
+			if (ifaddr == NULL) {
+				errno = ENOENT;
+				return -1;
+			}
+		}
+	}
+
+	if (iface == NULL) {
+		ifindex = 0;
+	} else {
+		ifindex = net_if_get_by_iface(iface);
+	}
+
+	ret = net_context_set_option(ctx, NET_OPT_MCAST_IFINDEX,
+				     &ifindex, sizeof(ifindex));
+	if (ret < 0) {
+		errno  = -ret;
+		return -1;
+	}
+
+	return 0;
+}
+
 int zsock_getsockopt_ctx(struct net_context *ctx, int level, int optname,
 			 void *optval, socklen_t *optlen)
 {
@@ -1831,6 +1921,18 @@ int zsock_getsockopt_ctx(struct net_context *ctx, int level, int optname,
 
 			return 0;
 
+		case IP_MULTICAST_IF:
+			if (IS_ENABLED(CONFIG_NET_IPV4)) {
+				if (net_context_get_family(ctx) != AF_INET) {
+					errno = EAFNOSUPPORT;
+					return -1;
+				}
+
+				return ipv4_multicast_if(ctx, optval, *optlen, true);
+			}
+
+			break;
+
 		case IP_MULTICAST_TTL:
 			ret = net_context_get_option(ctx, NET_OPT_MCAST_TTL,
 						     optval, optlen);
@@ -1840,12 +1942,55 @@ int zsock_getsockopt_ctx(struct net_context *ctx, int level, int optname,
 			}
 
 			return 0;
+
+		case IP_MTU:
+			if (IS_ENABLED(CONFIG_NET_IPV4)) {
+				ret = net_context_get_option(ctx, NET_OPT_MTU,
+							     optval, optlen);
+				if (ret < 0) {
+					errno  = -ret;
+					return -1;
+				}
+
+				return 0;
+			}
+
+			break;
+
+		case IP_LOCAL_PORT_RANGE:
+			if (IS_ENABLED(CONFIG_NET_CONTEXT_CLAMP_PORT_RANGE)) {
+				ret = net_context_get_option(ctx,
+							     NET_OPT_LOCAL_PORT_RANGE,
+							     optval, optlen);
+				if (ret < 0) {
+					errno  = -ret;
+					return -1;
+				}
+
+				return 0;
+			}
+
+			break;
 		}
 
 		break;
 
 	case IPPROTO_IPV6:
 		switch (optname) {
+		case IPV6_MTU:
+			if (IS_ENABLED(CONFIG_NET_IPV6)) {
+				ret = net_context_get_option(ctx, NET_OPT_MTU,
+							     optval, optlen);
+				if (ret < 0) {
+					errno  = -ret;
+					return -1;
+				}
+
+				return 0;
+			}
+
+			break;
+
 		case IPV6_V6ONLY:
 			if (IS_ENABLED(CONFIG_NET_IPV4_MAPPING_TO_IPV6)) {
 				ret = net_context_get_option(ctx,
@@ -1904,6 +2049,24 @@ int zsock_getsockopt_ctx(struct net_context *ctx, int level, int optname,
 			}
 
 			return 0;
+
+		case IPV6_MULTICAST_IF:
+			if (IS_ENABLED(CONFIG_NET_IPV6)) {
+				if (net_context_get_family(ctx) != AF_INET6) {
+					errno = EAFNOSUPPORT;
+					return -1;
+				}
+
+				ret = net_context_get_option(ctx,
+							     NET_OPT_MCAST_IFINDEX,
+							     optval, optlen);
+				if (ret < 0) {
+					errno  = -ret;
+					return -1;
+				}
+
+				return 0;
+			}
 
 		case IPV6_MULTICAST_HOPS:
 			ret = net_context_get_option(ctx,
@@ -2369,6 +2532,13 @@ int zsock_setsockopt_ctx(struct net_context *ctx, int level, int optname,
 
 			break;
 
+		case IP_MULTICAST_IF:
+			if (IS_ENABLED(CONFIG_NET_IPV4)) {
+				return ipv4_multicast_if(ctx, optval, optlen, false);
+			}
+
+			break;
+
 		case IP_MULTICAST_TTL:
 			ret = net_context_set_option(ctx, NET_OPT_MCAST_TTL,
 						     optval, optlen);
@@ -2404,12 +2574,41 @@ int zsock_setsockopt_ctx(struct net_context *ctx, int level, int optname,
 			}
 
 			break;
+
+		case IP_LOCAL_PORT_RANGE:
+			if (IS_ENABLED(CONFIG_NET_CONTEXT_CLAMP_PORT_RANGE)) {
+				ret = net_context_set_option(ctx,
+							     NET_OPT_LOCAL_PORT_RANGE,
+							     optval, optlen);
+				if (ret < 0) {
+					errno  = -ret;
+					return -1;
+				}
+
+				return 0;
+			}
+
+			break;
 		}
 
 		break;
 
 	case IPPROTO_IPV6:
 		switch (optname) {
+		case IPV6_MTU:
+			if (IS_ENABLED(CONFIG_NET_IPV6)) {
+				ret = net_context_set_option(ctx, NET_OPT_MTU,
+							     optval, optlen);
+				if (ret < 0) {
+					errno  = -ret;
+					return -1;
+				}
+
+				return 0;
+			}
+
+			break;
+
 		case IPV6_V6ONLY:
 			if (IS_ENABLED(CONFIG_NET_IPV4_MAPPING_TO_IPV6)) {
 				ret = net_context_set_option(ctx,
@@ -2476,6 +2675,17 @@ int zsock_setsockopt_ctx(struct net_context *ctx, int level, int optname,
 		case IPV6_UNICAST_HOPS:
 			ret = net_context_set_option(ctx,
 						     NET_OPT_UNICAST_HOP_LIMIT,
+						     optval, optlen);
+			if (ret < 0) {
+				errno  = -ret;
+				return -1;
+			}
+
+			return 0;
+
+		case IPV6_MULTICAST_IF:
+			ret = net_context_set_option(ctx,
+						     NET_OPT_MCAST_IFINDEX,
 						     optval, optlen);
 			if (ret < 0) {
 				errno  = -ret;

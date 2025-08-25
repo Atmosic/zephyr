@@ -104,20 +104,6 @@ static int ism330dhcx_gyro_range_to_fs_val(int32_t range)
 	return -EINVAL;
 }
 
-static inline int ism330dhcx_reboot(const struct device *dev)
-{
-	struct ism330dhcx_data *data = dev->data;
-
-	if (ism330dhcx_boot_set(data->ctx, 1) < 0) {
-		return -EIO;
-	}
-
-	/* Wait sensor turn-on time as per datasheet */
-	k_busy_wait(35 * USEC_PER_MSEC);
-
-	return 0;
-}
-
 static int ism330dhcx_accel_set_fs_raw(const struct device *dev, uint8_t fs)
 {
 	struct ism330dhcx_data *data = dev->data;
@@ -677,7 +663,7 @@ static int ism330dhcx_channel_get(const struct device *dev,
 	return 0;
 }
 
-static const struct sensor_driver_api ism330dhcx_api_funcs = {
+static DEVICE_API(sensor, ism330dhcx_api_funcs) = {
 	.attr_set = ism330dhcx_attr_set,
 #if CONFIG_ISM330DHCX_TRIGGER
 	.trigger_set = ism330dhcx_trigger_set,
@@ -712,6 +698,15 @@ static int ism330dhcx_init_chip(const struct device *dev)
 	}
 
 	k_busy_wait(100);
+
+	/*
+	 * Set device_conf bit to 1 for a proper configuration
+	 * as stated in DS chapter paragraph 9.20
+	 */
+	if (ism330dhcx_device_conf_set(ism330dhcx->ctx, 1) < 0) {
+		LOG_DBG("Failed setting device_conf bit");
+		return -EIO;
+	}
 
 	LOG_DBG("accel range is %d", cfg->accel_range);
 	if (ism330dhcx_accel_range_set(dev, cfg->accel_range) < 0) {

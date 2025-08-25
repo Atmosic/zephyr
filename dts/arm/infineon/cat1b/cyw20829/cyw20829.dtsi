@@ -16,6 +16,21 @@
 			device_type = "cpu";
 			compatible = "arm,cortex-m33";
 			reg = <0>;
+			cpu-power-states = <&idle &suspend_to_ram>;
+		};
+
+		power-states {
+			idle: idle {
+				compatible = "zephyr,power-state";
+				power-state-name = "suspend-to-idle";
+				min-residency-us = <1000000>;
+			};
+
+			suspend_to_ram: suspend_to_ram {
+				compatible = "zephyr,power-state";
+				power-state-name = "suspend-to-ram";
+				min-residency-us = <2000000>;
+			};
 		};
 	};
 
@@ -96,6 +111,14 @@
 			ngpios = <3>;
 			status = "disabled";
 			#gpio-cells = <2>;
+		};
+
+		adc0: adc@40520000 {
+			compatible = "infineon,cat1-adc";
+			reg = <0x40520000 0x10000>;
+			interrupts = <67 6>;
+			status = "disabled";
+			#io-channel-cells = <1>;
 		};
 
 		ipc0: ipc@401d0000 {

@@ -13,6 +13,7 @@
 #include <strings.h>
 
 #include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/addr.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/cap.h>
@@ -20,9 +21,11 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gap.h>
 #include <zephyr/bluetooth/iso.h>
+#include <zephyr/bluetooth/uuid.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/logging/log_core.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
@@ -291,12 +294,13 @@ static uint16_t interval_to_sync_timeout(uint16_t pa_interval)
 		/* Use maximum value to maximize chance of success */
 		pa_timeout = BT_GAP_PER_ADV_MAX_TIMEOUT;
 	} else {
-		uint32_t interval_ms;
+		uint32_t interval_us;
 		uint32_t timeout;
 
 		/* Add retries and convert to unit in 10's of ms */
-		interval_ms = BT_GAP_PER_ADV_INTERVAL_TO_MS(pa_interval);
-		timeout = (interval_ms * PA_SYNC_INTERVAL_TO_TIMEOUT_RATIO) / 10;
+		interval_us = BT_GAP_PER_ADV_INTERVAL_TO_US(pa_interval);
+		timeout = BT_GAP_US_TO_PER_ADV_SYNC_TIMEOUT(interval_us) *
+			  PA_SYNC_INTERVAL_TO_TIMEOUT_RATIO;
 
 		/* Enforce restraints */
 		pa_timeout = CLAMP(timeout, BT_GAP_PER_ADV_MIN_TIMEOUT, BT_GAP_PER_ADV_MAX_TIMEOUT);
@@ -604,8 +608,8 @@ static bool scan_check_and_sync_broadcast(struct bt_data *data, void *user_data)
 
 	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
 
-	printk("Found broadcaster with ID 0x%06X and addr %s and sid 0x%02X\n", broadcast_id,
-	       le_addr, info->sid);
+	LOG_INF("Found broadcaster with ID 0x%06X and addr %s and sid 0x%02X\n", broadcast_id,
+		le_addr, info->sid);
 
 	bt_addr_le_copy(&param.addr, info->addr);
 	param.options = BT_LE_PER_ADV_SYNC_OPT_FILTER_DUPLICATE;

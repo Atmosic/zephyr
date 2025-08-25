@@ -6,6 +6,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/conn.h>
 #include <zephyr/kernel.h>
 #include <string.h>
 #include <errno.h>
@@ -19,7 +21,6 @@
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/att.h>
 #include <zephyr/bluetooth/gatt.h>
-#include <zephyr/drivers/bluetooth/hci_driver.h>
 
 #include "common/bt_str.h"
 
@@ -134,7 +135,7 @@ static uint16_t bt_att_mtu(struct bt_att_chan *chan)
 /* Descriptor of application-specific authorization callbacks that are used
  * with the CONFIG_BT_GATT_AUTHORIZATION_CUSTOM Kconfig enabled.
  */
-const static struct bt_gatt_authorization_cb *authorization_cb;
+static const struct bt_gatt_authorization_cb *authorization_cb;
 
 /* ATT connection specific data */
 struct bt_att {
@@ -295,6 +296,28 @@ static void bt_att_disconnected(struct bt_l2cap_chan *chan);
 struct net_buf *bt_att_create_rsp_pdu(struct bt_att_chan *chan, uint8_t op);
 
 static void bt_att_sent(struct bt_l2cap_chan *ch);
+
+static void att_disconnect(struct bt_att_chan *chan)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+	int err;
+
+	/* In rare circumstances we are "forced" to disconnect the ATT bearer and the ACL.
+	 * Examples of when this is right course of action is when there is an ATT timeout, we
+	 * receive an unexpected response from the server, or the response from the server is
+	 * invalid
+	 */
+
+	bt_addr_le_to_str(bt_conn_get_dst(chan->att->conn), addr, sizeof(addr));
+	LOG_DBG("ATT disconnecting device %s", addr);
+
+	bt_att_disconnected(&chan->chan.chan);
+
+	err = bt_conn_disconnect(chan->chan.chan.conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	if (err) {
+		LOG_ERR("Disconnecting failed (err %d)", err);
+	}
+}
 
 static void att_sent(void *user_data)
 {
@@ -707,7 +730,17 @@ static struct net_buf *bt_att_chan_create_pdu(struct bt_att_chan *chan, uint8_t 
 		timeout = BT_ATT_TIMEOUT;
 		break;
 	default:
-		timeout = K_FOREVER;
+		k_tid_t current_thread = k_current_get();
+
+		if (current_thread == k_work_queue_thread_get(&k_sys_work_q)) {
+			/* No blocking in the sysqueue. */
+			timeout = K_NO_WAIT;
+		} else if (current_thread == att_handle_rsp_thread) {
+			/* Blocking would cause deadlock. */
+			timeout = K_NO_WAIT;
+		} else {
+			timeout = K_FOREVER;
+		}
 	}
 
 	/* This will reserve headspace for lower layers */
@@ -931,7 +964,8 @@ static uint8_t att_handle_rsp(struct bt_att_chan *chan, void *pdu, uint16_t len,
 
 	if (!chan->req) {
 		LOG_WRN("No pending ATT request");
-		goto process;
+		att_disconnect(chan);
+		return 0; /* Returning a non-0 value would attempt to send an error response */
 	}
 
 	/* Check if request has been cancelled */
@@ -1549,15 +1583,22 @@ static uint8_t att_read_type_req(struct bt_att_chan *chan, struct net_buf *buf)
 		return 0;
 	}
 
-	/* Reading Database Hash is special as it may be used to make client change aware
+	/* If a client that has indicated support for robust caching (by setting the Robust
+	 * Caching bit in the Client Supported Features characteristic) is change-unaware
+	 * then the server shall send an ATT_ERROR_RSP PDU with the Error Code
+	 * parameter set to Database Out Of Sync (0x12) when either of the following happen:
+	 * • That client requests an operation at any Attribute Handle or list of Attribute
+	 *   Handles by sending an ATT request.
+	 * • That client sends an ATT_READ_BY_TYPE_REQ PDU with Attribute Type
+	 *   other than «Include» or «Characteristic» and an Attribute Handle range
+	 *   other than 0x0001 to 0xFFFF.
 	 * (Core Specification 5.4 Vol 3. Part G. 2.5.2.1 Robust Caching).
-	 *
-	 * GATT client shall always use GATT Read Using Characteristic UUID sub-procedure for
-	 * reading Database Hash
-	 * (Core Specification 5.4 Vol 3. Part G. 7.3 Databse Hash)
 	 */
-	if (bt_uuid_cmp(&u.uuid, BT_UUID_GATT_DB_HASH) != 0) {
-		if (!bt_gatt_change_aware(chan->att->conn, true)) {
+	if (!bt_gatt_change_aware(chan->chan.chan.conn, true)) {
+		if (bt_uuid_cmp(&u.uuid, BT_UUID_GATT_INCLUDE) != 0 &&
+		    bt_uuid_cmp(&u.uuid, BT_UUID_GATT_CHRC) != 0 &&
+		    (start_handle != BT_ATT_FIRST_ATTRIBUTE_HANDLE ||
+		     end_handle != BT_ATT_LAST_ATTRIBUTE_HANDLE)) {
 			if (!atomic_test_and_set_bit(chan->flags, ATT_OUT_OF_SYNC_SENT)) {
 				return BT_ATT_ERR_DB_OUT_OF_SYNC;
 			} else {
@@ -3133,9 +3174,7 @@ static void att_timeout(struct k_work *work)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 	struct k_work_delayable *dwork = k_work_delayable_from_work(work);
-	struct bt_att_chan *chan = CONTAINER_OF(dwork, struct bt_att_chan,
-						timeout_work);
-	int err;
+	struct bt_att_chan *chan = CONTAINER_OF(dwork, struct bt_att_chan, timeout_work);
 
 	bt_addr_le_to_str(bt_conn_get_dst(chan->att->conn), addr, sizeof(addr));
 	LOG_ERR("ATT Timeout for device %s. Disconnecting...", addr);
@@ -3148,17 +3187,13 @@ static void att_timeout(struct k_work *work)
 	 * requests, commands, indications or notifications shall be sent to the
 	 * target device on this ATT Bearer.
 	 */
-	bt_att_disconnected(&chan->chan.chan);
 
 	/* The timeout state is local and can block new ATT operations, but does not affect the
 	 * remote side. Disconnecting the GATT connection upon ATT timeout simplifies error handling
 	 * for developers. This reduces rare failure conditions to a common one, allowing developers
 	 * to handle unexpected disconnections without needing special cases for ATT timeouts.
 	 */
-	err = bt_conn_disconnect(chan->chan.chan.conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
-	if (err) {
-		LOG_ERR("Disconnecting failed (err %d)", err);
-	}
+	att_disconnect(chan);
 }
 
 static struct bt_att_chan *att_get_fixed_chan(struct bt_conn *conn)
@@ -3669,7 +3704,7 @@ int bt_eatt_connect(struct bt_conn *conn, size_t num_channels)
 	}
 
 	while (offset < i) {
-		/* bt_l2cap_ecred_chan_connect() uses the first L2CAP_ECRED_CHAN_MAX_PER_REQ
+		/* bt_l2cap_ecred_chan_connect() uses the first BT_L2CAP_ECRED_CHAN_MAX_PER_REQ
 		 * elements of the array or until a null-terminator is reached.
 		 */
 		err = bt_l2cap_ecred_chan_connect(conn, &chan[offset], BT_EATT_PSM);
@@ -3677,7 +3712,7 @@ int bt_eatt_connect(struct bt_conn *conn, size_t num_channels)
 			return err;
 		}
 
-		offset += L2CAP_ECRED_CHAN_MAX_PER_REQ;
+		offset += BT_L2CAP_ECRED_CHAN_MAX_PER_REQ;
 	}
 
 	return 0;
@@ -3768,7 +3803,7 @@ int bt_eatt_reconfigure(struct bt_conn *conn, uint16_t mtu)
 	}
 
 	while (offset < i) {
-		/* bt_l2cap_ecred_chan_reconfigure() uses the first L2CAP_ECRED_CHAN_MAX_PER_REQ
+		/* bt_l2cap_ecred_chan_reconfigure() uses the first BT_L2CAP_ECRED_CHAN_MAX_PER_REQ
 		 * elements of the array or until a null-terminator is reached.
 		 */
 		err = bt_l2cap_ecred_chan_reconfigure(&chans[offset], mtu);
@@ -3776,7 +3811,7 @@ int bt_eatt_reconfigure(struct bt_conn *conn, uint16_t mtu)
 			return err;
 		}
 
-		offset += L2CAP_ECRED_CHAN_MAX_PER_REQ;
+		offset += BT_L2CAP_ECRED_CHAN_MAX_PER_REQ;
 	}
 
 	return 0;

@@ -207,7 +207,9 @@ static uint8_t bme680_calc_gas_wait(uint16_t dur)
 			dur = dur / 4;
 			factor += 1;
 		}
-		durval = dur + (factor * 64);
+		const uint16_t max_duration = dur + (factor * 64);
+
+		durval = CLAMP(max_duration, 0, 0xff);
 	}
 
 	return durval;
@@ -478,7 +480,7 @@ static int bme680_init(const struct device *dev)
 	return pm_device_driver_init(dev, bme680_pm_control);
 }
 
-static const struct sensor_driver_api bme680_api_funcs = {
+static DEVICE_API(sensor, bme680_api_funcs) = {
 	.sample_fetch = bme680_sample_fetch,
 	.channel_get = bme680_channel_get,
 };

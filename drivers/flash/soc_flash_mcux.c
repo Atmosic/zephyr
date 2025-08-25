@@ -93,7 +93,7 @@ static uint32_t get_cmd_status(uint32_t cmd, uint32_t addr, size_t len)
 }
 
 /* This function prevents erroneous reading. Some ECC enabled devices will
- * crash when reading an erased or wrongly programmed area.
+ * crash when reading an erased area.
  */
 static status_t is_area_readable(uint32_t addr, size_t len)
 {
@@ -102,21 +102,13 @@ static status_t is_area_readable(uint32_t addr, size_t len)
 
 	key = irq_lock();
 
-	/* Check if the are is correctly programmed and can be read. */
-	status = get_cmd_status(FMC_CMD_MARGIN_CHECK, addr, len);
-	if (status & FMC_STATUS_FAILURES) {
-		/* If the area was erased, ECC errors are triggered on read. */
-		status = get_cmd_status(FMC_CMD_BLANK_CHECK, addr, len);
-		if (!(status & FMC_STATUS_FAIL)) {
-			LOG_DBG("read request on erased addr:0x%08x size:%d",
-				addr, len);
-			irq_unlock(key);
-			return -ENODATA;
-		}
-		LOG_DBG("read request error for addr:0x%08x size:%d",
+	/* If the area was erased, ECC errors are triggered on read. */
+	status = get_cmd_status(FMC_CMD_BLANK_CHECK, addr, len);
+	if (!(status & FMC_STATUS_FAIL)) {
+		LOG_DBG("read request on erased addr:0x%08x size:%d",
 			addr, len);
 		irq_unlock(key);
-		return -EIO;
+		return -ENODATA;
 	}
 
 	irq_unlock(key);
@@ -346,7 +338,7 @@ flash_mcux_get_parameters(const struct device *dev)
 
 static struct flash_priv flash_data;
 
-static const struct flash_driver_api flash_mcux_api = {
+static DEVICE_API(flash, flash_mcux_api) = {
 	.erase = flash_mcux_erase,
 	.write = flash_mcux_write,
 	.read = flash_mcux_read,

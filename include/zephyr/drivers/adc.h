@@ -36,6 +36,7 @@ enum adc_gain {
 	ADC_GAIN_1_6, /**< x 1/6. */
 	ADC_GAIN_1_5, /**< x 1/5. */
 	ADC_GAIN_1_4, /**< x 1/4. */
+	ADC_GAIN_2_7, /**< x 2/7. */
 	ADC_GAIN_1_3, /**< x 1/3. */
 	ADC_GAIN_2_5, /**< x 2/5. */
 	ADC_GAIN_1_2, /**< x 1/2. */
@@ -727,10 +728,7 @@ __syscall int adc_channel_setup(const struct device *dev,
 static inline int z_impl_adc_channel_setup(const struct device *dev,
 					   const struct adc_channel_cfg *channel_cfg)
 {
-	const struct adc_driver_api *api =
-				(const struct adc_driver_api *)dev->api;
-
-	return api->channel_setup(dev, channel_cfg);
+	return DEVICE_API_GET(adc, dev)->channel_setup(dev, channel_cfg);
 }
 
 /**
@@ -778,10 +776,7 @@ __syscall int adc_read(const struct device *dev,
 static inline int z_impl_adc_read(const struct device *dev,
 				  const struct adc_sequence *sequence)
 {
-	const struct adc_driver_api *api =
-				(const struct adc_driver_api *)dev->api;
-
-	return api->read(dev, sequence);
+	return DEVICE_API_GET(adc, dev)->read(dev, sequence);
 }
 
 /**
@@ -829,10 +824,7 @@ static inline int z_impl_adc_read_async(const struct device *dev,
 					const struct adc_sequence *sequence,
 					struct k_poll_signal *async)
 {
-	const struct adc_driver_api *api =
-				(const struct adc_driver_api *)dev->api;
-
-	return api->read_async(dev, sequence, async);
+	return DEVICE_API_GET(adc, dev)->read_async(dev, sequence, async);
 }
 #endif /* CONFIG_ADC_ASYNC */
 
@@ -847,10 +839,7 @@ static inline int z_impl_adc_read_async(const struct device *dev,
  */
 static inline uint16_t adc_ref_internal(const struct device *dev)
 {
-	const struct adc_driver_api *api =
-				(const struct adc_driver_api *)dev->api;
-
-	return api->ref_internal;
+	return DEVICE_API_GET(adc, dev)->ref_internal;
 }
 
 /**

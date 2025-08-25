@@ -219,7 +219,7 @@ static void usart_si32_irq_handler(const struct device *dev)
 }
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
-static const struct uart_driver_api usart_si32_driver_api = {
+static DEVICE_API(uart, usart_si32_driver_api) = {
 	.poll_in = usart_si32_poll_in,
 	.poll_out = usart_si32_poll_out,
 	.err_check = usart_si32_err_check,
@@ -378,7 +378,7 @@ static int usart_si32_init(const struct device *dev)
 	static const struct usart_si32_config usart_si32_cfg_##index = {                           \
 		.usart = (SI32_USART_A_Type *)DT_INST_REG_ADDR(index),                             \
 		.hw_flow_control = DT_INST_PROP(index, hw_flow_control),                           \
-		.parity = DT_INST_ENUM_IDX_OR(index, parity, UART_CFG_PARITY_NONE),                \
+		.parity = DT_INST_ENUM_IDX(index, parity),                                         \
 		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(index)),                            \
 		SI32_USART_IRQ_HANDLER_FUNC(index)};                                               \
                                                                                                    \

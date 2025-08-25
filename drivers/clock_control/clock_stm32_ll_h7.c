@@ -16,7 +16,6 @@
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
-#include "clock_stm32_ll_mco.h"
 #include "stm32_hsem.h"
 
 
@@ -110,7 +109,8 @@
 	defined(CONFIG_SOC_STM32H747XX_M7) || defined(CONFIG_SOC_STM32H747XX_M4) ||\
 	defined(CONFIG_SOC_STM32H750XX) ||\
 	defined(CONFIG_SOC_STM32H753XX) ||\
-	defined(CONFIG_SOC_STM32H755XX_M7) || defined(CONFIG_SOC_STM32H755XX_M4)
+	defined(CONFIG_SOC_STM32H755XX_M7) || defined(CONFIG_SOC_STM32H755XX_M4) ||\
+	defined(CONFIG_SOC_STM32H757XX_M7) || defined(CONFIG_SOC_STM32H757XX_M4)
 /* All h7 SoC with maximum 480MHz SYSCLK */
 #define SYSCLK_FREQ_MAX		480000000UL
 #define AHB_FREQ_MAX		240000000UL
@@ -448,10 +448,12 @@ static inline int stm32_clock_control_configure(const struct device *dev,
 
 	z_stm32_hsem_lock(CFG_HW_RCC_SEMID, HSEM_LOCK_DEFAULT_RETRY);
 
-	sys_clear_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_CLOCK_REG_GET(pclken->enr),
-		       STM32_CLOCK_MASK_GET(pclken->enr) << STM32_CLOCK_SHIFT_GET(pclken->enr));
-	sys_set_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_CLOCK_REG_GET(pclken->enr),
-		     STM32_CLOCK_VAL_GET(pclken->enr) << STM32_CLOCK_SHIFT_GET(pclken->enr));
+	sys_clear_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_DT_CLKSEL_REG_GET(pclken->enr),
+		       STM32_DT_CLKSEL_MASK_GET(pclken->enr) <<
+			STM32_DT_CLKSEL_SHIFT_GET(pclken->enr));
+	sys_set_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_DT_CLKSEL_REG_GET(pclken->enr),
+		     STM32_DT_CLKSEL_VAL_GET(pclken->enr) <<
+			STM32_DT_CLKSEL_SHIFT_GET(pclken->enr));
 
 	z_stm32_hsem_unlock(CFG_HW_RCC_SEMID);
 
@@ -541,6 +543,11 @@ static int stm32_clock_control_get_subsys_rate(const struct device *clock,
 		*rate = STM32_LSI_FREQ;
 		break;
 #endif /* STM32_LSI_ENABLED */
+#if defined(STM32_HSI_ENABLED)
+	case STM32_SRC_HSI_KER:
+		*rate = STM32_HSI_FREQ/STM32_HSI_DIVISOR;
+	break;
+#endif /* STM32_HSI_ENABLED */
 #if defined(STM32_HSI48_ENABLED)
 	case STM32_SRC_HSI48:
 		*rate = STM32_HSI48_FREQ;
@@ -642,10 +649,14 @@ static int stm32_clock_control_get_subsys_rate(const struct device *clock,
 		return -ENOTSUP;
 	}
 
+	if (pclken->div) {
+		*rate /= (pclken->div + 1);
+	}
+
 	return 0;
 }
 
-static const struct clock_control_driver_api stm32_clock_control_api = {
+static DEVICE_API(clock_control, stm32_clock_control_api) = {
 	.on = stm32_clock_control_on,
 	.off = stm32_clock_control_off,
 	.get_rate = stm32_clock_control_get_subsys_rate,
@@ -772,7 +783,36 @@ static int set_up_plls(void)
 		stm32_clock_switch_to_hsi();
 		LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
 	}
+
+#if defined(CONFIG_STM32_MEMMAP) && defined(CONFIG_BOOTLOADER_MCUBOOT)
+	/*
+	 * Don't disable PLL during application initialization
+	 * that runs in memmap mode when (Q/O)SPI uses PLL
+	 * as its clock source.
+	 */
+#if defined(OCTOSPI1) || defined(OCTOSPI2)
+	if (LL_RCC_GetOSPIClockSource(LL_RCC_OSPI_CLKSOURCE) != LL_RCC_OSPI_CLKSOURCE_PLL1Q) {
+		LL_RCC_PLL1_Disable();
+	}
+	if (LL_RCC_GetOSPIClockSource(LL_RCC_OSPI_CLKSOURCE) != LL_RCC_OSPI_CLKSOURCE_PLL2R) {
+		LL_RCC_PLL2_Disable();
+	}
+#elif defined(QUADSPI)
+	if (LL_RCC_GetQSPIClockSource(LL_RCC_QSPI_CLKSOURCE) != LL_RCC_QSPI_CLKSOURCE_PLL1Q) {
+		LL_RCC_PLL1_Disable();
+	}
+	if (LL_RCC_GetQSPIClockSource(LL_RCC_QSPI_CLKSOURCE) != LL_RCC_QSPI_CLKSOURCE_PLL2R) {
+		LL_RCC_PLL2_Disable();
+	}
+#else
 	LL_RCC_PLL1_Disable();
+	LL_RCC_PLL2_Disable();
+#endif
+#else
+	LL_RCC_PLL1_Disable();
+	LL_RCC_PLL2_Disable();
+#endif
+	LL_RCC_PLL3_Disable();
 
 	/* Configure PLL source */
 
@@ -1053,9 +1093,6 @@ int stm32_clock_control_init(const struct device *dev)
 	LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_HSEM);
 #endif
 	z_stm32_hsem_lock(CFG_HW_RCC_SEMID, HSEM_LOCK_DEFAULT_RETRY);
-
-	/* Configure MCO1/MCO2 based on Kconfig */
-	stm32_clock_control_mco_init();
 
 	/* Set up individual enabled clocks */
 	set_up_fixed_clock_sources();

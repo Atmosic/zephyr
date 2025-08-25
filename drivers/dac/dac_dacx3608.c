@@ -146,7 +146,8 @@ static int dacx3608_write_value(const struct device *dev, uint8_t channel,
 	 * Check if channel is initialized
 	 * If broadcast channel is used, check if any channel is initialized
 	 */
-	if ((brdcast && !data->configured) || (!(data->configured & BIT(channel)))) {
+	if ((brdcast && !data->configured) ||
+	    (channel < DACX3608_MAX_CHANNEL && !(data->configured & BIT(channel)))) {
 		LOG_ERR("Channel %d not initialized", channel);
 		return -EINVAL;
 	}
@@ -246,7 +247,7 @@ static int dacx3608_init(const struct device *dev)
 	return 0;
 }
 
-static const struct dac_driver_api dacx3608_driver_api = {
+static DEVICE_API(dac, dacx3608_driver_api) = {
 	.channel_setup = dacx3608_channel_setup,
 	.write_value = dacx3608_write_value,
 };

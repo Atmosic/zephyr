@@ -82,8 +82,8 @@
 #define WDT_NODE DT_INST(0, espressif_esp32_watchdog)
 #elif DT_HAS_COMPAT_STATUS_OKAY(silabs_gecko_wdog)
 #define WDT_NODE DT_INST(0, silabs_gecko_wdog)
-#elif DT_HAS_COMPAT_STATUS_OKAY(nxp_kinetis_wdog32)
-#define WDT_NODE DT_INST(0, nxp_kinetis_wdog32)
+#elif DT_HAS_COMPAT_STATUS_OKAY(nxp_wdog32)
+#define WDT_NODE DT_INST(0, nxp_wdog32)
 #elif DT_HAS_COMPAT_STATUS_OKAY(microchip_xec_watchdog)
 #define WDT_NODE DT_INST(0, microchip_xec_watchdog)
 #elif DT_HAS_COMPAT_STATUS_OKAY(nuvoton_npcx_watchdog)
@@ -257,6 +257,12 @@ static int test_wdt_callback_1(void)
 		}
 	}
 
+	err = wdt_disable(wdt);
+	if (err < 0 && err != -EPERM && err != -EFAULT) {
+		TC_PRINT("Watchdog disable error\n");
+		return TC_FAIL;
+	}
+
 	m_testvalue = 0U;
 	m_cfg_wdt0.flags = WDT_FLAG_RESET_SOC;
 	m_cfg_wdt0.callback = wdt_int_cb0;
@@ -316,6 +322,11 @@ static int test_wdt_callback_2(void)
 		}
 	}
 
+	err = wdt_disable(wdt);
+	if (err < 0 && err != -EPERM && err != -EFAULT) {
+		TC_PRINT("Watchdog disable error\n");
+		return TC_FAIL;
+	}
 
 	m_testvalue = 0U;
 	m_cfg_wdt0.callback = wdt_int_cb0;
@@ -369,6 +380,12 @@ static int test_wdt_bad_window_max(void)
 	}
 
 	TC_PRINT("Testcase: %s\n", __func__);
+
+	err = wdt_disable(wdt);
+	if (err < 0 && err != -EPERM && err != -EFAULT) {
+		TC_PRINT("Watchdog disable error\n");
+		return TC_FAIL;
+	}
 
 	m_cfg_wdt0.callback = NULL;
 	m_cfg_wdt0.flags = WDT_FLAG_RESET_SOC;

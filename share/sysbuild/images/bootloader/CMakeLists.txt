@@ -5,17 +5,24 @@
 # Include MCUboot if enabled.
 if(SB_CONFIG_BOOTLOADER_MCUBOOT)
   set(image mcuboot)
-  if(DEFINED BOARD_REVISION)
-    set(board_str ${BOARD}@${BOARD_REVISION})
-  else()
-    set(board_str ${BOARD})
-  endif()
-  ExternalZephyrProject_Add(
+  set(mcuboot_args
     APPLICATION ${image}
     SOURCE_DIR ${ZEPHYR_MCUBOOT_MODULE_DIR}/boot/zephyr/
     APP_TYPE BOOTLOADER
-    BOARD ${board_str}
   )
+
+  # Set target board to ${BOARD}@${BOARD_REVISION} if revision contains
+  # "mcuboot" and qualifiers contain "ns".
+  if(DEFINED BOARD_REVISION AND DEFINED BOARD_QUALIFIERS)
+    string(REGEX MATCH "mcuboot" revision_has_mcuboot "${BOARD_REVISION}")
+    string(REGEX MATCH "ns" qualifies_has_ns "${BOARD_QUALIFIERS}")
+    if(revision_has_mcuboot AND qualifies_has_ns)
+      set(board_str ${BOARD}@${BOARD_REVISION}_bl)
+      list(APPEND mcuboot_args BOARD ${board_str})
+    endif()
+  endif()
+
+  ExternalZephyrProject_Add(${mcuboot_args})
   # Place MCUBoot first in list to ensure it is configured and flashed before other images.
   sysbuild_add_dependencies(CONFIGURE ${DEFAULT_IMAGE} ${image})
   sysbuild_add_dependencies(FLASH ${DEFAULT_IMAGE} ${image})

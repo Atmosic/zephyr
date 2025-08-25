@@ -7,20 +7,19 @@ devicetree bindings.
 """
 
 import argparse
-from collections import defaultdict
 import glob
 import io
 import logging
 import os
-from pathlib import Path
 import pprint
 import re
 import sys
 import textwrap
-
-from devicetree import edtlib
+from collections import defaultdict
+from pathlib import Path
 
 import gen_helpers
+from devicetree import edtlib
 
 ZEPHYR_BASE = Path(__file__).parents[2]
 
@@ -163,7 +162,7 @@ class VndLookup:
 def main():
     args = parse_args()
     setup_logging(args.verbose)
-    bindings = load_bindings(args.dts_roots, args.dts_folders)
+    bindings = load_bindings(args.dts_roots, args.dts_folders, args.dts_files)
     base_binding = load_base_binding()
     driver_sources = load_driver_sources()
     vnd_lookup = VndLookup(args.vendor_prefixes, bindings)
@@ -183,6 +182,8 @@ def parse_args():
                         be set in DTS_ROOTS''')
     parser.add_argument('--dts-folder', dest='dts_folders', action='append', default=[],
                         help='additional DTS folders containing binding files')
+    parser.add_argument('--dts-file', dest='dts_files', action='append', default=[],
+                        help='additional individual DTS binding files')
     parser.add_argument('--turbo-mode', action='store_true',
                         help='Enable turbo mode (dummy references)')
     parser.add_argument('out_dir', help='output files are generated here')
@@ -199,7 +200,7 @@ def setup_logging(verbose):
     logging.basicConfig(format='%(filename)s:%(levelname)s: %(message)s',
                         level=log_level)
 
-def load_bindings(dts_roots, dts_folders):
+def load_bindings(dts_roots, dts_folders, dts_files):
     # Get a list of edtlib.Binding objects from searching 'dts_roots'.
 
     if not dts_roots:
@@ -214,6 +215,7 @@ def load_bindings(dts_roots, dts_folders):
     for folders in dts_folders:
         binding_files.extend(glob.glob(f'{folders}/*.yml', recursive=False))
         binding_files.extend(glob.glob(f'{folders}/*.yaml', recursive=False))
+    binding_files.extend(dts_files)
 
     bindings = edtlib.bindings_from_paths(binding_files, ignore_errors=True)
 
@@ -265,7 +267,7 @@ def load_driver_sources():
                 if not filename.endswith(('.c', '.h')):
                     continue
                 filepath = Path(dirpath) / filename
-                with open(filepath, "r", encoding="utf-8") as f:
+                with open(filepath, encoding="utf-8") as f:
                     content = f.read()
 
                 relative_path = filepath.relative_to(ZEPHYR_BASE)
@@ -349,9 +351,9 @@ def write_dummy_index(bindings, out_dir):
 
     # build compatibles set and dump it
     compatibles = {binding.compatible for binding in bindings}
-    content += '\n'.join((
+    content += '\n'.join(
         f'.. dtcompatible:: {compatible}' for compatible in compatibles
-    ))
+    )
 
     write_if_updated(out_dir / 'bindings.rst', content)
 

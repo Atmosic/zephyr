@@ -113,12 +113,13 @@ static struct bt_pacs_cap cap = {
 
 static uint16_t interval_to_sync_timeout(uint16_t interval)
 {
-	uint32_t interval_ms;
+	uint32_t interval_us;
 	uint32_t timeout;
 
 	/* Add retries and convert to unit in 10's of ms */
-	interval_ms = BT_GAP_PER_ADV_INTERVAL_TO_MS(interval);
-	timeout = (interval_ms * PA_SYNC_INTERVAL_TO_TIMEOUT_RATIO) / 10;
+	interval_us = BT_GAP_PER_ADV_INTERVAL_TO_US(interval);
+	timeout =
+		BT_GAP_US_TO_PER_ADV_SYNC_TIMEOUT(interval_us) * PA_SYNC_INTERVAL_TO_TIMEOUT_RATIO;
 
 	/* Enforce restraints */
 	timeout = CLAMP(timeout, BT_GAP_PER_ADV_MIN_TIMEOUT, BT_GAP_PER_ADV_MAX_TIMEOUT);
@@ -312,7 +313,17 @@ static int reset(void)
 
 int bap_broadcast_sink_init(void)
 {
+	const struct bt_pacs_register_param pacs_param = {
+		.snk_pac = true,
+		.snk_loc = true,
+	};
 	int err;
+
+	err = bt_pacs_register(&pacs_param);
+	if (err) {
+		printk("Could not register PACS (err %d)\n", err);
+		return err;
+	}
 
 	bt_bap_broadcast_sink_register_cb(&broadcast_sink_cbs);
 	bt_le_per_adv_sync_cb_register(&broadcast_sync_cb);

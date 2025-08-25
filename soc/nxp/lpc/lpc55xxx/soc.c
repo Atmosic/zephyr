@@ -78,7 +78,7 @@ const pll_setup_t pll1Setup = {
  *
  */
 
-static ALWAYS_INLINE void clock_init(void)
+__weak void clock_init(void)
 {
 	ExternalClockFrequency = 0;
 
@@ -184,6 +184,10 @@ static ALWAYS_INLINE void clock_init(void)
 	CLOCK_AttachClk(kFRO12M_to_FLEXCOMM2);
 #endif
 
+#if DT_NODE_HAS_COMPAT_STATUS(DT_NODELABEL(flexcomm3), nxp_lpc_usart, okay)
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM3);
+#endif
+
 #if DT_NODE_HAS_COMPAT_STATUS(DT_NODELABEL(flexcomm4), nxp_lpc_i2c, okay)
 #if defined(CONFIG_SOC_LPC55S36)
 	CLOCK_SetClkDiv(kCLOCK_DivFlexcom4Clk, 0U, true);
@@ -191,6 +195,22 @@ static ALWAYS_INLINE void clock_init(void)
 #endif
 	/* attach 12 MHz clock to FLEXCOMM4 */
 	CLOCK_AttachClk(kFRO12M_to_FLEXCOMM4);
+#endif
+
+#if DT_NODE_HAS_COMPAT_STATUS(DT_NODELABEL(flexcomm4), nxp_lpc_usart, okay)
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM4);
+#endif
+
+#if DT_NODE_HAS_COMPAT_STATUS(DT_NODELABEL(flexcomm5), nxp_lpc_usart, okay)
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM5);
+#endif
+
+#if DT_NODE_HAS_COMPAT_STATUS(DT_NODELABEL(flexcomm6), nxp_lpc_usart, okay)
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM6);
+#endif
+
+#if DT_NODE_HAS_COMPAT_STATUS(DT_NODELABEL(flexcomm7), nxp_lpc_usart, okay)
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM7);
 #endif
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(hs_lspi))
@@ -225,7 +245,7 @@ static ALWAYS_INLINE void clock_init(void)
 	/* enable usb0 host clock */
 	CLOCK_EnableClock(kCLOCK_Usbhsl0);
 	/*
-	 * According to reference mannual, device mode setting has to be set by access
+	 * According to reference manual, device mode setting has to be set by access
 	 * usb host register
 	 */
 	USBFSH->PORTMODE |= USBFSH_PORTMODE_DEV_ENABLE_MASK;

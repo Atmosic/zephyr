@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Renesas Electronics Corporation
+ * Copyright (c) 2024-2025 Renesas Electronics Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -92,7 +92,9 @@ static int ra_spi_b_configure(const struct device *dev, const struct spi_config 
 		return 0;
 	}
 
-	fsp_err = R_SPI_B_Close(&data->spi);
+	if (data->spi.open != 0) {
+		R_SPI_B_Close(&data->spi);
+	}
 
 	if ((config->operation & SPI_FRAME_FORMAT_TI) == SPI_FRAME_FORMAT_TI) {
 		return -ENOTSUP;
@@ -398,12 +400,11 @@ static int ra_spi_b_release(const struct device *dev, const struct spi_config *c
 	return 0;
 }
 
-static const struct spi_driver_api ra_spi_driver_api = {.transceive = ra_spi_b_transceive,
+static DEVICE_API(spi, ra_spi_driver_api) = {.transceive = ra_spi_b_transceive,
 #ifdef CONFIG_SPI_ASYNC
-							.transceive_async =
-								ra_spi_b_transceive_async,
+					     .transceive_async = ra_spi_b_transceive_async,
 #endif /* CONFIG_SPI_ASYNC */
-							.release = ra_spi_b_release};
+					     .release = ra_spi_b_release};
 
 static spi_b_clock_source_t ra_spi_b_clock_name(const struct device *clock_dev)
 {
@@ -602,15 +603,10 @@ static void ra_spi_eri_isr(const struct device *dev)
 }
 #endif
 
-#define _ELC_EVENT_SPI_RXI(channel) ELC_EVENT_SPI##channel##_RXI
-#define _ELC_EVENT_SPI_TXI(channel) ELC_EVENT_SPI##channel##_TXI
-#define _ELC_EVENT_SPI_TEI(channel) ELC_EVENT_SPI##channel##_TEI
-#define _ELC_EVENT_SPI_ERI(channel) ELC_EVENT_SPI##channel##_ERI
-
-#define ELC_EVENT_SPI_RXI(channel) _ELC_EVENT_SPI_RXI(channel)
-#define ELC_EVENT_SPI_TXI(channel) _ELC_EVENT_SPI_TXI(channel)
-#define ELC_EVENT_SPI_TEI(channel) _ELC_EVENT_SPI_TEI(channel)
-#define ELC_EVENT_SPI_ERI(channel) _ELC_EVENT_SPI_ERI(channel)
+#define EVENT_SPI_RXI(channel) BSP_PRV_IELS_ENUM(CONCAT(EVENT_SPI, channel, _RXI))
+#define EVENT_SPI_TXI(channel) BSP_PRV_IELS_ENUM(CONCAT(EVENT_SPI, channel, _TXI))
+#define EVENT_SPI_TEI(channel) BSP_PRV_IELS_ENUM(CONCAT(EVENT_SPI, channel, _TEI))
+#define EVENT_SPI_ERI(channel) BSP_PRV_IELS_ENUM(CONCAT(EVENT_SPI, channel, _ERI))
 
 #if defined(CONFIG_SPI_B_INTERRUPT)
 
@@ -619,13 +615,13 @@ static void ra_spi_eri_isr(const struct device *dev)
 		ARG_UNUSED(dev);                                                                   \
                                                                                                    \
 		R_ICU->IELSR[DT_INST_IRQ_BY_NAME(index, rxi, irq)] =                               \
-			ELC_EVENT_SPI_RXI(DT_INST_PROP(index, channel));                           \
+			EVENT_SPI_RXI(DT_INST_PROP(index, channel));                               \
 		R_ICU->IELSR[DT_INST_IRQ_BY_NAME(index, txi, irq)] =                               \
-			ELC_EVENT_SPI_TXI(DT_INST_PROP(index, channel));                           \
+			EVENT_SPI_TXI(DT_INST_PROP(index, channel));                               \
 		R_ICU->IELSR[DT_INST_IRQ_BY_NAME(index, tei, irq)] =                               \
-			ELC_EVENT_SPI_TEI(DT_INST_PROP(index, channel));                           \
+			EVENT_SPI_TEI(DT_INST_PROP(index, channel));                               \
 		R_ICU->IELSR[DT_INST_IRQ_BY_NAME(index, eri, irq)] =                               \
-			ELC_EVENT_SPI_ERI(DT_INST_PROP(index, channel));                           \
+			EVENT_SPI_ERI(DT_INST_PROP(index, channel));                               \
                                                                                                    \
 		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(index, rxi, irq),                                  \
 			    DT_INST_IRQ_BY_NAME(index, rxi, priority), ra_spi_rxi_isr,             \
@@ -764,8 +760,8 @@ static void ra_spi_eri_isr(const struct device *dev)
 		return 0;                                                                          \
 	}                                                                                          \
                                                                                                    \
-	DEVICE_DT_INST_DEFINE(index, spi_b_ra_init##index, PM_DEVICE_DT_INST_GET(index),           \
-			      &ra_spi_data_##index, &ra_spi_config_##index, POST_KERNEL,           \
-			      CONFIG_SPI_INIT_PRIORITY, &ra_spi_driver_api);
+	SPI_DEVICE_DT_INST_DEFINE(index, spi_b_ra_init##index, PM_DEVICE_DT_INST_GET(index),       \
+				  &ra_spi_data_##index, &ra_spi_config_##index, POST_KERNEL,       \
+				  CONFIG_SPI_INIT_PRIORITY, &ra_spi_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(RA_SPI_INIT)

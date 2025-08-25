@@ -91,6 +91,23 @@ static int gpio_stm32_flags_to_conf(gpio_flags_t flags, uint32_t *pincfg)
 		*pincfg = STM32_PINCFG_MODE_ANALOG;
 	}
 
+#if !defined(CONFIG_SOC_SERIES_STM32F1X)
+	switch (flags & (STM32_GPIO_SPEED_MASK << STM32_GPIO_SPEED_SHIFT)) {
+	case STM32_GPIO_VERY_HIGH_SPEED:
+		*pincfg |= STM32_OSPEEDR_VERY_HIGH_SPEED;
+		break;
+	case STM32_GPIO_HIGH_SPEED:
+		*pincfg |= STM32_OSPEEDR_HIGH_SPEED;
+		break;
+	case STM32_GPIO_MEDIUM_SPEED:
+		*pincfg |= STM32_OSPEEDR_MEDIUM_SPEED;
+		break;
+	default:
+		*pincfg |= STM32_OSPEEDR_LOW_SPEED;
+		break;
+	}
+#endif /* !CONFIG_SOC_SERIES_STM32F1X */
+
 	return 0;
 }
 
@@ -648,7 +665,7 @@ static int gpio_stm32_manage_callback(const struct device *dev,
 	return gpio_manage_callback(&data->cb, callback, set);
 }
 
-static const struct gpio_driver_api gpio_stm32_driver = {
+static DEVICE_API(gpio, gpio_stm32_driver) = {
 	.pin_configure = gpio_stm32_config,
 #if defined(CONFIG_GPIO_GET_CONFIG) && !defined(CONFIG_SOC_SERIES_STM32F1X)
 	.pin_get_config = gpio_stm32_get_config,
@@ -772,3 +789,4 @@ GPIO_DEVICE_INIT_STM32_IF_OKAY(m, M);
 GPIO_DEVICE_INIT_STM32_IF_OKAY(n, N);
 GPIO_DEVICE_INIT_STM32_IF_OKAY(o, O);
 GPIO_DEVICE_INIT_STM32_IF_OKAY(p, P);
+GPIO_DEVICE_INIT_STM32_IF_OKAY(q, Q);
