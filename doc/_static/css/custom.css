@@ -12,6 +12,7 @@
      /* Use system font stacks for better performance (no Web fonts required) */
      --system-font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
      --header-font-family: Seravek, 'Gill Sans Nova', Ubuntu, Calibri, 'DejaVu Sans', source-sans-pro, sans-serif;
+     --monospace-font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', 'Source Code Pro', monospace;
  }
 
 body,
@@ -737,21 +738,21 @@ kbd, .kbd,
     border: none;
 }
 
-.wy-side-nav-search, .wy-menu-vertical a, .wy-menu-vertical a span.toctree-expand,
-.wy-menu-vertical li.toctree-l2 a span.toctree-expand {
+.wy-menu-vertical a button.toctree-expand,
+.wy-menu-vertical li.toctree-l2 a button.toctree-expand {
     color: var(--navbar-level-3-color);
     opacity: 0.9;
-    margin-right: 8px;
+    margin-right: 6px;
 }
 
-.wy-side-nav-search, .wy-menu-vertical a, .wy-menu-vertical a:hover span.toctree-expand,
-.wy-menu-vertical li.toctree-l2 a:hover span.toctree-expand {
+.wy-menu-vertical a:hover button.toctree-expand,
+.wy-menu-vertical li.toctree-l2 a:hover button.toctree-expand {
     color: var(--navbar-level-2-color);
     opacity: 1;
 }
 
-.wy-side-nav-search, .wy-menu-vertical a, .wy-menu-vertical a:active span.toctree-expand,
-.wy-menu-vertical li.toctree-l2 a:active span.toctree-expand {
+.wy-menu-vertical a:active button.toctree-expand,
+.wy-menu-vertical li.toctree-l2 a:active button.toctree-expand {
     color: var(--navbar-level-1-color);
     opacity: 1;
 }

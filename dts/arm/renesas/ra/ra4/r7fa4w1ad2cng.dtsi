@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Renesas Electronics Corporation
+ * Copyright (c) 2024-2025 Renesas Electronics Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,6 +7,7 @@
 #include <zephyr/dt-bindings/clock/ra_clock.h>
 #include <arm/renesas/ra/ra4/ra4-cm4-common.dtsi>
 #include <zephyr/dt-bindings/pwm/ra_pwm.h>
+#include <zephyr/dt-bindings/misc/renesas/ra-elc/ra4w1-elc.h>
 
 / {
 	soc {
@@ -43,7 +44,6 @@
 
 		adc@4005c000 {
 			interrupts = <20 1>;
-			channel-count = <8>;
 			channel-available-mask = <0x1a0670>;
 		};
 
@@ -237,4 +237,8 @@
 
 &pwm3 {
 	clocks = <&pclkd MSTPD 5>;
+};
+
+&dac_global {
+	has-davrefcr;
 };

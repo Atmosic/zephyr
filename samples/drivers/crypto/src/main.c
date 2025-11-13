@@ -4,8 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/* Sample to illustrate the usage of crypto APIs. The sample plaintext
- * and ciphertexts used for crosschecking are from TinyCrypt.
+/* Sample to illustrate the usage of crypto APIs.
  */
 
 #include <zephyr/device.h>
@@ -17,9 +16,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main);
 
-#ifdef CONFIG_CRYPTO_TINYCRYPT_SHIM
-#define CRYPTO_DRV_NAME CONFIG_CRYPTO_TINYCRYPT_SHIM_DRV_NAME
-#elif CONFIG_CRYPTO_MBEDTLS_SHIM
+#ifdef CONFIG_CRYPTO_MBEDTLS_SHIM
 #define CRYPTO_DRV_NAME CONFIG_CRYPTO_MBEDTLS_SHIM_DRV_NAME
 #elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_cryp)
 #define CRYPTO_DEV_COMPAT st_stm32_cryp
@@ -31,6 +28,8 @@ LOG_MODULE_REGISTER(main);
 #define CRYPTO_DEV_COMPAT nordic_nrf_ecb
 #elif DT_HAS_COMPAT_STATUS_OKAY(renesas_smartbond_crypto)
 #define CRYPTO_DEV_COMPAT renesas_smartbond_crypto
+#elif DT_HAS_COMPAT_STATUS_OKAY(ti_cc23x0_aes)
+#define CRYPTO_DEV_COMPAT ti_cc23x0_aes
 #elif CONFIG_CRYPTO_SI32
 #define CRYPTO_DEV_COMPAT silabs_si32_aes
 #else
@@ -263,7 +262,6 @@ void cbc_mode(const struct device *dev)
 		return;
 	}
 
-	/* TinyCrypt keeps IV at the start of encrypted buffer */
 	if (cipher_cbc_op(&ini, &decrypt, encrypted)) {
 		LOG_ERR("CBC mode DECRYPT - Failed");
 		goto out;
@@ -396,7 +394,7 @@ static const uint8_t ccm_expected[31] = {0x58, 0x8c, 0x97, 0x9a, 0x61, 0xc6, 0x6
 void ccm_mode(const struct device *dev)
 {
 	uint8_t encrypted[50] __aligned(IO_ALIGNMENT_BYTES);
-	uint8_t decrypted[25] __aligned(IO_ALIGNMENT_BYTES);
+	uint8_t decrypted[32] __aligned(IO_ALIGNMENT_BYTES);
 	struct cipher_ctx ini = {
 		.keylen = sizeof(ccm_key),
 		.key.bit_stream = ccm_key,
@@ -416,12 +414,6 @@ void ccm_mode(const struct device *dev)
 		.ad = ccm_hdr,
 		.ad_len = sizeof(ccm_hdr),
 		.pkt = &encrypt,
-		/* TinyCrypt always puts the tag at the end of the ciphered
-		 * text, but other library such as mbedtls might be more
-		 * flexible and can take a different buffer for it.  So to
-		 * make sure test passes on all backends: enforcing the tag
-		 * buffer to be after the ciphered text.
-		 */
 		.tag = encrypted + sizeof(ccm_data),
 	};
 	struct cipher_pkt decrypt = {
@@ -528,12 +520,6 @@ void gcm_mode(const struct device *dev)
 		.ad = gcm_hdr,
 		.ad_len = sizeof(gcm_hdr),
 		.pkt = &encrypt,
-		/* TinyCrypt always puts the tag at the end of the ciphered
-		 * text, but other library such as mbedtls might be more
-		 * flexible and can take a different buffer for it.  So to
-		 * make sure test passes on all backends: enforcing the tag
-		 * buffer to be after the ciphered text.
-		 */
 		.tag = encrypted + sizeof(gcm_data),
 	};
 	struct cipher_pkt decrypt = {

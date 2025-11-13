@@ -101,8 +101,7 @@ static int gpio_cmsdk_ahb_port_toggle_bits(const struct device *dev,
 	return 0;
 }
 
-static int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask,
-				 gpio_flags_t flags)
+int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask, gpio_flags_t flags)
 {
 	const struct gpio_cmsdk_ahb_cfg * const cfg = dev->config;
 
@@ -110,13 +109,7 @@ static int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask,
 		return -ENOTSUP;
 	}
 
-#ifdef CONFIG_SOC_FAMILY_ATM
-#ifdef CONFIG_SOC_SERIES_ATMX2
-	if ((flags & GPIO_PULL_DOWN) != 0) {
-		return -ENOTSUP;
-	}
-#endif
-#else
+#ifndef CONFIG_SOC_FAMILY_ATM
 	if ((flags & (GPIO_PULL_UP | GPIO_PULL_DOWN)) != 0) {
 		return -ENOTSUP;
 	}
@@ -144,13 +137,11 @@ static int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask,
 	}
 
 #ifdef CONFIG_SOC_FAMILY_ATM
-#ifndef CONFIG_SOC_SERIES_ATMX2
 	if ((flags & GPIO_PULL_DOWN) != 0) {
 		cfg->port->pulldown_enable_set = mask;
 	} else {
 		cfg->port->pulldown_enable_clr = mask;
 	}
-#endif
 
 	if ((flags & GPIO_PULL_UP) != 0) {
 		cfg->port->pullup_enable_set = mask;
@@ -171,9 +162,11 @@ static int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask,
 }
 
 #ifdef CONFIG_GPIO_GET_CONFIG
-static int cmsdk_ahb_gpio_get_config(const struct device *dev, uint32_t mask, gpio_flags_t *flags)
+static int gpio_cmsdk_ahb_get_config(const struct device *dev, gpio_pin_t pin, gpio_flags_t *flags)
 {
 	const struct gpio_cmsdk_ahb_cfg *const cfg = dev->config;
+
+	uint32_t mask = BIT(pin);
 
 	*flags = GPIO_DISCONNECTED;
 
@@ -182,17 +175,22 @@ static int cmsdk_ahb_gpio_get_config(const struct device *dev, uint32_t mask, gp
 	}
 
 #ifdef CONFIG_SOC_FAMILY_ATM
-#ifndef CONFIG_SOC_SERIES_ATMX2
 	*flags |= (cfg->port->pulldown_enable_set & mask) ? GPIO_PULL_DOWN : 0;
-#endif
 	*flags |= (cfg->port->pullup_enable_set & mask) ? GPIO_PULL_UP : 0;
-
 	*flags |= (cfg->port->inenable_set & mask) ? GPIO_INPUT : 0;
+	if (!(cfg->port->intenset & mask)) {
+		*flags |= GPIO_INT_DISABLE;
+		return 0;
+	}
+	*flags |= (cfg->port->inttypeset & mask) ? GPIO_INT_MODE_EDGE : GPIO_INT_MODE_LEVEL;
+	*flags |= (((struct gpio_cmsdk_ahb_dev_data *)dev->data)->intboth & mask)
+		? GPIO_INT_TRIG_BOTH
+		: ((cfg->port->intpolset & mask) ? GPIO_INT_TRIG_HIGH : GPIO_INT_TRIG_LOW);
 #endif // CONFIG_SOC_FAMILY_ATM
 
 	return 0;
 }
-#endif // CONFIG_GPIO_GET_CONFIG
+#endif /* CONFIG_GPIO_GET_CONFIG */
 
 /**
  * @brief Configure pin or port
@@ -209,13 +207,6 @@ static int gpio_cmsdk_ahb_config(const struct device *dev,
 {
 	return cmsdk_ahb_gpio_config(dev, BIT(pin), flags);
 }
-
-#ifdef CONFIG_GPIO_GET_CONFIG
-static int gpio_cmsdk_ahb_get_config(const struct device *dev, gpio_pin_t pin, gpio_flags_t *flags)
-{
-	return cmsdk_ahb_gpio_get_config(dev, BIT(pin), flags);
-}
-#endif
 
 static int gpio_cmsdk_ahb_pin_interrupt_configure(const struct device *dev,
 						  gpio_pin_t pin,

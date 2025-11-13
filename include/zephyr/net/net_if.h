@@ -125,6 +125,7 @@ struct net_if_addr {
 			uint8_t acd_state;
 		};
 #endif /* CONFIG_NET_IPV4_ACD */
+		uint8_t _dummy;
 	};
 
 #if defined(CONFIG_NET_IPV6_DAD) || defined(CONFIG_NET_IPV4_ACD)
@@ -502,7 +503,7 @@ struct net_if_dhcpv4 {
 	/** Timer start */
 	int64_t timer_start;
 
-	/** Time for INIT, DISCOVER, REQUESTING, RENEWAL */
+	/** Time for INIT, INIT-REBOOT, DISCOVER, REQUESTING, RENEWAL */
 	uint32_t request_time;
 
 	uint32_t xid;
@@ -702,6 +703,17 @@ struct net_if_dev {
 
 	/** RFC 2863 operational status */
 	enum net_if_oper_state oper_state;
+
+	/** Last time the operational state was changed.
+	 * This is used to determine how long the interface has been in the
+	 * current operational state.
+	 *
+	 * This value is set to 0 when the interface is created, and then
+	 * updated whenever the operational state changes.
+	 *
+	 * The value is in milliseconds since boot.
+	 */
+	int64_t oper_state_change_time;
 };
 
 /**
@@ -905,6 +917,12 @@ static inline enum net_if_oper_state net_if_oper_state_set(
 		iface->if_dev->oper_state = oper_state;
 	}
 
+	net_if_lock(iface);
+
+	iface->if_dev->oper_state_change_time = k_uptime_get();
+
+	net_if_unlock(iface);
+
 	return iface->if_dev->oper_state;
 }
 
@@ -925,14 +943,61 @@ static inline enum net_if_oper_state net_if_oper_state(struct net_if *iface)
 }
 
 /**
- * @brief Send a packet through a net iface
+ * @brief Get an operational state change time of an interface
+ *
+ * @param iface Pointer to network interface
+ * @param change_time Pointer to store the change time. Time the operational
+ *        state of an interface was last changed, in milliseconds since boot.
+ *        If the interface operational state has not been changed yet,
+ *        then the value is 0.
+ *
+ * @return 0 if ok, -EINVAL if operational state change time could not be
+ *         retrieved (for example if iface or change_time is NULL).
+ */
+static inline int net_if_oper_state_change_time(struct net_if *iface,
+						int64_t *change_time)
+{
+	if (iface == NULL || iface->if_dev == NULL || change_time == NULL) {
+		return -EINVAL;
+	}
+
+	net_if_lock(iface);
+
+	*change_time = iface->if_dev->oper_state_change_time;
+
+	net_if_unlock(iface);
+
+	return 0;
+}
+
+/**
+ * @brief Try sending a packet through a net iface
  *
  * @param iface Pointer to a network interface structure
  * @param pkt Pointer to a net packet to send
+ * @param timeout timeout for attempting to send
  *
- * return verdict about the packet
+ * @return verdict about the packet
  */
-enum net_verdict net_if_send_data(struct net_if *iface, struct net_pkt *pkt);
+enum net_verdict net_if_try_send_data(struct net_if *iface,
+				      struct net_pkt *pkt, k_timeout_t timeout);
+
+/**
+ * @brief Send a packet through a net iface
+ *
+ * This is equivalent to net_if_try_queue_tx with an infinite timeout
+ * @param iface Pointer to a network interface structure
+ * @param pkt Pointer to a net packet to send
+ *
+ * @return verdict about the packet
+ */
+static inline enum net_verdict net_if_send_data(struct net_if *iface,
+						struct net_pkt *pkt)
+{
+	k_timeout_t timeout = k_is_in_isr() ? K_NO_WAIT : K_FOREVER;
+
+	return net_if_try_send_data(iface, pkt, timeout);
+}
 
 /**
  * @brief Get a pointer to the interface L2
@@ -993,12 +1058,27 @@ static inline const struct device *net_if_get_device(struct net_if *iface)
 }
 
 /**
- * @brief Queue a packet to the net interface TX queue
+ * @brief Try enqueuing a packet to the net interface TX queue
  *
  * @param iface Pointer to a network interface structure
  * @param pkt Pointer to a net packet to queue
+ * @param timeout Timeout for the enqueuing attempt
  */
-void net_if_queue_tx(struct net_if *iface, struct net_pkt *pkt);
+void net_if_try_queue_tx(struct net_if *iface, struct net_pkt *pkt, k_timeout_t timeout);
+
+/**
+ * @brief Queue a packet to the net interface TX queue
+ *
+ * This is equivalent to net_if_try_queue_tx with an infinite timeout
+ * @param iface Pointer to a network interface structure
+ * @param pkt Pointer to a net packet to queue
+ */
+static inline void net_if_queue_tx(struct net_if *iface, struct net_pkt *pkt)
+{
+	k_timeout_t timeout = k_is_in_isr() ? K_NO_WAIT : K_FOREVER;
+
+	net_if_try_queue_tx(iface, pkt, timeout);
+}
 
 /**
  * @brief Return the IP offload status
@@ -1212,13 +1292,20 @@ static inline int net_if_set_link_addr_unlocked(struct net_if *iface,
 						uint8_t *addr, uint8_t len,
 						enum net_link_type type)
 {
+	int ret;
+
 	if (net_if_flag_is_set(iface, NET_IF_RUNNING)) {
 		return -EPERM;
 	}
 
-	net_if_get_link_addr(iface)->addr = addr;
-	net_if_get_link_addr(iface)->len = len;
-	net_if_get_link_addr(iface)->type = type;
+	if (len > sizeof(net_if_get_link_addr(iface)->addr)) {
+		return -EINVAL;
+	}
+
+	ret = net_linkaddr_create(net_if_get_link_addr(iface), addr, len, type);
+	if (ret < 0) {
+		return ret;
+	}
 
 	net_hostname_set_postfix(addr, len);
 
@@ -1435,6 +1522,12 @@ int net_if_config_ipv6_get(struct net_if *iface,
  */
 int net_if_config_ipv6_put(struct net_if *iface);
 
+
+/** @cond INTERNAL_HIDDEN */
+struct net_if_addr *net_if_ipv6_addr_lookup_raw(const uint8_t *addr,
+						struct net_if **ret);
+/** @endcond */
+
 /**
  * @brief Check if this IPv6 address belongs to one of the interfaces.
  *
@@ -1445,6 +1538,11 @@ int net_if_config_ipv6_put(struct net_if *iface);
  */
 struct net_if_addr *net_if_ipv6_addr_lookup(const struct in6_addr *addr,
 					    struct net_if **iface);
+
+/** @cond INTERNAL_HIDDEN */
+struct net_if_addr *net_if_ipv6_addr_lookup_by_iface_raw(struct net_if *iface,
+							 const uint8_t *addr);
+/** @endcond */
 
 /**
  * @brief Check if this IPv6 address belongs to this specific interfaces.
@@ -1593,6 +1691,12 @@ typedef void (*net_if_ip_maddr_cb_t)(struct net_if *iface,
  */
 void net_if_ipv6_maddr_foreach(struct net_if *iface, net_if_ip_maddr_cb_t cb,
 			       void *user_data);
+
+
+/** @cond INTERNAL_HIDDEN */
+struct net_if_mcast_addr *net_if_ipv6_maddr_lookup_raw(const uint8_t *maddr,
+						       struct net_if **ret);
+/** @endcond */
 
 /**
  * @brief Check if this IPv6 multicast address belongs to a specific interface
@@ -2167,6 +2271,32 @@ static inline struct net_if *net_if_ipv6_select_src_iface(
 #endif
 
 /**
+ * @brief Get a network interface that should be used when sending
+ * IPv6 network data to destination. Also return the source IPv6 address from
+ * that network interface.
+ *
+ * @param dst IPv6 destination address
+ * @param src_addr IPv6 source address. This can be set to NULL if the source
+ *                 address is not needed.
+ *
+ * @return Pointer to network interface to use, NULL if no suitable interface
+ * could be found.
+ */
+#if defined(CONFIG_NET_IPV6)
+struct net_if *net_if_ipv6_select_src_iface_addr(const struct in6_addr *dst,
+						 const struct in6_addr **src_addr);
+#else
+static inline struct net_if *net_if_ipv6_select_src_iface_addr(
+	const struct in6_addr *dst, const struct in6_addr **src_addr)
+{
+	ARG_UNUSED(dst);
+	ARG_UNUSED(src_addr);
+
+	return NULL;
+}
+#endif /* CONFIG_NET_IPV6 */
+
+/**
  * @brief Get a IPv6 link local address in a given state.
  *
  * @param iface Interface to use. Must be a valid pointer to an interface.
@@ -2546,6 +2676,32 @@ static inline struct net_if *net_if_ipv4_select_src_iface(
 	return NULL;
 }
 #endif
+
+/**
+ * @brief Get a network interface that should be used when sending
+ * IPv4 network data to destination. Also return the source IPv4 address from
+ * that network interface.
+ *
+ * @param dst IPv4 destination address
+ * @param src_addr IPv4 source address. This can be set to NULL if the source
+ *                 address is not needed.
+ *
+ * @return Pointer to network interface to use, NULL if no suitable interface
+ * could be found.
+ */
+#if defined(CONFIG_NET_IPV4)
+struct net_if *net_if_ipv4_select_src_iface_addr(const struct in_addr *dst,
+						 const struct in_addr **src_addr);
+#else
+static inline struct net_if *net_if_ipv4_select_src_iface_addr(
+	const struct in_addr *dst, const struct in_addr **src_addr)
+{
+	ARG_UNUSED(dst);
+	ARG_UNUSED(src_addr);
+
+	return NULL;
+}
+#endif /* CONFIG_NET_IPV4 */
 
 /**
  * @brief Get a IPv4 source address that should be used when sending
@@ -3344,7 +3500,8 @@ extern int net_stats_prometheus_scrape(struct prometheus_collector *collector,
 				   init_fn, pm, data, config, prio,	\
 				   api, l2, l2_ctx_type, mtu)		\
 	Z_DEVICE_STATE_DEFINE(dev_id);					\
-	Z_DEVICE_DEFINE(node_id, dev_id, name, init_fn, pm, data,	\
+	Z_DEVICE_DEFINE(node_id, dev_id, name, init_fn, NULL,		\
+			Z_DEVICE_DT_FLAGS(node_id), pm, data,		\
 			config, POST_KERNEL, prio, api,			\
 			&Z_DEVICE_STATE_NAME(dev_id));			\
 	NET_L2_DATA_INIT(dev_id, instance, l2_ctx_type);		\
@@ -3491,7 +3648,8 @@ extern int net_stats_prometheus_scrape(struct prometheus_collector *collector,
 #define Z_NET_DEVICE_OFFLOAD_INIT(node_id, dev_id, name, init_fn, pm,	\
 				  data, config, prio, api, mtu)		\
 	Z_DEVICE_STATE_DEFINE(dev_id);					\
-	Z_DEVICE_DEFINE(node_id, dev_id, name, init_fn, pm, data,	\
+	Z_DEVICE_DEFINE(node_id, dev_id, name, init_fn,	NULL,		\
+			Z_DEVICE_DT_FLAGS(node_id), pm, data,		\
 			config, POST_KERNEL, prio, api,			\
 			&Z_DEVICE_STATE_NAME(dev_id));			\
 	NET_IF_OFFLOAD_INIT(dev_id, 0, mtu)

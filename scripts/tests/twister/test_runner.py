@@ -2257,7 +2257,7 @@ TESTDATA_14 = [
         234,
         'native_sim',
         'posix',
-        {'CONFIG_FAKE_ENTROPY_NATIVE_POSIX': 'y'},
+        {'CONFIG_FAKE_ENTROPY_NATIVE_SIM': 'y'},
         'pytest',
         True,
         True,
@@ -2272,7 +2272,7 @@ TESTDATA_14 = [
         None,
         'native_sim',
         'not posix',
-        {'CONFIG_FAKE_ENTROPY_NATIVE_POSIX': 'y'},
+        {'CONFIG_FAKE_ENTROPY_NATIVE_SIM': 'y'},
         'not pytest',
         False,
         False,
@@ -2287,7 +2287,7 @@ TESTDATA_14 = [
         234,
         'native_sim',
         'posix',
-        {'CONFIG_FAKE_ENTROPY_NATIVE_POSIX': 'y'},
+        {'CONFIG_FAKE_ENTROPY_NATIVE_SIM': 'y'},
         'pytest',
         False,
         False,
@@ -2411,7 +2411,6 @@ def test_projectbuilder_gather_metrics(
         assert instance_mock.metrics['used_rom'] == 0
         assert instance_mock.metrics['available_rom'] == 0
         assert instance_mock.metrics['available_ram'] == 0
-        assert instance_mock.metrics['unrecognized'] == []
 
 
 TESTDATA_16 = [
@@ -2463,15 +2462,12 @@ def test_projectbuilder_calc_size(
                size_calc_mock.get_available_rom()
         assert instance_mock.metrics['available_ram'] == \
                size_calc_mock.get_available_ram()
-        assert instance_mock.metrics['unrecognized'] == \
-               size_calc_mock.unrecognized_sections()
 
     if expect_zeroes:
         assert instance_mock.metrics['used_ram'] == 0
         assert instance_mock.metrics['used_rom'] == 0
         assert instance_mock.metrics['available_rom'] == 0
         assert instance_mock.metrics['available_ram'] == 0
-        assert instance_mock.metrics['unrecognized'] == []
 
     if expect_calcs or expect_zeroes:
         assert instance_mock.metrics['handler_time'] == \
@@ -2534,7 +2530,7 @@ def test_twisterrunner_run(
     pipeline_q = queue.LifoQueue()
     done_q = queue.LifoQueue()
     done_instance = mock.Mock(
-        metrics={'k2': 'v2'},
+        metrics={'k': 'v2'},
         execution_time=30
     )
     done_instance.name='dummy instance'
@@ -2549,6 +2545,8 @@ def test_twisterrunner_run(
     results_mock().iteration = 0
     results_mock().failed = 2
     results_mock().total = 9
+    results_mock().filtered_static = 0
+    results_mock().skipped = 0
 
     def iteration_increment(value=1, decrement=False):
         results_mock().iteration += value * (-1 if decrement else 1)
@@ -2572,10 +2570,8 @@ def test_twisterrunner_run(
     assert tr.jobserver.name == expected_jobserver
 
     assert tr.instances['dummy instance'].metrics == {
-        'k': 'v',
-        'k2': 'v2',
-        'handler_time': 30,
-        'unrecognized': []
+        'k': 'v2',
+        'handler_time': 30
     }
 
     assert results_mock().error == 0
@@ -2613,7 +2609,7 @@ def test_twisterrunner_update_counting_before_pipeline():
         ),
         'dummy5': mock.Mock(
             status=TwisterStatus.SKIP,
-            reason=None,
+            reason="Quarantine",
             testsuite=mock.Mock(
                 testcases=[mock.Mock()]
             )
@@ -2634,6 +2630,7 @@ def test_twisterrunner_update_counting_before_pipeline():
         error = 0,
         cases = 0,
         filtered_cases = 0,
+        skipped = 0,
         skipped_cases = 0,
         failed_cases = 0,
         error_cases = 0,
@@ -2657,14 +2654,22 @@ def test_twisterrunner_update_counting_before_pipeline():
     def filtered_cases_increment(value=1, decrement=False):
         tr.results.filtered_cases += value * (-1 if decrement else 1)
     tr.results.filtered_cases_increment = filtered_cases_increment
+    def skipped_increment(value=1, decrement=False):
+        tr.results.skipped += value * (-1 if decrement else 1)
+    tr.results.skipped_increment = skipped_increment
+    def skipped_cases_increment(value=1, decrement=False):
+        tr.results.skipped_cases += value * (-1 if decrement else 1)
+    tr.results.skipped_cases_increment = skipped_cases_increment
 
     tr.update_counting_before_pipeline()
 
     assert tr.results.filtered_static == 1
     assert tr.results.filtered_configs == 1
     assert tr.results.filtered_cases == 4
-    assert tr.results.cases == 4
+    assert tr.results.cases == 5
     assert tr.results.error == 1
+    assert tr.results.skipped == 1
+    assert tr.results.skipped_cases == 1
 
 
 def test_twisterrunner_show_brief(caplog):

@@ -391,19 +391,19 @@ static int espi_taf_npcx_flash_read(const struct device *dev, struct espi_saf_pa
 		} else {
 			rc = flash_read(npcx_espi_taf_data.low_dev_ptr, addr,
 					npcx_espi_taf_data.read_buf,
-					(npcx_espi_taf_data.low_dev_size.low_dev_size - addr));
+					(npcx_espi_taf_data.low_dev_size - addr));
 
 			if (rc) {
 				LOG_ERR("flash read fail 0x%x", rc);
 				return -EIO;
 			}
 
-			uint32_t index = low_dev_size - addr;
+			uint32_t index = npcx_espi_taf_data.low_dev_size - addr;
 
 			rc = flash_read(
 				npcx_espi_taf_data.high_dev_ptr, 0x0,
 				&npcx_espi_taf_data.read_buf[index],
-				(addr + len - npcx_espi_taf_data.low_dev_size.low_dev_size));
+				(addr + len - npcx_espi_taf_data.low_dev_size));
 		}
 #else
 		rc = flash_read(spi_dev, addr, npcx_espi_taf_data.read_buf, len);
@@ -664,6 +664,38 @@ static void espi_taf_event_handler(const struct device *dev, struct espi_callbac
 
 	espi_taf_get_pckt(dev, &npcx_espi_taf_data, event);
 	k_work_submit(&npcx_espi_taf_data.work);
+}
+
+int espi_taf_npcx_block(const struct device *dev, bool en_block)
+{
+	struct espi_reg *const inst = HAL_INSTANCE(dev);
+
+	if (!IS_BIT_SET(inst->FLASHCTL, NPCX_FLASHCTL_SAF_AUTO_READ)) {
+		return 0;
+	}
+
+	if (en_block) {
+		if (WAIT_FOR(!IS_BIT_SET(inst->ESPISTS, NPCX_ESPISTS_FLAUTORDREQ),
+			     CONFIG_ESPI_TAF_NPCX_STS_AWAIT_TIMEOUT, NULL) == false) {
+			LOG_ERR("Check Automatic Read Queue Empty Timeout");
+			return -ETIMEDOUT;
+		}
+
+		inst->FLASHCTL |= BIT(NPCX_FLASHCTL_AUTO_RD_DIS_CTL);
+
+		if (WAIT_FOR(IS_BIT_SET(inst->ESPISTS, NPCX_ESPISTS_AUTO_RD_DIS_STS),
+			     CONFIG_ESPI_TAF_NPCX_STS_AWAIT_TIMEOUT, NULL) == false) {
+			inst->FLASHCTL &= ~BIT(NPCX_FLASHCTL_AUTO_RD_DIS_CTL);
+			inst->ESPISTS |= BIT(NPCX_ESPISTS_AUTO_RD_DIS_STS);
+			LOG_ERR("Check Automatic Read Disable Timeout");
+			return -ETIMEDOUT;
+		}
+	} else {
+		inst->FLASHCTL &= ~BIT(NPCX_FLASHCTL_AUTO_RD_DIS_CTL);
+		inst->ESPISTS |= BIT(NPCX_ESPISTS_AUTO_RD_DIS_STS);
+	}
+
+	return 0;
 }
 
 int npcx_init_taf(const struct device *dev, sys_slist_t *callbacks)

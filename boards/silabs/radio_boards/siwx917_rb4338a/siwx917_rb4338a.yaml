@@ -14,5 +14,13 @@ supported:
   - flash
   - gpio
   - i2c
+  - pwm
+  - watchdog
+  - spi
+  - uart
+  - i2s
+  - adc
   - wifi
+  - rtc
+  - counter
 vendor: silabs

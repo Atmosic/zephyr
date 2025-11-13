@@ -83,6 +83,7 @@ config X86_64
 	select X86_MMX
 	select X86_SSE
 	select X86_SSE2
+	select ARCH_HAS_DIRECTED_IPIS if !X2APIC
 
 menu "x86 Features"
 
@@ -185,6 +186,13 @@ config X86_SSE_FP_MATH
 endif # FPU || X86_64
 
 endmenu
+
+config X86_DEBUG_INFO
+	bool "System debugging information"
+	help
+	  This option enables the addition of various information that can be
+	  used by debuggers in debugging the system, or enable additional
+	  debugging information to be reported at runtime.
 
 config SRAM_OFFSET
 	default 0x100000 if X86_PC_COMPATIBLE

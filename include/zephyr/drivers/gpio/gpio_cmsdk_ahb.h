@@ -18,10 +18,7 @@ struct gpio_cmsdk_ahb {
 	volatile uint32_t data;
 	/* Offset: 0x004 (r/w) data output latch register */
 	volatile uint32_t dataout;
-#ifdef CONFIG_SOC_SERIES_ATMX2
-	volatile uint32_t pullup_enable_set;
-	volatile uint32_t pullup_enable_clr;
-#endif
+
 #ifdef CONFIG_SOC_FAMILY_ATM
 	volatile uint32_t inenable_set;
 	volatile uint32_t inenable_clr;
@@ -55,16 +52,12 @@ struct gpio_cmsdk_ahb {
 		volatile uint32_t  intclear;
 	};
 #ifdef CONFIG_SOC_FAMILY_ATM
-#ifdef CONFIG_SOC_SERIES_ATMX2
-	volatile uint32_t reserved1[239];
-#else
 	volatile uint32_t reserved0[8];
 	volatile uint32_t pullup_enable_set;
 	volatile uint32_t pullup_enable_clr;
 	volatile uint32_t pulldown_enable_set;
 	volatile uint32_t pulldown_enable_clr;
 	volatile uint32_t reserved1[229];
-#endif
 #else
 	volatile uint32_t reserved1[241];
 #endif
@@ -73,6 +66,8 @@ struct gpio_cmsdk_ahb {
 	/* Offset: 0x800 - 0xbfc upper byte masked access register (r/w) */
 	volatile uint32_t ub_masked[256];
 };
+
+int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask, gpio_flags_t flags);
 
 #ifdef __cplusplus
 }

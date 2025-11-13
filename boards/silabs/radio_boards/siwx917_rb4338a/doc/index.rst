@@ -32,22 +32,16 @@ documents:
 Supported Features
 ==================
 
-The ``siwx917_rb4338a`` board supports the following hardware features:
+.. zephyr:board-supported-hw::
 
-+-----------+------------+------------------------+
-| Interface | Controller | Driver/Component       |
-+===========+============+========================+
-| CMU       | on-chip    | clock control          |
-+-----------+------------+------------------------+
-| MPU       | on-chip    | memory protection unit |
-+-----------+------------+------------------------+
-| NVIC      | on-chip    | interrupt controller   |
-+-----------+------------+------------------------+
-| UART      | on-chip    | serial                 |
-+-----------+------------+------------------------+
+Refer to the :ref:`siwx917_wifi_features` page for a list of supported Wi-Fi features.
+
 
 Programming and Debugging
 *************************
+
+.. zephyr:board-supported-runners::
+
 
 Flashing
 ========

@@ -71,6 +71,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #endif
 
 #define ENGINE_SLEEP_MS 500
+#define NOTIFY_DELAY_MS 100
 
 #ifdef CONFIG_LWM2M_VERSION_1_1
 #define LWM2M_ENGINE_MAX_OBSERVER_PATH CONFIG_LWM2M_ENGINE_MAX_OBSERVER * 3
@@ -613,6 +614,7 @@ static int64_t check_notifications(struct lwm2m_ctx *ctx, const int64_t timestam
 		}
 		/* Check That There is not pending process*/
 		if (obs->active_notify != NULL) {
+			obs->event_timestamp += NOTIFY_DELAY_MS;
 			continue;
 		}
 
@@ -922,7 +924,7 @@ static void delete_tls_credentials(sec_tag_t tag)
 {
 	tls_credential_delete(tag, TLS_CREDENTIAL_PSK_ID);
 	tls_credential_delete(tag, TLS_CREDENTIAL_PSK);
-	tls_credential_delete(tag, TLS_CREDENTIAL_SERVER_CERTIFICATE);
+	tls_credential_delete(tag, TLS_CREDENTIAL_PUBLIC_CERTIFICATE);
 	tls_credential_delete(tag, TLS_CREDENTIAL_PRIVATE_KEY);
 	tls_credential_delete(tag, TLS_CREDENTIAL_CA_CERTIFICATE);
 }
@@ -1003,7 +1005,7 @@ static int lwm2m_load_x509_credentials(struct lwm2m_ctx *ctx)
 
 	delete_tls_credentials(ctx->tls_tag);
 
-	ret = load_tls_type(ctx, 3, TLS_CREDENTIAL_SERVER_CERTIFICATE);
+	ret = load_tls_type(ctx, 3, TLS_CREDENTIAL_PUBLIC_CERTIFICATE);
 	if (ret < 0) {
 		return ret;
 	}

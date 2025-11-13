@@ -84,7 +84,7 @@ __ramfunc static void enable_cache64(void)
 }
 #endif
 
-static int frdm_mcxn947_init(void)
+void board_early_init_hook(void)
 {
 	power_mode_od();
 
@@ -98,6 +98,11 @@ static int frdm_mcxn947_init(void)
 
 	/* Configure Flash wait-states to support 1.2V voltage level and 150000000Hz frequency */
 	FMU0->FCTRL = (FMU0->FCTRL & ~((uint32_t)FMU_FCTRL_RWSC_MASK)) | (FMU_FCTRL_RWSC(0x3U));
+
+#ifdef CONFIG_FLASH
+	/* Enable clock for internal FMU flash */
+	CLOCK_SetupClockCtrl(SYSCON_CLOCK_CTRL_FRO12MHZ_ENA_MASK);
+#endif
 
 	/* Enable FRO HF(48MHz) output */
 	CLOCK_SetupFROHFClocking(48000000U);
@@ -148,23 +153,33 @@ static int frdm_mcxn947_init(void)
 #endif
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcomm1))
+	/* Configure input clock to be able to reach the datasheet specified SPI band rate. */
 	CLOCK_SetClkDiv(kCLOCK_DivFlexcom1Clk, 1u);
-	CLOCK_AttachClk(kFRO12M_to_FLEXCOMM1);
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM1);
 #endif
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcomm2))
+	/* Configure input clock to be able to reach the datasheet specified SPI band rate. */
 	CLOCK_SetClkDiv(kCLOCK_DivFlexcom2Clk, 1u);
-	CLOCK_AttachClk(kFRO12M_to_FLEXCOMM2);
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM2);
+#endif
+
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcomm3))
+	/* Configure input clock to be able to reach the datasheet specified SPI band rate. */
+	CLOCK_SetClkDiv(kCLOCK_DivFlexcom3Clk, 1u);
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM3);
 #endif
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcomm4))
+	/* Configure input clock to be able to reach the datasheet specified SPI band rate. */
 	CLOCK_SetClkDiv(kCLOCK_DivFlexcom4Clk, 1u);
-	CLOCK_AttachClk(kFRO12M_to_FLEXCOMM4);
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM4);
 #endif
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcomm7))
+	/* Configure input clock to be able to reach the datasheet specified SPI band rate. */
 	CLOCK_SetClkDiv(kCLOCK_DivFlexcom7Clk, 1u);
-	CLOCK_AttachClk(kFRO12M_to_FLEXCOMM7);
+	CLOCK_AttachClk(kFRO_HF_DIV_to_FLEXCOMM7);
 #endif
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(os_timer))
@@ -285,6 +300,11 @@ static int frdm_mcxn947_init(void)
 	CLOCK_AttachClk(kFRO_HF_to_ADC0);
 #endif
 
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(lpadc1))
+	CLOCK_SetClkDiv(kCLOCK_DivAdc1Clk, 1U);
+	CLOCK_AttachClk(kFRO_HF_to_ADC1);
+#endif
+
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(usb1)) && (CONFIG_USB_DC_NXP_EHCI || CONFIG_UDC_NXP_EHCI)
 	SPC0->ACTIVE_VDELAY = 0x0500;
 	/* Change the power DCDC to 1.8v (By default, DCDC is 1.8V), CORELDO to 1.1v (By default,
@@ -394,8 +414,4 @@ static int frdm_mcxn947_init(void)
 
 	/* Set SystemCoreClock variable. */
 	SystemCoreClock = CLOCK_INIT_CORE_CLOCK;
-
-	return 0;
 }
-
-SYS_INIT(frdm_mcxn947_init, PRE_KERNEL_1, CONFIG_BOARD_INIT_PRIORITY);

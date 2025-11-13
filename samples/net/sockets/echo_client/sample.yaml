@@ -79,6 +79,7 @@ tests:
     platform_allow:
       - frdm_kw41z
       - frdm_mcxw71
+      - frdm_mcxw72/mcxw727c/cpu0
       - nrf52840dk/nrf52840
       - tlsr9518adk80d
     filter: CONFIG_FULL_LIBC_SUPPORTED and not CONFIG_NATIVE_LIBC
@@ -90,7 +91,7 @@ tests:
     extra_args:
       # Disabling monolithic since CI environment doesn't use blobs
       - CONFIG_NXP_MONOLITHIC_NBU=n
-      - OVERLAY_CONFIG="overlay-ot-rcp-host-nxp.conf"
+      - EXTRA_CONF_FILE="overlay-ot-rcp-host-nxp.conf"
     slow: true
     tags:
       - net

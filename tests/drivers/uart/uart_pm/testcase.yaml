@@ -8,10 +8,12 @@ common:
     - nrf54l09pdk/nrf54l09/cpuapp
     - nrf54l15dk/nrf54l15/cpuapp
     - nrf54l20pdk/nrf54l20/cpuapp
+    - nrf54lm20dk/nrf54lm20a/cpuapp
     - nrf54l15bsim/nrf54l15/cpuapp
     - nrf54h20dk/nrf54h20/cpuapp
     - nrf52_bsim
     - nrf5340bsim/nrf5340/cpuapp
+    - ophelia4ev/nrf54l15/cpuapp
   harness_config:
     fixture: gpio_loopback
   depends_on: gpio
@@ -34,10 +36,12 @@ tests:
       - nrf54l09pdk/nrf54l09/cpuapp
       - nrf54l15dk/nrf54l15/cpuapp
       - nrf54l20pdk/nrf54l20/cpuapp
+      - nrf54lm20dk/nrf54lm20a/cpuapp
       - nrf54l15bsim/nrf54l15/cpuapp
       - nrf54h20dk/nrf54h20/cpuapp
       - nrf52_bsim
       - nrf5340bsim/nrf5340/cpuapp
+      - ophelia4ev/nrf54l15/cpuapp
 
   drivers.uart.pm.enhanced_poll:
     extra_configs:
@@ -48,7 +52,9 @@ tests:
       - nrf54l09pdk/nrf54l09/cpuapp
       - nrf54l15dk/nrf54l15/cpuapp
       - nrf54l20pdk/nrf54l20/cpuapp
+      - nrf54lm20dk/nrf54lm20a/cpuapp
       - nrf54h20dk/nrf54h20/cpuapp
+      - ophelia4ev/nrf54l15/cpuapp
 
   drivers.uart.pm.int_driven:
     extra_configs:
@@ -67,13 +73,18 @@ tests:
       - nrf54l09pdk/nrf54l09/cpuapp
       - nrf54l15dk/nrf54l15/cpuapp
       - nrf54l20pdk/nrf54l20/cpuapp
+      - nrf54lm20dk/nrf54lm20a/cpuapp
       - nrf54h20dk/nrf54h20/cpuapp
+      - ophelia4ev/nrf54l15/cpuapp
 
   drivers.uart.pm.async:
     extra_configs:
       - CONFIG_UART_INTERRUPT_DRIVEN=n
       - CONFIG_UART_ASYNC_API=y
       - CONFIG_UART_0_ASYNC=y
+      - CONFIG_UART_0_NRF_HW_ASYNC=y
+      - CONFIG_UART_0_NRF_HW_ASYNC_TIMER=2
+      - CONFIG_NRFX_TIMER2=y
       - CONFIG_UART_0_ENHANCED_POLL_OUT=n
 
   drivers.uart.pm.async.enhanced_poll:
@@ -81,9 +92,14 @@ tests:
       - CONFIG_UART_INTERRUPT_DRIVEN=n
       - CONFIG_UART_ASYNC_API=y
       - CONFIG_UART_0_ASYNC=y
+      - CONFIG_UART_0_NRF_HW_ASYNC=y
+      - CONFIG_UART_0_NRF_HW_ASYNC_TIMER=2
+      - CONFIG_NRFX_TIMER2=y
       - CONFIG_UART_0_ENHANCED_POLL_OUT=y
     platform_exclude:
       - nrf54l09pdk/nrf54l09/cpuapp
       - nrf54l15dk/nrf54l15/cpuapp
       - nrf54l20pdk/nrf54l20/cpuapp
+      - nrf54lm20dk/nrf54lm20a/cpuapp
       - nrf54h20dk/nrf54h20/cpuapp
+      - ophelia4ev/nrf54l15/cpuapp

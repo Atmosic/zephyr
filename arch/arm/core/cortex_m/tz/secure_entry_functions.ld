@@ -28,13 +28,22 @@
 	#define NSC_ALIGN_END . = ALIGN(32)
 #endif
 
+#ifdef CONFIG_ARM_NSC_REGION_IN_RAM
+SECTION_DATA_PROLOGUE(.gnu.sgstubs,,)
+#else
 SECTION_PROLOGUE(.gnu.sgstubs,,)
+#endif
 {
 	NSC_ALIGN;
 	__sg_start = .;
 	/* No input section necessary, since the Secure Entry Veneers are
 	   automatically placed after the .gnu.sgstubs output section. */
+#ifdef CONFIG_ARM_NSC_REGION_IN_RAM
+} GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+__sg_load_start = LOADADDR(.gnu.sgstubs);
+#else
 } GROUP_LINK_IN(ROMABLE_REGION)
+#endif
 __sg_end = .;
 __sg_size = __sg_end - __sg_start;
 NSC_ALIGN_END;

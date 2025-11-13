@@ -149,6 +149,18 @@ def dt_node_enabled(kconf, name, node):
     return "y" if node and node.status == "okay" else "n"
 
 
+def dt_nodelabel_exists(kconf, _, label):
+    """
+    This function returns "y" if a nodelabel exists and "n" otherwise.
+    """
+    if doc_mode or edt is None:
+        return "n"
+
+    node = edt.label2node.get(label)
+
+    return "y" if node else "n"
+
+
 def dt_nodelabel_enabled(kconf, _, label):
     """
     This function is like dt_node_enabled(), but the 'label' argument
@@ -520,6 +532,29 @@ def dt_nodelabel_bool_prop(kconf, _, label, prop):
 
     return _dt_node_bool_prop_generic(edt.label2node.get, label, prop)
 
+def dt_nodelabel_int_prop(kconf, _, label, prop):
+    """
+    This function takes a 'label' and looks for an EDT node with that label.
+    If it finds an EDT node, it will look to see if that node has a int
+    property by the name of 'prop'.  If the 'prop' exists it will return the
+    value of the property, otherwise it returns "0".
+    """
+    if doc_mode or edt is None:
+        return "0"
+
+    try:
+        node = edt.label2node.get(label)
+    except edtlib.EDTError:
+        return "0"
+
+    if not node or node.props[prop].type != "int":
+        return "0"
+
+    if not node.props[prop].val:
+        return "0"
+
+    return str(node.props[prop].val)
+
 def dt_chosen_bool_prop(kconf, _, chosen, prop):
     """
     This function takes a /chosen node property named 'chosen', and
@@ -734,6 +769,17 @@ def dt_compat_enabled(kconf, _, compat):
         return "n"
 
     return "y" if compat in edt.compat2okay else "n"
+
+
+def dt_compat_enabled_num(kconf, _, compat):
+    """
+    This function takes a 'compat' and the returns number of status "okay"
+    compatible nodes in the EDT.
+    """
+    if doc_mode or edt is None:
+        return "0"
+
+    return str(len(edt.compat2okay[compat]))
 
 
 def dt_compat_on_bus(kconf, _, compat, bus):
@@ -1039,6 +1085,7 @@ def inc_dec(kconf, name, *args):
 functions = {
         "dt_has_compat": (dt_has_compat, 1, 1),
         "dt_compat_enabled": (dt_compat_enabled, 1, 1),
+        "dt_compat_enabled_num": (dt_compat_enabled_num, 1, 1),
         "dt_compat_on_bus": (dt_compat_on_bus, 2, 2),
         "dt_compat_any_has_prop": (dt_compat_any_has_prop, 2, 3),
         "dt_compat_any_not_has_prop": (dt_compat_any_not_has_prop, 2, 2),
@@ -1048,6 +1095,7 @@ functions = {
         "dt_chosen_has_compat": (dt_chosen_has_compat, 2, 2),
         "dt_path_enabled": (dt_node_enabled, 1, 1),
         "dt_alias_enabled": (dt_node_enabled, 1, 1),
+        "dt_nodelabel_exists": (dt_nodelabel_exists, 1, 1),
         "dt_nodelabel_enabled": (dt_nodelabel_enabled, 1, 1),
         "dt_nodelabel_enabled_with_compat": (dt_nodelabel_enabled_with_compat, 2, 2),
         "dt_chosen_reg_addr_int": (dt_chosen_reg, 1, 3),
@@ -1064,6 +1112,7 @@ functions = {
         "dt_nodelabel_reg_size_hex": (dt_nodelabel_reg, 1, 3),
         "dt_node_bool_prop": (dt_node_bool_prop, 2, 2),
         "dt_nodelabel_bool_prop": (dt_nodelabel_bool_prop, 2, 2),
+        "dt_nodelabel_int_prop": (dt_nodelabel_int_prop, 2, 2),
         "dt_chosen_bool_prop": (dt_chosen_bool_prop, 2, 2),
         "dt_node_has_prop": (dt_node_has_prop, 2, 2),
         "dt_nodelabel_has_prop": (dt_nodelabel_has_prop, 2, 2),

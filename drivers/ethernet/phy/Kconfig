@@ -14,6 +14,7 @@ module-dep = LOG
 module-str = Log level for Ethernet PHY driver
 module-help = Sets log level for Ethernet PHY Device Drivers.
 source "subsys/net/Kconfig.template.log_config.net"
+source "drivers/ethernet/phy/Kconfig.tja11xx"
 source "drivers/ethernet/phy/Kconfig.tja1103"
 source "drivers/ethernet/phy/Kconfig.dm8806"
 source "drivers/ethernet/phy/Kconfig.microchip_t1s"
@@ -68,6 +69,15 @@ config PHY_TI_DP83825
 	depends on GPIO
 	help
 	  Enable TI DP83825 Ethernet PHY Driver
+
+config PHY_TI_DP83867
+	bool "TI DP83867 PHY Driver"
+	default y
+	depends on DT_HAS_TI_DP83867_ENABLED
+	depends on MDIO
+	depends on GPIO
+	help
+	  Enable TI DP83867 Ethernet PHY Driver
 
 config PHY_REALTEK_RTL8211F
 	bool "Realtek RTL8211F PHY Driver"

@@ -21,8 +21,6 @@ endif()
 target_sources(                     app PRIVATE src/echo-server.c)
 target_sources_ifdef(CONFIG_NET_UDP app PRIVATE src/udp.c)
 target_sources_ifdef(CONFIG_NET_TCP app PRIVATE src/tcp.c)
-target_sources_ifdef(CONFIG_NET_VLAN app PRIVATE src/vlan.c)
-target_sources_ifdef(CONFIG_NET_L2_IPIP app PRIVATE src/tunnel.c)
 
 if (CONFIG_USB_DEVICE_STACK)
   target_sources(app PRIVATE src/usb.c)
@@ -61,10 +59,8 @@ endif()
 if(CONFIG_NET_SAMPLE_HTTPS_SERVICE)
   zephyr_linker_section_ifdef(CONFIG_NET_SAMPLE_WEBSOCKET_CONSOLE NAME
 			      http_resource_desc_wss_console_service
-			      KVMA RAM_REGION GROUP RODATA_REGION
-			      SUBALIGN Z_LINK_ITERABLE_SUBALIGN)
+			      KVMA RAM_REGION GROUP RODATA_REGION)
 endif()
 zephyr_linker_section_ifdef(CONFIG_NET_SAMPLE_WEBSOCKET_CONSOLE NAME
 			    http_resource_desc_ws_console_service
-			    KVMA RAM_REGION GROUP RODATA_REGION
-			    SUBALIGN Z_LINK_ITERABLE_SUBALIGN)
+			    KVMA RAM_REGION GROUP RODATA_REGION)

@@ -59,6 +59,7 @@
 		led0 = &led1;
 		sw0 = &button0;
 		sw1 = &button1;
+		watchdog0 = &wdt;
 	};
 
 	transceiver0: can-phy0 {
@@ -66,6 +67,11 @@
 		standby-gpios = <&ioport4 0 GPIO_ACTIVE_LOW>;
 		max-bitrate = <5000000>;
 		#phy-cells = <0>;
+	};
+
+	zephyr,user {
+		i3c-pullup-gpios = <&ioport2 5 GPIO_ACTIVE_LOW>,
+				   <&ioport2 6 GPIO_ACTIVE_LOW>;
 	};
 };
 
@@ -115,6 +121,16 @@
 	status = "okay";
 };
 
+&i3c0 {
+	i2c-scl-hz = <DT_FREQ_K(400)>;
+	i3c-scl-hz = <DT_FREQ_M(4)>;
+	pinctrl-0 = <&i3c0_default>;
+	pinctrl-names = "default";
+	interrupts = <51 1>, <52 1>, <53 1>, <54 1>, <55 1>, <56 1>;
+	interrupt-names = "resp", "rx", "tx", "rcv", "ibi", "eei";
+	status = "okay";
+};
+
 &ioport4 {
 	status = "okay";
 };
@@ -122,6 +138,12 @@
 &canfdclk {
 	clocks = <&pll>;
 	div = <8>;
+	status = "okay";
+};
+
+&i3cclk {
+	clocks = <&pll>;
+	div = <2>;
 	status = "okay";
 };
 
@@ -186,4 +208,8 @@
 			reg = <0X0 DT_SIZE_K(4)>;
 		};
 	};
+};
+
+&wdt {
+	status = "okay";
 };

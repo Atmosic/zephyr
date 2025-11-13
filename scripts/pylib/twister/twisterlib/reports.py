@@ -17,7 +17,6 @@ from colorama import Fore
 from twisterlib.statuses import TwisterStatus
 
 logger = logging.getLogger('twister')
-logger.setLevel(logging.DEBUG)
 
 
 class ReportStatus(str, Enum):
@@ -399,7 +398,7 @@ class Reporting:
                 suite["reason"] = instance.reason
             else:
                 suite["status"] = TwisterStatus.NONE
-                suite["reason"] = 'Unknown Instance status.'
+                suite["reason"] = 'Unknown Instance status'
 
             if instance.status != TwisterStatus.NONE:
                 suite["execution_time"] =  f"{float(handler_time):.2f}"
@@ -633,18 +632,11 @@ class Reporting:
             )
             logger.info("-+" * 40)
 
-    def summary(self, results, ignore_unrecognized_sections, duration):
+    def summary(self, results, duration):
         failed = 0
         run = 0
         for instance in self.instances.values():
             if instance.status == TwisterStatus.FAIL:
-                failed += 1
-            elif not ignore_unrecognized_sections and instance.metrics.get("unrecognized"):
-                logger.error(
-                    f"{Fore.RED}FAILED{Fore.RESET}:"
-                    f" {instance.name} has unrecognized binary sections:"
-                    f" {instance.metrics.get('unrecognized', [])!s}"
-                )
                 failed += 1
 
             # FIXME: need a better way to identify executed tests
@@ -742,7 +734,7 @@ class Reporting:
                     f'.'
                 )
 
-        built_only = results.total - run - results.filtered_configs
+        built_only = results.total - run - results.filtered_configs - results.skipped
         logger.info(
             f"{Fore.GREEN}{run}{Fore.RESET} test configurations executed on platforms,"
             f" {TwisterStatus.get_color(TwisterStatus.NOTRUN)}{built_only}{Fore.RESET}"
@@ -853,4 +845,9 @@ class Reporting:
                 return line[line.index('error: ') :].strip()
             elif ": in function " in line:
                 last_warning = line[line.index('in function') :].strip()
+            elif "CMake Error at" in line:
+                for next_line in lines[i + 1 :]:
+                    if next_line.strip():
+                        return line + ' ' + next_line
+                return line
         return None

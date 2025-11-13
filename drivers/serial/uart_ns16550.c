@@ -621,7 +621,7 @@ static int uart_ns16550_configure(const struct device *dev,
 		}
 
 		ret = clock_control_on(dev_cfg->clock_dev, dev_cfg->clock_subsys);
-		if (ret != 0 && ret != -EALREADY) {
+		if (ret != 0 && ret != -EALREADY && ret != -ENOSYS) {
 			goto out;
 		}
 
@@ -1940,7 +1940,7 @@ static DEVICE_API(uart, uart_ns16550_driver_api) = {
 				.sys_clk_freq = 0,                                   \
 				.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(n)),  \
 				.clock_subsys = (clock_control_subsys_t) DT_INST_PHA(\
-								0, clocks, clkid),   \
+								n, clocks, clkid),   \
 			)                                                            \
 		)                                                                    \
 		IF_ENABLED(DT_INST_NODE_HAS_PROP(n, pcp),                            \

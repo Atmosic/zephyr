@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include <soc.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/bluetooth/hci_types.h>
@@ -119,8 +118,15 @@ static void ticker_resume_cb(uint32_t ticks_at_expire, uint32_t ticks_drift,
 			     void *param);
 
 #define NODE_RX_HEADER_SIZE (offsetof(struct node_rx_pdu, pdu))
+#define ISO_RX_HEADER_SIZE  (offsetof(struct pdu_bis, payload))
+
+/* Ensure both BIS and CIS PDU headers are of equal size */
+BUILD_ASSERT(ISO_RX_HEADER_SIZE == offsetof(struct pdu_cis, payload));
+
 /* ISO LL conformance tests require a PDU size of maximum 251 bytes + header */
-#define ISO_RX_BUFFER_SIZE (2 + 251)
+#define ISO_RX_BUFFER_SIZE (ISO_RX_HEADER_SIZE + \
+			    MAX(MAX(LL_BIS_OCTETS_RX_MAX, LL_CIS_OCTETS_RX_MAX), \
+				LL_VND_OCTETS_RX_MIN))
 
 /* Declare the ISO rx node RXFIFO. This is a composite pool-backed MFIFO for
  * rx_nodes. The declaration constructs the following data structures:
@@ -1165,7 +1171,7 @@ void ll_iso_transmit_test_send_sdu(uint16_t handle, uint32_t ticks_at_expire)
 		sdu.grp_ref_point = isoal_get_wrapped_time_us(cig->cig_ref_point,
 						(event_offset * cig->iso_interval *
 							ISO_INT_UNIT_US));
-		sdu.target_event = cis->lll.event_count + event_offset;
+		sdu.target_event = cis->lll.event_count_prepare + event_offset;
 		sdu.iso_sdu_length = remaining_tx;
 
 		/* Send all SDU fragments */
@@ -1595,7 +1601,7 @@ static void iso_rx_cig_ref_point_update(struct ll_conn_iso_group *cig,
 	cig_sync_delay = cig->sync_delay;
 	cis_sync_delay = cis->sync_delay;
 	burst_number = cis->lll.rx.bn;
-	event_count = cis->lll.event_count;
+	event_count = cis->lll.event_count_prepare;
 
 	if (role) {
 		/* Peripheral */
@@ -2023,7 +2029,10 @@ void ull_iso_resume_ticker_start(struct lll_event *resume_event,
 				struct ll_conn *conn;
 
 				cis = ll_conn_iso_stream_get(stream_handle);
+
 				conn = ll_conn_get(cis->lll.acl_handle);
+				LL_ASSERT(conn != NULL);
+
 				phy = conn->lll.phy_rx;
 #endif /* CONFIG_BT_CTLR_CONN_ISO */
 #if defined(CONFIG_BT_CTLR_SYNC_ISO)

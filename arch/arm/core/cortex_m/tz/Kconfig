@@ -54,6 +54,14 @@ config ARM_NSC_REGION_BASE_ADDRESS
 	  a Non-Secure Callable section, depending on the available
 	  security attribution unit (SAU or IDAU) for a given SOC.
 
+config ARM_NSC_REGION_IN_RAM
+	bool "Place secure entry functions in RAM"
+	depends on ARM_FIRMWARE_HAS_SECURE_ENTRY_FUNCS
+	depends on XIP
+	help
+	  The NSC region is executed from RAM instead of ROMABLE code
+	  space.
+
 config ARM_FIRMWARE_USES_SECURE_ENTRY_FUNCS
 	bool "Non-Secure Firmware uses Secure Entry functions"
 	depends on ARM_NONSECURE_FIRMWARE

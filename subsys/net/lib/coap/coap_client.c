@@ -818,7 +818,10 @@ static int handle_response(struct coap_client *client, const struct coap_packet 
 	internal_req = get_request_with_token(client, response);
 	if (!internal_req) {
 		LOG_WRN("No matching request for response");
-		(void) send_rst(client, response); /* Ignore errors, unrelated to our queries */
+		if (response_type != COAP_TYPE_ACK) {
+			/* Ignore errors, unrelated to our queries */
+			(void)send_rst(client, response);
+		}
 		return 0;
 	}
 
@@ -995,7 +998,15 @@ fail:
 		report_callback_error(internal_req, ret);
 	}
 	if (!internal_req->is_observe) {
-		release_internal_request(internal_req);
+		if (response_type == COAP_TYPE_ACK) {
+			/* This is piggybacked ACK,
+			 * no need to wait for lifetime to expire, all data is already transferred
+			 * and acknowledged
+			 */
+			reset_internal_request(internal_req);
+		} else {
+			release_internal_request(internal_req);
+		}
 	}
 	return ret;
 }
@@ -1121,6 +1132,20 @@ struct coap_client_option coap_client_option_initial_block2(void)
 	return block2;
 }
 
+bool coap_client_has_ongoing_exchange(struct coap_client *client)
+{
+	if (client == NULL) {
+		LOG_ERR("Invalid (NULL) Client");
+		return false;
+	}
+
+	return has_ongoing_exchange(client);
+}
+
+#define COAP_CLIENT_THREAD_PRIORITY CLAMP(CONFIG_COAP_CLIENT_THREAD_PRIORITY, \
+					  K_HIGHEST_APPLICATION_THREAD_PRIO, \
+					  K_LOWEST_APPLICATION_THREAD_PRIO)
+
 K_THREAD_DEFINE(coap_client_recv_thread, CONFIG_COAP_CLIENT_STACK_SIZE,
 		coap_client_recv, NULL, NULL, NULL,
-		CONFIG_COAP_CLIENT_THREAD_PRIORITY, 0, 0);
+		COAP_CLIENT_THREAD_PRIORITY, 0, 0);

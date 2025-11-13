@@ -1,7 +1,7 @@
 #!/bin/python3
 
 # Copyright (c) 2024 Nordic Semiconductor ASA
-# Copyright (c) 2025 Atmosic
+# Copyright (c) Atmosic 2025
 # SPDX-License-Identifier: Apache-2.0
 
 import re

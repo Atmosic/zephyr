@@ -17,7 +17,7 @@
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
-
+#include <stm32_backup_domain.h>
 
 /* Macros to fill up prescaler values */
 #define z_ahb_prescaler(v) LL_RCC_SYSCLK_DIV_ ## v
@@ -150,15 +150,14 @@ int enabled_clock(uint32_t src_clk)
 	return -ENOTSUP;
 }
 
-static inline int stm32_clock_control_on(const struct device *dev,
-					 clock_control_subsys_t sub_system)
+static int stm32_clock_control_on(const struct device *dev, clock_control_subsys_t sub_system)
 {
 	struct stm32_pclken *pclken = (struct stm32_pclken *)(sub_system);
 	volatile int temp;
 
 	ARG_UNUSED(dev);
 
-	if (IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX) == 0) {
+	if (!IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX)) {
 		/* Attempt to toggle a wrong periph clock bit */
 		return -ENOTSUP;
 	}
@@ -172,14 +171,13 @@ static inline int stm32_clock_control_on(const struct device *dev,
 	return 0;
 }
 
-static inline int stm32_clock_control_off(const struct device *dev,
-					  clock_control_subsys_t sub_system)
+static int stm32_clock_control_off(const struct device *dev, clock_control_subsys_t sub_system)
 {
 	struct stm32_pclken *pclken = (struct stm32_pclken *)(sub_system);
 
 	ARG_UNUSED(dev);
 
-	if (IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX) == 0) {
+	if (!IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX)) {
 		/* Attempt to toggle a wrong periph clock bit */
 		return -ENOTSUP;
 	}
@@ -190,9 +188,9 @@ static inline int stm32_clock_control_off(const struct device *dev,
 	return 0;
 }
 
-static inline int stm32_clock_control_configure(const struct device *dev,
-						clock_control_subsys_t sub_system,
-						void *data)
+static int stm32_clock_control_configure(const struct device *dev,
+					 clock_control_subsys_t sub_system,
+					 void *data)
 {
 	struct stm32_pclken *pclken = (struct stm32_pclken *)(sub_system);
 	int err;
@@ -373,7 +371,7 @@ static enum clock_control_status stm32_clock_control_get_status(const struct dev
 
 	ARG_UNUSED(dev);
 
-	if (IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX) == true) {
+	if (IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX)) {
 		/* Gated clocks */
 		if ((sys_read32(DT_REG_ADDR(DT_NODELABEL(rcc)) + pclken->bus) & pclken->enr)
 		    == pclken->enr) {
@@ -734,13 +732,7 @@ static void set_up_fixed_clock_sources(void)
 		/* Enable the power interface clock */
 		LL_AHB3_GRP1_EnableClock(LL_AHB3_GRP1_PERIPH_PWR);
 
-		if (!LL_PWR_IsEnabledBkUpAccess()) {
-			/* Enable write access to Backup domain */
-			LL_PWR_EnableBkUpAccess();
-			while (!LL_PWR_IsEnabledBkUpAccess()) {
-				/* Wait for Backup domain access */
-			}
-		}
+		stm32_backup_domain_enable_access();
 
 		/* Configure driving capability */
 		LL_RCC_LSE_SetDriveCapability(STM32_LSE_DRIVING << RCC_BDCR_LSEDRV_Pos);
@@ -762,7 +754,7 @@ static void set_up_fixed_clock_sources(void)
 		while (!LL_RCC_LSESYS_IsReady()) {
 		}
 
-		LL_PWR_DisableBkUpAccess();
+		stm32_backup_domain_disable_access();
 	}
 
 	if (IS_ENABLED(STM32_MSIS_ENABLED)) {
@@ -820,20 +812,14 @@ static void set_up_fixed_clock_sources(void)
 			LL_AHB3_GRP1_EnableClock(LL_AHB3_GRP1_PERIPH_PWR);
 		}
 
-		if (!LL_PWR_IsEnabledBkUpAccess()) {
-			/* Enable write access to Backup domain */
-			LL_PWR_EnableBkUpAccess();
-			while (!LL_PWR_IsEnabledBkUpAccess()) {
-				/* Wait for Backup domain access */
-			}
-		}
+		stm32_backup_domain_enable_access();
 
 		/* Enable LSI oscillator */
 		LL_RCC_LSI_Enable();
 		while (LL_RCC_LSI_IsReady() != 1) {
 		}
 
-		LL_PWR_DisableBkUpAccess();
+		stm32_backup_domain_disable_access();
 	}
 
 	if (IS_ENABLED(STM32_HSI48_ENABLED)) {

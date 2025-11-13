@@ -35,10 +35,6 @@ config PM_MCUX_GPC
 	default y if HAS_MCUX_GPC
 	depends on SOC_SERIES_IMXRT11XX && PM
 
-# Don't allow SOC to sleep after tests complete when PM is enabled
-config ZTEST_NO_YIELD
-	default y if (ZTEST && PM)
-
 if SOC_SERIES_IMXRT10XX && PM
 
 config CODE_DATA_RELOCATION
@@ -61,9 +57,6 @@ config SYSTEM_WORKQUEUE_STACK_SIZE
 	default 1560
 
 endif # ETH_NXP_ENET
-
-config MEMC
-	default y if !SOC_SERIES_IMXRT118X # RT118X lacks FLEXRAM
 
 DT_CHOSEN_Z_DTCM := zephyr,dtcm
 

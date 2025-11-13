@@ -83,6 +83,7 @@ const struct device *wdog_r;
 static unsigned int reload_cycles = CMSDK_APB_WDOG_RELOAD;
 static uint8_t assigned_channels;
 static uint8_t flags;
+static bool enabled;
 
 static void (*user_cb)(const struct device *dev, int channel_id);
 
@@ -102,9 +103,19 @@ static int wdog_cmsdk_apb_setup(const struct device *dev, uint8_t options)
 	ARG_UNUSED(dev);
 	ARG_UNUSED(options);
 
+	/* Check if watchdog is already running */
+	if (enabled) {
+		return -EBUSY;
+	}
+
+	/* Reset pending interrupts before starting */
+	wdog->intclr = CMSDK_APB_WDOG_INTCLR;
+	wdog->load = reload_cycles;
+
 	/* Start the watchdog counter with INTEN bit */
 	wdog->ctrl = (CMSDK_APB_WDOG_CTRL_RESEN | CMSDK_APB_WDOG_CTRL_INTEN);
 
+	enabled = true;
 	return 0;
 }
 
@@ -117,6 +128,7 @@ static int wdog_cmsdk_apb_disable(const struct device *dev)
 	/* Stop the watchdog counter with INTEN bit */
 	wdog->ctrl = ~(CMSDK_APB_WDOG_CTRL_RESEN | CMSDK_APB_WDOG_CTRL_INTEN);
 
+	enabled = false;
 	assigned_channels = 0;
 
 	return 0;
@@ -132,6 +144,9 @@ static int wdog_cmsdk_apb_install_timeout(const struct device *dev,
 
 	if (config->window.max == 0) {
 		return -EINVAL;
+	}
+	if (enabled == true) {
+		return -EBUSY;
 	}
 	if (assigned_channels == 1) {
 		return -ENOMEM;
@@ -173,8 +188,8 @@ static DEVICE_API(wdt, wdog_cmsdk_apb_api) = {
 	.feed = wdog_cmsdk_apb_feed,
 };
 
-#if DT_NODE_HAS_PROP(DT_DRV_INST(0), interrupts)
-static void wdog_cmsdk_apb_isr(void)
+#if DT_NODE_HAS_PROP(DT_DRV_INST(0), interrupts) || defined(CONFIG_RUNTIME_NMI)
+static void wdog_cmsdk_apb_handler(void)
 {
 	void (*isr_user_cb)(const struct device *dev, int channel_id) = user_cb;
 
@@ -198,9 +213,14 @@ static void wdog_cmsdk_apb_isr(void)
 		isr_user_cb(wdog_r, 0);
 	}
 }
-#else /* DT_NODE_HAS_PROP */
-#ifdef CONFIG_RUNTIME_NMI
+#endif
 
+#if DT_NODE_HAS_PROP(DT_DRV_INST(0), interrupts)
+static void wdog_cmsdk_apb_isr(void)
+{
+	wdog_cmsdk_apb_handler();
+}
+#elif defined(CONFIG_RUNTIME_NMI)
 static int wdog_cmsdk_apb_has_fired(void)
 {
 	volatile struct wdog_cmsdk_apb *wdog = WDOG_STRUCT;
@@ -219,12 +239,9 @@ static void wdog_cmsdk_apb_isr(void)
 		/* In ARM implementation sys_reboot ignores the parameter */
 		sys_reboot(0);
 	} else {
-		if (user_cb != NULL) {
-			user_cb(wdog_r, 0);
-		}
+		wdog_cmsdk_apb_handler();
 	}
 }
-#endif /* CONFIG_RUNTIME_NMI */
 #endif /* DT_NODE_HAS_PROP */
 
 static int wdog_cmsdk_apb_init(const struct device *dev)
@@ -244,10 +261,8 @@ static int wdog_cmsdk_apb_init(const struct device *dev)
 	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority), wdog_cmsdk_apb_isr,
 		    DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQN(0));
-#else /* DT_NODE_HAS_PROP */
-#ifdef CONFIG_RUNTIME_NMI
+#elif defined(CONFIG_RUNTIME_NMI)
 	z_arm_nmi_set_handler(wdog_cmsdk_apb_isr);
-#endif
 #endif /* DT_NODE_HAS_PROP */
 
 #ifdef CONFIG_WDOG_CMSDK_APB_START_AT_BOOT
