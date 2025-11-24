@@ -15,6 +15,8 @@ set_compiler_property(PROPERTY optimization_size)
 
 set_compiler_property(PROPERTY optimization_size_aggressive)
 
+set_compiler_property(PROPERTY optimization_fast)
+
 #######################################################
 # This section covers flags related to warning levels #
 #######################################################
@@ -73,6 +75,9 @@ set_compiler_property(PROPERTY no_strict_aliasing)
 # Extra warnings options for twister run
 set_property(TARGET compiler PROPERTY warnings_as_errors)
 set_property(TARGET asm PROPERTY warnings_as_errors)
+
+set_property(TARGET compiler PROPERTY no_deprecation_warning)
+set_property(TARGET asm PROPERTY no_deprecation_warning)
 
 # Flag for disabling exceptions in C++
 set_property(TARGET compiler-cpp PROPERTY no_exceptions)
@@ -141,6 +146,8 @@ set_compiler_property(PROPERTY no_global_merge)
 
 # Compiler flag for warning about shadow variables
 set_compiler_property(PROPERTY warning_shadow_variables)
+# Compiler flag for disabling warning about array bounds
+set_compiler_property(PROPERTY warning_no_array_bounds)
 
 # Compiler flags to avoid recognizing built-in functions
 set_compiler_property(PROPERTY no_builtin)
@@ -157,3 +164,9 @@ set_compiler_property(PROPERTY include_file)
 set_compiler_property(PROPERTY cmse)
 
 set_property(TARGET asm PROPERTY cmse)
+
+# Compiler flag for not placing functions in their own sections:
+set_compiler_property(PROPERTY no_function_sections)
+
+# Compiler flag for not placing variables in their own sections:
+set_compiler_property(PROPERTY no_data_sections)

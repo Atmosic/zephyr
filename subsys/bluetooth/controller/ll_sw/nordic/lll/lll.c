@@ -38,9 +38,9 @@
 
 #if defined(CONFIG_BT_CTLR_ZLI)
 #define IRQ_CONNECT_FLAGS IRQ_ZERO_LATENCY
-#else
+#else /* !CONFIG_BT_CTLR_ZLI */
 #define IRQ_CONNECT_FLAGS 0
-#endif
+#endif /* !CONFIG_BT_CTLR_ZLI */
 
 static struct {
 	struct {
@@ -103,7 +103,9 @@ ISR_DIRECT_DECLARE(radio_nrf5_isr)
 
 	isr_radio();
 
+#if !defined(CONFIG_BT_CTLR_ZLI)
 	ISR_DIRECT_PM();
+#endif /* !CONFIG_BT_CTLR_ZLI */
 
 	lll_prof_exit_radio();
 
@@ -111,7 +113,11 @@ ISR_DIRECT_DECLARE(radio_nrf5_isr)
 
 #if !defined(CONFIG_BT_CTLR_DYNAMIC_INTERRUPTS) || \
 	!defined(CONFIG_DYNAMIC_DIRECT_INTERRUPTS)
-	return 1;
+#if !defined(CONFIG_BT_CTLR_ZLI)
+	return 1; /* reschedule when non-ZLI, k_sem_give() may have been invoked */
+#else /* CONFIG_BT_CTLR_ZLI */
+	return 0; /* no_reschedule when ZLI, non-ZLI mayfly will be used to call k_sem_give() */
+#endif /* CONFIG_BT_CTLR_ZLI */
 #endif /* !CONFIG_DYNAMIC_DIRECT_INTERRUPTS */
 }
 
@@ -129,7 +135,9 @@ ISR_DIRECT_DECLARE(timer_nrf5_isr)
 
 	isr_radio_tmr();
 
+#if !defined(CONFIG_BT_CTLR_ZLI)
 	ISR_DIRECT_PM();
+#endif /* !CONFIG_BT_CTLR_ZLI */
 
 	lll_prof_exit_radio();
 
@@ -137,7 +145,11 @@ ISR_DIRECT_DECLARE(timer_nrf5_isr)
 
 #if !defined(CONFIG_BT_CTLR_DYNAMIC_INTERRUPTS) || \
 	!defined(CONFIG_DYNAMIC_DIRECT_INTERRUPTS)
-	return 1;
+#if !defined(CONFIG_BT_CTLR_ZLI)
+	return 1; /* reschedule when non-ZLI, k_sem_give() may have been invoked */
+#else /* CONFIG_BT_CTLR_ZLI */
+	return 0; /* no_reschedule when ZLI, non-ZLI mayfly will be used to call k_sem_give() */
+#endif /* CONFIG_BT_CTLR_ZLI */
 #endif /* !CONFIG_DYNAMIC_DIRECT_INTERRUPTS */
 }
 #endif /* CONFIG_BT_CTLR_RADIO_TIMER_ISR */
@@ -284,10 +296,10 @@ int lll_init(void)
 #if defined(CONFIG_BT_CTLR_ZLI)
 	IRQ_DIRECT_CONNECT(HAL_SWI_RADIO_IRQ, CONFIG_BT_CTLR_LLL_PRIO,
 			   swi_lll_nrf5_isr, IRQ_CONNECT_FLAGS);
-#else
+#else /* !CONFIG_BT_CTLR_ZLI */
 	IRQ_CONNECT(HAL_SWI_RADIO_IRQ, CONFIG_BT_CTLR_LLL_PRIO,
 		    swi_lll_nrf5_isr, NULL, IRQ_CONNECT_FLAGS);
-#endif
+#endif /* !CONFIG_BT_CTLR_ZLI */
 #if defined(CONFIG_BT_CTLR_LOW_LAT) || \
 	(CONFIG_BT_CTLR_ULL_HIGH_PRIO != CONFIG_BT_CTLR_ULL_LOW_PRIO)
 	IRQ_CONNECT(HAL_SWI_JOB_IRQ, CONFIG_BT_CTLR_ULL_LOW_PRIO,
@@ -612,16 +624,7 @@ void lll_abort_cb(struct lll_prepare_param *prepare_param, void *param)
 
 uint32_t lll_event_offset_get(struct ull_hdr *ull)
 {
-	if (0) {
-#if defined(CONFIG_BT_CTLR_XTAL_ADVANCED)
-	} else if (ull->ticks_prepare_to_start & XON_BITMASK) {
-		return MAX(ull->ticks_active_to_start,
-			   ull->ticks_preempt_to_start);
-#endif /* CONFIG_BT_CTLR_XTAL_ADVANCED */
-	} else {
-		return MAX(ull->ticks_active_to_start,
-			   ull->ticks_prepare_to_start);
-	}
+	return HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_XTAL_US);
 }
 
 uint32_t lll_preempt_calc(struct ull_hdr *ull, uint8_t ticker_id,
@@ -1108,9 +1111,8 @@ static uint32_t preempt_ticker_start(struct lll_event *first,
 		p = &next->prepare_param;
 		ull = HDR_LLL2ULL(p->param);
 		preempt_anchor = p->ticks_at_expire;
-		preempt_to = MAX(ull->ticks_active_to_start,
-				 ull->ticks_prepare_to_start) -
-			     ull->ticks_preempt_to_start;
+		preempt_to = HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_XTAL_US) -
+			     HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_PREEMPT_MIN_US);
 
 		ticks_at_preempt_new = preempt_anchor + preempt_to;
 		ticks_at_preempt_new &= HAL_TICKER_CNTR_MASK;
@@ -1134,9 +1136,8 @@ static uint32_t preempt_ticker_start(struct lll_event *first,
 		p = &first->prepare_param;
 		ull = HDR_LLL2ULL(p->param);
 		preempt_anchor = p->ticks_at_expire;
-		preempt_to = MAX(ull->ticks_active_to_start,
-				 ull->ticks_prepare_to_start) -
-			     ull->ticks_preempt_to_start;
+		preempt_to = HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_XTAL_US) -
+			     HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_PREEMPT_MIN_US);
 
 		ticks_at_preempt_new = preempt_anchor + preempt_to;
 		ticks_at_preempt_new &= HAL_TICKER_CNTR_MASK;

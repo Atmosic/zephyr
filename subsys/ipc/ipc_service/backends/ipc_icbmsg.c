@@ -118,7 +118,8 @@ LOG_MODULE_REGISTER(ipc_icbmsg,
 #define FLAG_EPT_COUNT_MASK 0xFFFF
 
 /** Workqueue stack size for bounding processing (this configuration is not optimized). */
-#define EP_BOUND_WORK_Q_STACK_SIZE (512U)
+#define EP_BOUND_WORK_Q_STACK_SIZE \
+	(CONFIG_IPC_SERVICE_BACKEND_ICBMSG_EP_BOUND_WORK_Q_STACK_SIZE)
 
 /** Workqueue priority for bounding processing. */
 #define EP_BOUND_WORK_Q_PRIORITY (CONFIG_SYSTEM_WORKQUEUE_PRIORITY)
@@ -1087,7 +1088,6 @@ static int register_ept(const struct device *instance, void **token,
 	struct ept_data *ept = NULL;
 	bool matching_state;
 	int ept_index;
-	int r = 0;
 
 	/* Try to find endpoint to rebound */
 	for (ept_index = 0; ept_index < NUM_EPT; ept_index++) {
@@ -1134,7 +1134,7 @@ static int register_ept(const struct device *instance, void **token,
 	ept_bound_process(dev_data);
 #endif
 
-	return r;
+	return 0;
 }
 
 /**
@@ -1237,8 +1237,13 @@ static int hold_rx_buffer(const struct device *instance, void *token, void *data
 static int release_rx_buffer(const struct device *instance, void *token, void *data)
 {
 	struct backend_data *dev_data = instance->data;
+	int r;
 
-	return send_release(dev_data, (uint8_t *)data, MSG_RELEASE_DATA, 0);
+	r = send_release(dev_data, (uint8_t *)data, MSG_RELEASE_DATA, 0);
+	if (r < 0) {
+		return r;
+	}
+	return 0;
 }
 
 /**
@@ -1251,6 +1256,7 @@ static int backend_init(const struct device *instance)
 #ifdef CONFIG_MULTITHREADING
 	static K_THREAD_STACK_DEFINE(ep_bound_work_q_stack, EP_BOUND_WORK_Q_STACK_SIZE);
 	static bool is_work_q_started;
+	struct k_work_queue_config work_q_cfg = { .name = "icbmsg_workq" };
 
 #if defined(CONFIG_ARCH_POSIX)
 	native_emb_addr_remap((void **)&conf->tx.blocks_ptr);
@@ -1261,7 +1267,7 @@ static int backend_init(const struct device *instance)
 		k_work_queue_init(&ep_bound_work_q);
 		k_work_queue_start(&ep_bound_work_q, ep_bound_work_q_stack,
 				   K_THREAD_STACK_SIZEOF(ep_bound_work_q_stack),
-				   EP_BOUND_WORK_Q_PRIORITY, NULL);
+				   EP_BOUND_WORK_Q_PRIORITY, &work_q_cfg);
 
 		is_work_q_started = true;
 	}

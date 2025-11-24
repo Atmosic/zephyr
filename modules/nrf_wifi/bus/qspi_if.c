@@ -24,6 +24,7 @@
 #include <hal/nrf_gpio.h>
 
 #include "spi_nor.h"
+#include "osal_api.h"
 
 /* The QSPI bus node which the NRF70 is on */
 #define QSPI_IF_BUS_NODE DT_NODELABEL(qspi)
@@ -527,13 +528,9 @@ static int qspi_device_init(const struct device *dev)
 	return ret;
 }
 
-static void qspi_device_uninit(const struct device *dev)
+static void _qspi_device_uninit(const struct device *dev)
 {
 	bool last = true;
-
-	if (!IS_ENABLED(CONFIG_NRF70_QSPI_LOW_POWER)) {
-		return;
-	}
 
 	qspi_lock(dev);
 
@@ -565,6 +562,15 @@ static void qspi_device_uninit(const struct device *dev)
 	}
 
 	qspi_unlock(dev);
+}
+
+static void qspi_device_uninit(const struct device *dev)
+{
+	if (!IS_ENABLED(CONFIG_NRF70_QSPI_LOW_POWER)) {
+		return;
+	}
+
+	_qspi_device_uninit(dev);
 }
 
 /* QSPI send custom command.
@@ -1190,7 +1196,9 @@ struct device qspi_perip = {
 
 int qspi_deinit(void)
 {
-	LOG_DBG("TODO : %s", __func__);
+	if (nrfx_qspi_init_check()) {
+		_qspi_device_uninit(&qspi_perip);
+	}
 
 	return 0;
 }
@@ -1287,7 +1295,7 @@ int qspi_hl_readw(unsigned int addr, void *data)
 
 	len = len + (4 * qspi_cfg->qspi_slave_latency);
 
-	rxb = k_malloc(len);
+	rxb = nrf_wifi_osal_mem_alloc(len);
 
 	if (rxb == NULL) {
 		LOG_ERR("%s: ERROR ENOMEM line %d", __func__, __LINE__);
@@ -1306,7 +1314,7 @@ int qspi_hl_readw(unsigned int addr, void *data)
 
 	*(uint32_t *)data = *(uint32_t *)(rxb + (len - 4));
 
-	k_free(rxb);
+	nrf_wifi_osal_mem_free(rxb);
 
 	return status;
 }

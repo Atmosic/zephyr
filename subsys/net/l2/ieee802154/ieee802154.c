@@ -16,6 +16,7 @@ LOG_MODULE_REGISTER(net_ieee802154, CONFIG_NET_L2_IEEE802154_LOG_LEVEL);
 
 #include <errno.h>
 
+#include <zephyr/toolchain/gcc.h>
 #include <zephyr/net/capture.h>
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/net_core.h>
@@ -251,24 +252,28 @@ static inline void swap_and_set_pkt_ll_addr(struct net_linkaddr *addr, bool has_
 					    enum ieee802154_addressing_mode mode,
 					    struct ieee802154_address_field *ll)
 {
-	addr->type = NET_LINK_IEEE802154;
-
 	switch (mode) {
 	case IEEE802154_ADDR_MODE_EXTENDED:
-		addr->len = IEEE802154_EXT_ADDR_LENGTH;
-		addr->addr = has_pan_id ? ll->plain.addr.ext_addr : ll->comp.addr.ext_addr;
+		(void)net_linkaddr_create(
+			addr,
+			has_pan_id ? ll->plain.addr.ext_addr : ll->comp.addr.ext_addr,
+			IEEE802154_EXT_ADDR_LENGTH,
+			NET_LINK_IEEE802154);
 		break;
 
 	case IEEE802154_ADDR_MODE_SHORT:
-		addr->len = IEEE802154_SHORT_ADDR_LENGTH;
-		addr->addr = (uint8_t *)(has_pan_id ? &ll->plain.addr.short_addr
-						    : &ll->comp.addr.short_addr);
+		(void)net_linkaddr_create(
+			addr,
+			(const uint8_t *)(has_pan_id ?
+					UNALIGNED_MEMBER_ADDR(ll, plain.addr.short_addr) :
+					UNALIGNED_MEMBER_ADDR(ll, comp.addr.short_addr)),
+			IEEE802154_SHORT_ADDR_LENGTH,
+			NET_LINK_IEEE802154);
 		break;
 
 	case IEEE802154_ADDR_MODE_NONE:
 	default:
-		addr->len = 0U;
-		addr->addr = NULL;
+		(void)net_linkaddr_clear(addr);
 	}
 
 	/* The net stack expects big endian link layer addresses for POSIX compliance
@@ -288,7 +293,7 @@ static inline void swap_and_set_pkt_ll_addr(struct net_linkaddr *addr, bool has_
  */
 static bool ieee802154_check_dst_addr(struct net_if *iface, struct ieee802154_mhr *mhr)
 {
-	struct ieee802154_address_field_plain *dst_plain = &mhr->dst_addr->plain;
+	struct ieee802154_address_field_plain *dst_plain;
 	struct ieee802154_context *ctx = net_if_l2_data(iface);
 	bool ret = false;
 
@@ -307,6 +312,8 @@ static bool ieee802154_check_dst_addr(struct net_if *iface, struct ieee802154_mh
 		/* also, macImplicitBroadcast is not implemented */
 		return false;
 	}
+
+	dst_plain = &mhr->dst_addr->plain;
 
 	k_sem_take(&ctx->ctx_lock, K_FOREVER);
 
@@ -504,10 +511,13 @@ static int ieee802154_send(struct net_if *iface, struct net_pkt *pkt)
 			struct sockaddr_ll_ptr *src_addr =
 				(struct sockaddr_ll_ptr *)&context->local;
 
-			net_pkt_lladdr_dst(pkt)->addr = dst_addr->sll_addr;
-			net_pkt_lladdr_dst(pkt)->len = dst_addr->sll_halen;
-			net_pkt_lladdr_src(pkt)->addr = src_addr->sll_addr;
-			net_pkt_lladdr_src(pkt)->len = src_addr->sll_halen;
+			(void)net_linkaddr_set(net_pkt_lladdr_dst(pkt),
+					       dst_addr->sll_addr,
+					       dst_addr->sll_halen);
+
+			(void)net_linkaddr_set(net_pkt_lladdr_src(pkt),
+					       src_addr->sll_addr,
+					       src_addr->sll_halen);
 		} else {
 			return -EINVAL;
 		}

@@ -59,7 +59,7 @@ config SOC_DCDC_NRF52X_HV
 	  Enable nRF52 series System on Chip High Voltage DC/DC converter.
 
 config GPIO_AS_PINRESET
-	bool "[DEPRECATED] GPIO as pin reset (reset button)"
+	bool
 	select DEPRECATED
 	help
 	  This option is deprecated, use devicetree instead. Example
@@ -119,5 +119,13 @@ config NRF52_ANOMALY_109_WORKAROUND_EGU_INSTANCE
 	default 5
 	help
 	  EGU instance used by the nRF52 Anomaly 109 workaround for PWM.
+
+config NRF52_ANOMALY_219_WORKAROUND
+	bool "Anomaly 219 workaround"
+	depends on NRFX_TWIM
+	help
+	  Due to Anomaly 219 the low period of SCL clock is too short to meet
+	  the I2C specification at 400 kHz. This workaround configures the I2C
+	  frequency to 390 kHz instead of 400 kHz.
 
 endif # SOC_SERIES_NRF52X

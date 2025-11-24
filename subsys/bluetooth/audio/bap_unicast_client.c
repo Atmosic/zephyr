@@ -4,7 +4,7 @@
 
 /*
  * Copyright (c) 2020 Intel Corporation
- * Copyright (c) 2022-2023 Nordic Semiconductor ASA
+ * Copyright (c) 2022-2025 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -1019,13 +1019,6 @@ static void unicast_client_ep_qos_state(struct bt_bap_ep *ep, struct net_buf_sim
 		if (err != 0) {
 			LOG_ERR("Failed to disconnect stream: %d", err);
 		}
-	} else {
-		/* We setup the data path here, as this is the earliest where
-		 * we have the ISO <-> EP coupling completed (due to setting
-		 * the CIS ID in the QoS procedure).
-		 */
-
-		bt_bap_iso_configure_data_path(ep, stream->codec_cfg);
 	}
 
 	/* Notify upper layer */
@@ -1107,6 +1100,11 @@ static void unicast_client_ep_streaming_state(struct bt_bap_ep *ep, struct net_b
 	stream_status = net_buf_simple_pull_mem(buf, sizeof(*stream_status));
 
 	LOG_DBG("dir %s cig 0x%02x cis 0x%02x", bt_audio_dir_str(ep->dir), ep->cig_id, ep->cis_id);
+
+	/* Setup the ISO data path when the stream is started. We could do it earlier when the CIS
+	 * is connected, but then we would just receive audio data that we would then just discard
+	 */
+	bt_bap_setup_iso_data_path(stream);
 
 	/* Notify upper layer
 	 *
@@ -1220,6 +1218,13 @@ static void unicast_client_ep_set_status(struct bt_bap_ep *ep, struct net_buf_si
 			} else {
 				/* Reset reason */
 				ep->reason = BT_HCI_ERR_SUCCESS;
+			}
+
+			if (ep->iso != NULL) {
+				/* Remove the ISO data path as we no longer want to process any ISO
+				 * data for this stream.
+				 */
+				bt_bap_remove_iso_data_path(stream);
 			}
 
 			if (ops != NULL && ops->stopped != NULL) {
@@ -2728,30 +2733,35 @@ static bool valid_unicast_group_stream_param(const struct bt_bap_unicast_group *
 {
 	const struct bt_bap_qos_cfg *qos;
 
-	CHECKIF(param->stream == NULL) {
+	if (param->stream == NULL) {
 		LOG_DBG("param->stream is NULL");
-		return -EINVAL;
+		return false;
 	}
 
 	CHECKIF(param->qos == NULL) {
 		LOG_DBG("param->qos is NULL");
-		return -EINVAL;
+		return false;
 	}
 
-	if (param->stream != NULL && param->stream->group != NULL) {
-		if (unicast_group != NULL && param->stream->group != unicast_group) {
+	/* If unicast_group is non-NULL then we are doing a reconfigure */
+	if (unicast_group != NULL) {
+		if (param->stream->group != unicast_group) {
 			LOG_DBG("stream %p not part of group %p (%p)", param->stream, unicast_group,
 				param->stream->group);
-		} else {
+			return false;
+		}
+	} else {
+		if (param->stream->group != NULL) {
 			LOG_DBG("stream %p already part of group %p", param->stream,
 				param->stream->group);
+
+			return false;
 		}
-		return -EALREADY;
 	}
 
 	CHECKIF(bt_audio_verify_qos(param->qos) != BT_BAP_ASCS_REASON_NONE) {
 		LOG_DBG("Invalid QoS");
-		return -EINVAL;
+		return false;
 	}
 
 	qos = param->qos;
@@ -3132,6 +3142,33 @@ int bt_bap_unicast_group_delete(struct bt_bap_unicast_group *unicast_group)
 	}
 
 	unicast_group_free(unicast_group);
+
+	return 0;
+}
+
+int bt_bap_unicast_group_foreach_stream(struct bt_bap_unicast_group *unicast_group,
+					bt_bap_unicast_group_foreach_stream_func_t func,
+					void *user_data)
+{
+	struct bt_bap_stream *stream, *next;
+
+	if (unicast_group == NULL) {
+		LOG_DBG("unicast_group is NULL");
+		return -EINVAL;
+	}
+
+	if (func == NULL) {
+		LOG_DBG("func is NULL");
+		return -EINVAL;
+	}
+
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&unicast_group->streams, stream, next, _node) {
+		const bool stop = func(stream, user_data);
+
+		if (stop) {
+			return -ECANCELED;
+		}
+	}
 
 	return 0;
 }

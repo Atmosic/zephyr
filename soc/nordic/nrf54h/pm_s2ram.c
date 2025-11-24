@@ -9,6 +9,7 @@
 #include <zephyr/sys/util.h>
 #include <hal/nrf_resetinfo.h>
 #include "pm_s2ram.h"
+#include "power.h"
 
 #include <cmsis_core.h>
 
@@ -40,9 +41,26 @@ typedef struct {
 	uint32_t CTRL;
 } _mpu_context_t;
 
+typedef struct {
+	uint32_t ICSR;
+	uint32_t VTOR;
+	uint32_t AIRCR;
+	uint32_t SCR;
+	uint32_t CCR;
+	uint32_t SHPR[12U];
+	uint32_t SHCSR;
+	uint32_t CFSR;
+	uint32_t HFSR;
+	uint32_t DFSR;
+	uint32_t MMFAR;
+	uint32_t BFAR;
+	uint32_t AFSR;
+} _scb_context_t;
+
 struct backup {
 	_nvic_context_t nvic_context;
 	_mpu_context_t mpu_context;
+	_scb_context_t scb_context;
 };
 
 static __noinit struct backup backup_data;
@@ -107,65 +125,78 @@ static void nvic_resume(_nvic_context_t *backup)
 	memcpy((uint32_t *)NVIC->IPR, backup->IPR, sizeof(NVIC->IPR));
 }
 
+static void scb_suspend(_scb_context_t *backup)
+{
+	backup->ICSR = SCB->ICSR;
+	backup->VTOR = SCB->VTOR;
+	backup->AIRCR = SCB->AIRCR;
+	backup->SCR = SCB->SCR;
+	backup->CCR = SCB->CCR;
+	memcpy(backup->SHPR, (uint32_t *)SCB->SHPR, sizeof(SCB->SHPR));
+	backup->SHCSR = SCB->SHCSR;
+	backup->CFSR = SCB->CFSR;
+	backup->HFSR = SCB->HFSR;
+	backup->DFSR = SCB->DFSR;
+	backup->MMFAR = SCB->MMFAR;
+	backup->BFAR = SCB->BFAR;
+	backup->AFSR = SCB->AFSR;
+}
+
+static void scb_resume(_scb_context_t *backup)
+{
+	SCB->ICSR = backup->ICSR;
+	SCB->VTOR = backup->VTOR;
+	SCB->AIRCR = backup->AIRCR;
+	SCB->SCR = backup->SCR;
+	SCB->CCR = backup->CCR;
+	memcpy((uint32_t *)SCB->SHPR, backup->SHPR, sizeof(SCB->SHPR));
+	SCB->SHCSR = backup->SHCSR;
+	SCB->CFSR = backup->CFSR;
+	SCB->HFSR = backup->HFSR;
+	SCB->DFSR = backup->DFSR;
+	SCB->MMFAR = backup->MMFAR;
+	SCB->BFAR = backup->BFAR;
+	SCB->AFSR = backup->AFSR;
+}
+
 int soc_s2ram_suspend(pm_s2ram_system_off_fn_t system_off)
 {
 	int ret;
 
+	scb_suspend(&backup_data.scb_context);
 	nvic_suspend(&backup_data.nvic_context);
 	mpu_suspend(&backup_data.mpu_context);
 	ret = arch_pm_s2ram_suspend(system_off);
+	/* Cache is powered down so power up is needed even if s2ram failed. */
+	nrf_power_up_cache();
 	if (ret < 0) {
 		return ret;
 	}
 
 	mpu_resume(&backup_data.mpu_context);
 	nvic_resume(&backup_data.nvic_context);
+	scb_resume(&backup_data.scb_context);
 
 	return ret;
 }
 
-void __attribute__((naked)) pm_s2ram_mark_set(void)
+void pm_s2ram_mark_set(void)
 {
 	/* empty */
-	__asm__ volatile("bx	lr\n");
 }
 
-bool __attribute__((naked)) pm_s2ram_mark_check_and_clear(void)
+bool pm_s2ram_mark_check_and_clear(void)
 {
-	__asm__ volatile(
-		/* Set return value to 0 */
-		"mov	r0, #0\n"
+	bool restore_valid;
+	uint32_t reset_reason = nrf_resetinfo_resetreas_local_get(NRF_RESETINFO);
 
-		/* Load and check RESETREAS register */
-		"ldr	r3, [%[resetinfo_addr], %[resetreas_offs]]\n"
-		"cmp	r3, %[resetreas_unretained_mask]\n"
+	if (reset_reason != NRF_RESETINFO_RESETREAS_LOCAL_UNRETAINED_MASK) {
+		return false;
+	}
+	nrf_resetinfo_resetreas_local_set(NRF_RESETINFO, 0);
 
-		"bne	exit\n"
+	restore_valid = nrf_resetinfo_restore_valid_check(NRF_RESETINFO);
+	nrf_resetinfo_restore_valid_set(NRF_RESETINFO, false);
 
-		/* Clear RESETREAS register */
-		"str	r0, [%[resetinfo_addr], %[resetreas_offs]]\n"
-
-		/* Load RESTOREVALID register */
-		"ldr	r3, [%[resetinfo_addr], %[restorevalid_offs]]\n"
-
-		/* Clear RESTOREVALID */
-		"str	r0, [%[resetinfo_addr], %[restorevalid_offs]]\n"
-
-		/* Check RESTOREVALID register */
-		"cmp	r3, %[restorevalid_present_mask]\n"
-		"bne	exit\n"
-
-		/* Set return value to 1 */
-		"mov	r0, #1\n"
-
-		"exit:\n"
-		"bx	lr\n"
-		:
-		: [resetinfo_addr] "r"(NRF_RESETINFO),
-		  [resetreas_offs] "r"(offsetof(NRF_RESETINFO_Type, RESETREAS.LOCAL)),
-		  [resetreas_unretained_mask] "r"(NRF_RESETINFO_RESETREAS_LOCAL_UNRETAINED_MASK),
-		  [restorevalid_offs] "r"(offsetof(NRF_RESETINFO_Type, RESTOREVALID)),
-		  [restorevalid_present_mask] "r"(RESETINFO_RESTOREVALID_RESTOREVALID_Msk)
-
-		: "r0", "r1", "r3", "r4", "memory");
+	return restore_valid;
 }

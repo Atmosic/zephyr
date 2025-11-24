@@ -3,7 +3,7 @@
  * @brief Header for Bluetooth BAP.
  *
  * Copyright (c) 2020 Bose Corporation
- * Copyright (c) 2021-2024 Nordic Semiconductor ASA
+ * Copyright (c) 2021-2025 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -28,11 +28,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/addr.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gap.h>
 #include <zephyr/bluetooth/iso.h>
+#include <zephyr/bluetooth/uuid.h>
 #include <zephyr/net_buf.h>
 #include <zephyr/sys/slist.h>
 #include <zephyr/sys/util_macro.h>
@@ -50,6 +53,100 @@ extern "C" {
 
 /** An invalid Broadcast ID */
 #define BT_BAP_INVALID_BROADCAST_ID 0xFFFFFFFFU
+
+/**
+ * @brief Recommended connectable advertising parameters
+ *
+ * If connection has not been established after 30 seconds, the device should switch to
+ * @ref BT_BAP_ADV_PARAM_CONN_REDUCED
+ *
+ * Defined by Table 8.1 in BAP 1.0.2
+ */
+#define BT_BAP_ADV_PARAM_CONN_QUICK                                                                \
+	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONN | BT_LE_ADV_OPT_EXT_ADV, BT_GAP_MS_TO_ADV_INTERVAL(20), \
+			BT_GAP_MS_TO_ADV_INTERVAL(30), NULL)
+
+/**
+ * @brief Reduced connectable advertising parameters
+ *
+ * Defined by Table 8.1 in BAP 1.0.2
+ */
+#define BT_BAP_ADV_PARAM_CONN_REDUCED                                                              \
+	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONN | BT_LE_ADV_OPT_EXT_ADV,                                \
+			BT_GAP_MS_TO_ADV_INTERVAL(150), BT_GAP_MS_TO_ADV_INTERVAL(150), NULL)
+
+/**
+ * @brief Recommended connection parameters for initial connection request for 7.5 ms SDU interval
+ *
+ * Once service discovery has completed and a stream is setup, it is recommended to switch to
+ * @ref BT_BAP_CONN_PARAM_RELAXED
+ *
+ * Defined by Table 8.3 in BAP 1.0.2
+ */
+#define BT_BAP_CONN_PARAM_SHORT_7_5                                                                \
+	BT_LE_CONN_PARAM(BT_GAP_US_TO_CONN_INTERVAL(7500), BT_GAP_MS_TO_CONN_INTERVAL(30), 0,      \
+			 BT_GAP_MS_TO_CONN_TIMEOUT(4000))
+
+/**
+ * @brief Recommended connection parameters for initial connection request for 10 ms SDU interval
+ *
+ * Once service discovery has completed and a stream is setup, it is recommended to switch to
+ * @ref BT_BAP_CONN_PARAM_RELAXED
+ *
+ * Defined by Table 8.3 in BAP 1.0.2
+ */
+#define BT_BAP_CONN_PARAM_SHORT_10                                                                 \
+	BT_LE_CONN_PARAM(BT_GAP_MS_TO_CONN_INTERVAL(10), BT_GAP_MS_TO_CONN_INTERVAL(30), 0,        \
+			 BT_GAP_MS_TO_CONN_TIMEOUT(4000))
+
+/**
+ * @brief Recommended connection parameters for coexistence of ACL and ISO
+ *
+ * Defined by Table 8.3 in BAP 1.0.2
+ */
+#define BT_BAP_CONN_PARAM_RELAXED                                                                  \
+	BT_LE_CONN_PARAM(BT_GAP_MS_TO_CONN_INTERVAL(50), BT_GAP_MS_TO_CONN_INTERVAL(70), 0,        \
+			 BT_GAP_MS_TO_CONN_TIMEOUT(4000))
+
+/**
+ * @brief Fast advertising parameters for broadcast audio
+ *
+ * This is suitable for both 7.5 ms and 10 ms SDU intervals, but prioritizes lower time to
+ * synchronize over coexistence with ISO and power consumption.
+ */
+#define BT_BAP_ADV_PARAM_BROADCAST_FAST                                                            \
+	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV, BT_GAP_MS_TO_ADV_INTERVAL(60),                      \
+			BT_GAP_MS_TO_ADV_INTERVAL(60), NULL)
+
+/**
+ * @brief Slow advertising parameters for broadcast audio
+ *
+ * This is suitable for both 7.5 ms and 10 ms SDU intervals, but prioritizes coexistence with ISO
+ * and power consumption over lower time to synchronize.
+ */
+#define BT_BAP_ADV_PARAM_BROADCAST_SLOW                                                            \
+	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV, BT_GAP_MS_TO_ADV_INTERVAL(150),                     \
+			BT_GAP_MS_TO_ADV_INTERVAL(150), NULL)
+
+/**
+ * @brief Fast advertising parameters for broadcast audio
+ *
+ * This is suitable for both 7.5 ms and 10 ms SDU intervals, but prioritizes lower time to
+ * synchronize over coexistence with ISO and power consumption.
+ */
+#define BT_BAP_PER_ADV_PARAM_BROADCAST_FAST                                                        \
+	BT_LE_PER_ADV_PARAM(BT_GAP_MS_TO_PER_ADV_INTERVAL(60), BT_GAP_MS_TO_PER_ADV_INTERVAL(60),  \
+			    BT_LE_PER_ADV_OPT_NONE)
+
+/**
+ * @brief Slow advertising parameters for broadcast audio
+ *
+ * This is suitable for both 7.5 ms and 10 ms SDU intervals, but prioritizes coexistence with ISO
+ * and power consumption over lower time to synchronize.
+ */
+#define BT_BAP_PER_ADV_PARAM_BROADCAST_SLOW                                                        \
+	BT_LE_PER_ADV_PARAM(BT_GAP_MS_TO_PER_ADV_INTERVAL(150),                                    \
+			    BT_GAP_MS_TO_PER_ADV_INTERVAL(150), BT_LE_PER_ADV_OPT_NONE)
 
 /**
  * @brief Check if a BAP BASS BIS_Sync bitfield is valid
@@ -694,6 +791,52 @@ struct bt_bap_scan_delegator_cb {
 	 * @param is_scanning true if scanning started, false if scanning stopped.
 	 */
 	void (*scanning_state)(struct bt_conn *conn, bool is_scanning);
+	/**
+	 * @brief Add Source operation callback
+	 *
+	 * These callbacks notify the application when a request comes
+	 * in to add a source. The application can return 0 to
+	 * accept or any other value to reject the request.
+	 *
+	 * @param conn       Pointer to the connection that initiated the request,
+	 *                   or NULL if locally triggered.
+	 * @param recv_state Pointer to the requested receive state to be added.
+	 *
+	 * @return 0 in case of accept, or other value to reject.
+	 */
+	int (*add_source)(struct bt_conn *conn,
+			  const struct bt_bap_scan_delegator_recv_state *recv_state);
+
+	/**
+	 * @brief Modify Source operation callback
+	 *
+	 * These callbacks notify the application when a request comes
+	 * in to modify a source. The application can return 0 to
+	 * accept or any other value to reject the request.
+	 *
+	 * @param conn       Pointer to the connection that initiated the request,
+	 *                   or NULL if locally triggered.
+	 * @param recv_state Pointer to the requested receive state to be modified.
+	 *
+	 * @return 0 in case of accept, or other value to reject.
+	 */
+	int (*modify_source)(struct bt_conn *conn,
+			     const struct bt_bap_scan_delegator_recv_state *recv_state);
+
+	/**
+	 * @brief Remove Source operation callback
+	 *
+	 * These callbacks notify the application when a request comes
+	 * in to remove a source. The application can return 0 to
+	 * accept or any other value to reject the request.
+	 *
+	 * @param conn   Pointer to the connection that initiated the request,
+	 *               or NULL if locally triggered.
+	 * @param src_id The Source ID that is requested to be removed.
+	 *
+	 * @return 0 in case of accept, or other value to reject.
+	 */
+	int (*remove_source)(struct bt_conn *conn, uint8_t src_id);
 };
 
 /** Structure holding information of audio stream endpoint */
@@ -764,7 +907,6 @@ struct bt_bap_stream {
 	void *user_data;
 
 #if defined(CONFIG_BT_BAP_UNICAST_CLIENT) || defined(__DOXYGEN__)
-	/** @cond INTERNAL_HIDDEN */
 	/**
 	 * @brief Audio ISO reference
 	 *
@@ -781,6 +923,7 @@ struct bt_bap_stream {
 	uint16_t _prev_seq_num;
 #endif /* CONFIG_BT_BAP_DEBUG_STREAM_SEQ_NUM */
 
+	/** @cond INTERNAL_HIDDEN */
 	/** Internally used list node */
 	sys_snode_t _node;
 	/** @endcond */
@@ -1576,6 +1719,32 @@ int bt_bap_unicast_group_add_streams(struct bt_bap_unicast_group *unicast_group,
  * @return Zero on success or (negative) error code otherwise.
  */
 int bt_bap_unicast_group_delete(struct bt_bap_unicast_group *unicast_group);
+
+/** Callback function for bt_bap_unicast_group_foreach_stream()
+ *
+ * @param stream     The audio stream
+ * @param user_data  User data
+ *
+ * @retval true Stop iterating.
+ * @retval false Continue iterating.
+ */
+typedef bool (*bt_bap_unicast_group_foreach_stream_func_t)(struct bt_bap_stream *stream,
+							   void *user_data);
+
+/**
+ * @brief Iterate through all streams in a unicast group
+ *
+ * @param unicast_group  The unicast group
+ * @param func           The callback function
+ * @param user_data      User specified data that sent to the callback function
+ *
+ * @retval 0 Success (even if no streams exists in the group).
+ * @retval -ECANCELED Iteration was stopped by the callback function before complete.
+ * @retval -EINVAL @p unicast_group or @p func were NULL.
+ */
+int bt_bap_unicast_group_foreach_stream(struct bt_bap_unicast_group *unicast_group,
+					bt_bap_unicast_group_foreach_stream_func_t func,
+					void *user_data);
 
 /** Unicast Client callback structure */
 struct bt_bap_unicast_client_cb {

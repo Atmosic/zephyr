@@ -8,8 +8,6 @@
  * https://www.st.com/resource/en/datasheet/lsm6dsv16x.pdf
  */
 
-#define DT_DRV_COMPAT st_lsm6dsv16x
-
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/gpio.h>
@@ -131,7 +129,7 @@ static int lsm6dsv16x_enable_wake_int(const struct device *dev, int enable)
 	}
 
 	if ((cfg->drdy_pin == 1) || ON_I3C_BUS(cfg)) {
-		lsm6dsv16x_pin_int_route_t val;
+		lsm6dsv16x_pin_int_route_t val = {0};
 
 		ret = lsm6dsv16x_pin_int1_route_get(ctx, &val);
 		if (ret < 0) {
@@ -143,7 +141,7 @@ static int lsm6dsv16x_enable_wake_int(const struct device *dev, int enable)
 
 		ret = lsm6dsv16x_pin_int1_route_set(ctx, &val);
 	} else {
-		lsm6dsv16x_pin_int_route_t val;
+		lsm6dsv16x_pin_int_route_t val = {0};
 
 		ret = lsm6dsv16x_pin_int2_route_get(ctx, &val);
 		if (ret < 0) {
@@ -178,10 +176,6 @@ int lsm6dsv16x_trigger_set(const struct device *dev,
 	if (trig == NULL) {
 		LOG_ERR("no trigger");
 		return -EINVAL;
-	}
-
-	if (!lsm6dsv16x_is_active(dev)) {
-		return -EBUSY;
 	}
 
 	switch (trig->type) {
@@ -341,7 +335,7 @@ static void lsm6dsv16x_work_cb(struct k_work *work)
 }
 #endif /* CONFIG_LSM6DSV16X_TRIGGER_GLOBAL_THREAD */
 
-#if DT_ANY_INST_ON_BUS_STATUS_OKAY(i3c)
+#if LSM6DSVXXX_ANY_INST_ON_BUS_STATUS_OKAY(i3c)
 static int lsm6dsv16x_ibi_cb(struct i3c_device_desc *target,
 			  struct i3c_ibi_payload *payload)
 {
@@ -446,7 +440,7 @@ int lsm6dsv16x_init_interrupt(const struct device *dev)
 		return ret;
 	}
 
-#if DT_ANY_INST_ON_BUS_STATUS_OKAY(i3c)
+#if LSM6DSVXXX_ANY_INST_ON_BUS_STATUS_OKAY(i3c)
 	if (ON_I3C_BUS(cfg)) {
 		if (I3C_INT_PIN(cfg)) {
 			/* Enable INT Pins when using I3C */

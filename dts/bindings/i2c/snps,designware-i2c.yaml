@@ -5,7 +5,7 @@ description: Synopsys DesignWare I2C
 
 compatible: "snps,designware-i2c"
 
-include: [i2c-controller.yaml, pinctrl-device.yaml, pcie-device.yaml]
+include: [i2c-controller.yaml, pinctrl-device.yaml, pcie-device.yaml, reset-device.yaml]
 
 properties:
   interrupts:
@@ -20,3 +20,15 @@ properties:
     type: int
     description: |
       A fixed offset to apply to the SCL hcnt setting.
+
+  sda-timeout-value:
+    type: int
+    default: 30
+    description: |
+      Describe the SDA stuck at low timeout value, unit in ms
+
+  scl-timeout-value:
+    type: int
+    default: 30
+    description: |
+      Describe the SCL stuck at low timeout value, unit in ms

@@ -9,6 +9,8 @@ toolchain:
   - gnuarmemb
 supported:
   - flash
+  - watchdog
+  - counter
 vendor: renesas
 testing:
   ignore_tags:

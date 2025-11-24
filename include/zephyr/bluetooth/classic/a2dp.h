@@ -341,7 +341,7 @@ struct bt_a2dp_ep_info {
 	/** Codec capabilities, if SBC, use function of a2dp_codec_sbc.h to parse it */
 	struct bt_a2dp_codec_ie codec_cap;
 	/** Stream End Point Information */
-	struct bt_avdtp_sep_info sep_info;
+	struct bt_avdtp_sep_info *sep_info;
 };
 
 /** @brief Helper enum to be used as return value of bt_a2dp_discover_ep_cb.
@@ -615,6 +615,16 @@ int bt_a2dp_register_ep(struct bt_a2dp_ep *ep, uint8_t media_type, uint8_t sep_t
  *  @return 0 in case of success and error code in case of error.
  */
 int bt_a2dp_register_cb(struct bt_a2dp_cb *cb);
+
+/** @brief Obtain the ACL connection corresponding to A2DP.
+ *
+ *  @param a2dp The A2DP instance.
+ *
+ *  @return Connection object associated with the A2DP context. The caller gets a new
+ *  reference to the connection object which must be released with bt_conn_unref()
+ *  once done using the object.
+ */
+struct bt_conn *bt_a2dp_get_conn(struct bt_a2dp *a2dp);
 
 /** @brief Discover remote endpoints.
  *

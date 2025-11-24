@@ -11,11 +11,14 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/hwinfo.h>
 #include <zephyr/drivers/comparator.h>
 #include <zephyr/kernel.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/sys/poweroff.h>
 #include <zephyr/sys/util.h>
+
+#define NON_WAKEUP_RESET_REASON (RESET_PIN | RESET_SOFTWARE | RESET_POR | RESET_DEBUG)
 
 #if defined(CONFIG_GRTC_WAKEUP_ENABLE)
 #include <zephyr/drivers/timer/nrf_grtc_timer.h>
@@ -28,9 +31,23 @@ static const struct gpio_dt_spec sw0 = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 static const struct device *comp_dev = DEVICE_DT_GET(DT_NODELABEL(comp));
 #endif
 
+void print_reset_cause(uint32_t reset_cause)
+{
+	if (reset_cause & RESET_DEBUG) {
+		printf("Reset by debugger.\n");
+	} else if (reset_cause & RESET_CLOCK) {
+		printf("Wakeup from System OFF by GRTC.\n");
+	} else if (reset_cause & RESET_LOW_POWER_WAKE) {
+		printf("Wakeup from System OFF by GPIO.\n");
+	} else  {
+		printf("Other wake up cause 0x%08X.\n", reset_cause);
+	}
+}
+
 int main(void)
 {
 	int rc;
+	uint32_t reset_cause;
 	const struct device *const cons = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
 	if (!device_is_ready(cons)) {
@@ -39,10 +56,19 @@ int main(void)
 	}
 
 	printf("\n%s system off demo\n", CONFIG_BOARD);
+	hwinfo_get_reset_cause(&reset_cause);
+	print_reset_cause(reset_cause);
 
 	if (IS_ENABLED(CONFIG_APP_USE_RETAINED_MEM)) {
 		bool retained_ok = retained_validate();
 
+		if (reset_cause & NON_WAKEUP_RESET_REASON) {
+			retained.boots = 0;
+			retained.off_count = 0;
+			retained.uptime_sum = 0;
+			retained.uptime_latest = 0;
+			retained_ok = true;
+		}
 		/* Increment for this boot attempt and update. */
 		retained.boots += 1;
 		retained_update();
@@ -98,6 +124,7 @@ int main(void)
 		retained_update();
 	}
 
+	hwinfo_clear_reset_cause();
 	sys_poweroff();
 
 	return 0;

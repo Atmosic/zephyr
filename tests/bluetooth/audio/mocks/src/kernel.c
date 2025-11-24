@@ -1,9 +1,11 @@
 /*
- * Copyright (c) 2022 Nordic Semiconductor ASA
+ * Copyright (c) 2022-2025 Nordic Semiconductor ASA
  * Copyright (c) 2023 Codecoup
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <errno.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -19,6 +21,8 @@
 #define FFF_FAKES_LIST(FAKE)                                                                       \
 	FAKE(z_timeout_remaining)                                                                  \
 	FAKE(k_work_cancel_delayable_sync)                                                         \
+	FAKE(k_sem_take)                                                                           \
+	FAKE(k_sem_give)
 
 /* List of k_work items to be worked. */
 static sys_slist_t work_pending;
@@ -130,6 +134,40 @@ int32_t k_sleep(k_timeout_t timeout)
 		(void)sys_slist_remove(&work_pending, NULL, &work->node);
 		work->handler(work);
 	}
+
+	return 0;
+}
+static bool mutex_locked;
+
+int k_mutex_init(struct k_mutex *mutex)
+{
+	mutex_locked = false;
+
+	return 0;
+}
+
+int k_mutex_lock(struct k_mutex *mutex, k_timeout_t timeout)
+{
+	if (mutex_locked) {
+		if (K_TIMEOUT_EQ(timeout, K_NO_WAIT)) {
+			return -EBUSY;
+		} else {
+			return -EAGAIN;
+		}
+	}
+
+	mutex_locked = true;
+
+	return 0;
+}
+
+int k_mutex_unlock(struct k_mutex *mutex)
+{
+	if (!mutex_locked) {
+		return -EINVAL;
+	}
+
+	mutex_locked = false;
 
 	return 0;
 }

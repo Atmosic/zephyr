@@ -76,6 +76,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.graphviz",
     "sphinxcontrib.jquery",
+    "sphinxcontrib.programoutput",
     "zephyr.application",
     "zephyr.html_redirects",
     "zephyr.kconfig",
@@ -143,6 +144,9 @@ SDK_URL_BASE="https://github.com/zephyrproject-rtos/sdk-ng/releases/download"
 rst_epilog = f"""
 .. include:: /substitutions.txt
 
+.. |zephyr-version| replace:: ``{version}``
+.. |zephyr-version-ltrim| unicode:: {version}
+   :ltrim:
 .. |sdk-version-literal| replace:: ``{sdk_version}``
 .. |sdk-version-trim| unicode:: {sdk_version}
    :trim:
@@ -196,8 +200,8 @@ html_context = {
     "current_version": version,
     "versions": (
         ("latest", "/"),
+        ("4.2.0", "/4.2.0/"),
         ("4.1.0", "/4.1.0/"),
-        ("4.0.0", "/4.0.0/"),
         ("3.7.0 (LTS)", "/3.7.0/"),
     ),
     "display_gh_links": True,
@@ -327,6 +331,7 @@ external_content_keep = [
 
 zephyr_breathe_insert_related_samples = True
 zephyr_generate_hw_features = not tags.has("hw_features_turbo")  # pylint: disable=undefined-variable  # noqa: F821
+zephyr_hw_features_vendor_filter = []
 
 # -- Options for sphinx.ext.graphviz --------------------------------------
 

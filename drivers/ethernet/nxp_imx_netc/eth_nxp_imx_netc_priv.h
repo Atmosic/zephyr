@@ -29,12 +29,20 @@
 /* MSGINTR */
 #define NETC_MSGINTR_CHANNEL 0
 
+#if DT_IRQ_HAS_IDX(DT_NODELABEL(netc), 0)
+#define NETC_MSGINTR_IRQ DT_IRQN_BY_IDX(DT_NODELABEL(netc), 0)
+#endif
+
 #if (CONFIG_ETH_NXP_IMX_MSGINTR == 1)
-#define NETC_MSGINTR     MSGINTR1
+#define NETC_MSGINTR MSGINTR1
+#ifndef NETC_MSGINTR_IRQ
 #define NETC_MSGINTR_IRQ MSGINTR1_IRQn
+#endif
 #elif (CONFIG_ETH_NXP_IMX_MSGINTR == 2)
-#define NETC_MSGINTR     MSGINTR2
+#define NETC_MSGINTR MSGINTR2
+#ifndef NETC_MSGINTR_IRQ
 #define NETC_MSGINTR_IRQ MSGINTR2_IRQn
+#endif
 #else
 #error "Current CONFIG_ETH_NXP_IMX_MSGINTR not support"
 #endif
@@ -84,6 +92,9 @@ struct netc_eth_config {
 	const struct pinctrl_dev_config *pincfg;
 	uint8_t tx_intr_msg_data;
 	uint8_t rx_intr_msg_data;
+#ifdef CONFIG_PTP_CLOCK_NXP_NETC
+	const struct device *ptp_clock;
+#endif
 };
 
 typedef uint8_t rx_buffer_t[NETC_RX_RING_BUF_SIZE_ALIGN];
@@ -94,7 +105,6 @@ struct netc_eth_data {
 	uint8_t mac_addr[6];
 	/* TX */
 	struct k_mutex tx_mutex;
-	netc_tx_frame_info_t tx_info;
 	uint8_t *tx_buff;
 	volatile bool tx_done;
 	/* RX */
@@ -110,5 +120,7 @@ int netc_eth_tx(const struct device *dev, struct net_pkt *pkt);
 enum ethernet_hw_caps netc_eth_get_capabilities(const struct device *dev);
 int netc_eth_set_config(const struct device *dev, enum ethernet_config_type type,
 			const struct ethernet_config *config);
-
+#ifdef CONFIG_PTP_CLOCK_NXP_NETC
+const struct device *netc_eth_get_ptp_clock(const struct device *dev);
+#endif
 #endif /* ZEPHYR_DRIVERS_ETHERNET_ETH_NXP_IMX_NETC_PRIV_H_ */

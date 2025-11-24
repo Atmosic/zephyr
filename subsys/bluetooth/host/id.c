@@ -7,36 +7,41 @@
 
 #include <errno.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
-#include <zephyr/bluetooth/conn.h>
-#include <zephyr/bluetooth/hci_types.h>
-#include <zephyr/settings/settings.h>
-#include <zephyr/sys/byteorder.h>
-#include <zephyr/sys/check.h>
-
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/addr.h>
 #include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/hci_vs.h>
 #include <zephyr/bluetooth/buf.h>
-#include <zephyr/sys/__assert.h>
-
-#include "hci_core.h"
-#include "id.h"
-#include "scan.h"
-#include "adv.h"
-#include "smp.h"
-#include "conn_internal.h"
-#include "keys.h"
-#include "common/rpa.h"
-
-#include "settings.h"
-
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/crypto.h>
 #include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/hci_types.h>
+#include <zephyr/bluetooth/hci_vs.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net_buf.h>
+#include <zephyr/settings/settings.h>
+#include <zephyr/sys/atomic.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/check.h>
+#include <zephyr/sys/time_units.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/sys/util_macro.h>
+#include <zephyr/sys/__assert.h>
 #include <zephyr/toolchain.h>
 
+#include "adv.h"
 #include "common/bt_str.h"
+#include "common/rpa.h"
+#include "conn_internal.h"
+#include "hci_core.h"
+#include "id.h"
+#include "keys.h"
+#include "scan.h"
+#include "settings.h"
+#include "smp.h"
 
 #define LOG_LEVEL CONFIG_BT_HCI_CORE_LOG_LEVEL
 #include <zephyr/logging/log.h>
@@ -137,7 +142,7 @@ static int set_random_address(const bt_addr_t *addr)
 		return 0;
 	}
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_RANDOM_ADDRESS, sizeof(*addr));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -188,8 +193,7 @@ int bt_id_set_adv_random_addr(struct bt_le_ext_adv *adv,
 		return 0;
 	}
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_ADV_SET_RANDOM_ADDR,
-				sizeof(*cp));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -309,8 +313,7 @@ static void le_rpa_timeout_update(void)
 		struct net_buf *buf;
 		struct bt_hci_cp_le_set_rpa_timeout *cp;
 
-		buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_RPA_TIMEOUT,
-					sizeof(*cp));
+		buf = bt_hci_cmd_alloc(K_FOREVER);
 		if (!buf) {
 			LOG_ERR("Failed to create HCI RPA timeout command");
 			err = -ENOBUFS;
@@ -845,7 +848,7 @@ static int le_set_privacy_mode(const bt_addr_le_t *addr, uint8_t mode)
 	bt_addr_le_copy(&cp.id_addr, addr);
 	cp.mode = mode;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_PRIVACY_MODE, sizeof(cp));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -866,7 +869,7 @@ static int addr_res_enable(uint8_t enable)
 
 	LOG_DBG("%s", enable ? "enabled" : "disabled");
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_ADDR_RES_ENABLE, 1);
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -888,7 +891,7 @@ static int hci_id_add(uint8_t id, const bt_addr_le_t *addr, uint8_t peer_irk[16]
 
 	LOG_DBG("addr %s", bt_addr_le_str(addr));
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_ADD_DEV_TO_RL, sizeof(*cp));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -921,7 +924,7 @@ static void pending_id_update(struct bt_keys *keys, void *data)
 	}
 }
 
-static void bt_id_pending_keys_update_set(struct bt_keys *keys, uint8_t flag)
+void bt_id_pending_keys_update_set(struct bt_keys *keys, uint8_t flag)
 {
 	atomic_set_bit(bt_dev.flags, BT_DEV_ID_PENDING);
 	keys->state |= flag;
@@ -1006,6 +1009,7 @@ void bt_id_add(struct bt_keys *keys)
 
 	struct bt_conn *conn;
 	int err;
+	bool enable_controller_res = true;
 
 	LOG_DBG("addr %s", bt_addr_le_str(&keys->addr));
 
@@ -1062,6 +1066,10 @@ void bt_id_add(struct bt_keys *keys)
 		err = addr_res_enable(BT_HCI_ADDR_RES_DISABLE);
 		if (err) {
 			LOG_WRN("Failed to disable address resolution");
+			/* If it fails to disable, it should already be enabled,
+			 * don't need to enable again.
+			 */
+			enable_controller_res = false;
 			goto done;
 		}
 	}
@@ -1069,6 +1077,10 @@ void bt_id_add(struct bt_keys *keys)
 	if (bt_dev.le.rl_entries == bt_dev.le.rl_size) {
 		LOG_WRN("Resolving list size exceeded. Switching to host.");
 
+		/* Since the controller resolving list is cleared,
+		 * don't need to enable the address resolution.
+		 */
+		enable_controller_res = false;
 		err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_CLEAR_RL, NULL, NULL);
 		if (err) {
 			LOG_ERR("Failed to clear resolution list");
@@ -1109,7 +1121,9 @@ void bt_id_add(struct bt_keys *keys)
 	}
 
 done:
-	addr_res_enable(BT_HCI_ADDR_RES_ENABLE);
+	if (enable_controller_res) {
+		addr_res_enable(BT_HCI_ADDR_RES_ENABLE);
+	}
 
 #if defined(CONFIG_BT_OBSERVER)
 	if (scan_enabled) {
@@ -1136,7 +1150,7 @@ static int hci_id_del(const bt_addr_le_t *addr)
 
 	LOG_DBG("addr %s", bt_addr_le_str(addr));
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_REM_DEV_FROM_RL, sizeof(*cp));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -1775,7 +1789,7 @@ int bt_id_set_create_conn_own_addr(bool use_filter, uint8_t *own_addr_type)
 #endif /* defined(CONFIG_BT_CENTRAL) */
 
 #if defined(CONFIG_BT_OBSERVER)
-static bool is_adv_using_rand_addr(void)
+static bool is_legacy_adv_enabled(void)
 {
 	struct bt_le_ext_adv *adv;
 
@@ -1791,7 +1805,27 @@ static bool is_adv_using_rand_addr(void)
 
 	adv = bt_le_adv_lookup_legacy();
 
-	return adv && atomic_test_bit(adv->flags, BT_ADV_ENABLED);
+	return adv != NULL && atomic_test_bit(adv->flags, BT_ADV_ENABLED);
+}
+
+static bool is_legacy_adv_using_id_addr(void)
+{
+	struct bt_le_ext_adv *adv;
+
+	if (!IS_ENABLED(CONFIG_BT_BROADCASTER) ||
+	    (IS_ENABLED(CONFIG_BT_EXT_ADV) &&
+	     BT_DEV_FEAT_LE_EXT_ADV(bt_dev.le.features))) {
+		/* When advertising is not enabled or is using extended
+		 * advertising HCI commands then only the scanner uses the set
+		 * random address command.
+		 */
+		return false;
+	}
+
+	adv = bt_le_adv_lookup_legacy();
+
+	return adv != NULL && atomic_test_bit(adv->flags, BT_ADV_ENABLED)
+			   && atomic_test_bit(adv->flags, BT_ADV_USE_IDENTITY);
 }
 
 int bt_id_set_scan_own_addr(bool active_scan, uint8_t *own_addr_type)
@@ -1824,20 +1858,30 @@ int bt_id_set_scan_own_addr(bool active_scan, uint8_t *own_addr_type)
 		 * (through Kconfig).
 		 * Use same RPA as legacy advertiser if advertising.
 		 */
-		if (!IS_ENABLED(CONFIG_BT_SCAN_WITH_IDENTITY) &&
-		    !is_adv_using_rand_addr()) {
-			err = bt_id_set_private_addr(BT_ID_DEFAULT);
-			if (err) {
-				if (active_scan || !is_adv_using_rand_addr()) {
+		if (!IS_ENABLED(CONFIG_BT_SCAN_WITH_IDENTITY)) {
+			/* When using legacy advertising commands, the scanner and advertiser
+			 * share the same address, so we cannot change it.
+			 * When using extended advertising commands, however, the advertising
+			 * sets have their own addresses, so we can always change the scanner
+			 * address here.
+			 */
+			if (is_legacy_adv_using_id_addr()) {
+				if (bt_dev.id_addr[BT_ID_DEFAULT].type == BT_ADDR_LE_RANDOM) {
+					*own_addr_type = BT_HCI_OWN_ADDR_RANDOM;
+				} else {
+					*own_addr_type = BT_HCI_OWN_ADDR_PUBLIC;
+				}
+			} else if (is_legacy_adv_enabled()) {
+				*own_addr_type = BT_HCI_OWN_ADDR_RANDOM;
+			} else {
+				err = bt_id_set_private_addr(BT_ID_DEFAULT);
+				if (err) {
 					return err;
 				}
 
-				LOG_WRN("Ignoring failure to set address for passive scan (%d)",
-					err);
+				*own_addr_type = BT_HCI_OWN_ADDR_RANDOM;
 			}
-
-			*own_addr_type = BT_HCI_OWN_ADDR_RANDOM;
-		} else if (IS_ENABLED(CONFIG_BT_SCAN_WITH_IDENTITY)) {
+		} else {
 			if (bt_dev.id_addr[BT_ID_DEFAULT].type == BT_ADDR_LE_RANDOM) {
 				/* If scanning with Identity Address we must set the
 				 * random identity address for both active and passive
@@ -1953,23 +1997,39 @@ int bt_id_set_adv_own_addr(struct bt_le_ext_adv *adv, uint32_t options,
 			 * problem.
 			 */
 #if defined(CONFIG_BT_OBSERVER)
-			bool scan_enabled = false;
+			bool scan_disabled = false;
+			bool dev_scanning = atomic_test_bit(bt_dev.flags,
+							    BT_DEV_SCANNING);
 
 			/* If active scan with NRPA is ongoing refresh NRPA */
 			if (!IS_ENABLED(CONFIG_BT_PRIVACY) &&
 			    !IS_ENABLED(CONFIG_BT_SCAN_WITH_IDENTITY) &&
-			    atomic_test_bit(bt_dev.flags, BT_DEV_SCANNING)) {
-				scan_enabled = true;
-				bt_le_scan_set_enable(BT_HCI_LE_SCAN_DISABLE);
+			    dev_scanning) {
+				err = bt_le_scan_set_enable(BT_HCI_LE_SCAN_DISABLE);
+				scan_disabled = err == 0;
 			}
-#endif /* defined(CONFIG_BT_OBSERVER) */
-			err = bt_id_set_adv_private_addr(adv);
-			*own_addr_type = BT_HCI_OWN_ADDR_RANDOM;
 
-#if defined(CONFIG_BT_OBSERVER)
-			if (scan_enabled) {
+			/* If we are scanning with the identity address, it does
+			 * not make sense to set an NRPA.
+			 */
+			if (!IS_ENABLED(CONFIG_BT_SCAN_WITH_IDENTITY) ||
+			    !dev_scanning) {
+				err = bt_id_set_adv_private_addr(adv);
+				*own_addr_type = BT_HCI_OWN_ADDR_RANDOM;
+			} else {
+				if (id_addr->type == BT_ADDR_LE_RANDOM) {
+					*own_addr_type = BT_HCI_OWN_ADDR_RANDOM;
+				} else if (id_addr->type == BT_ADDR_LE_PUBLIC) {
+					*own_addr_type = BT_HCI_OWN_ADDR_PUBLIC;
+				}
+			}
+
+			if (scan_disabled) {
 				bt_le_scan_set_enable(BT_HCI_LE_SCAN_ENABLE);
 			}
+#else
+			err = bt_id_set_adv_private_addr(adv);
+			*own_addr_type = BT_HCI_OWN_ADDR_RANDOM;
 #endif /* defined(CONFIG_BT_OBSERVER) */
 		} else {
 			err = bt_id_set_adv_private_addr(adv);

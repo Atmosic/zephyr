@@ -16,6 +16,15 @@
 		};
 	};
 
+	sci1_default: sci1_default {
+		group1 {
+			/* sda scl */
+			psels = <RA_PSEL(RA_PSEL_SCI_1, 7, 7)>,<RA_PSEL(RA_PSEL_SCI_1, 7, 6)>;
+			drive-strength = "medium";
+			drive-open-drain;
+		};
+	};
+
 	sci2_default: sci2_default {
 		group1 {
 			/* tx */
@@ -86,6 +95,14 @@
 		};
 	};
 
+	i3c0_default: i3c0_default {
+		group1 {
+			/* SCL SDA */
+			psels = <RA_PSEL(RA_PSEL_I3C, 4, 0)>,
+				<RA_PSEL(RA_PSEL_I3C, 4, 1)>;
+		};
+	};
+
 	pwm7_default: pwm7_default {
 		group1 {
 			/* GTIOC7A */
@@ -153,6 +170,72 @@
 			psels = <RA_PSEL(RA_PSEL_USBFS, 8, 15)>,
 				<RA_PSEL(RA_PSEL_USBFS, 8, 14)>,
 				<RA_PSEL(RA_PSEL_USBFS, 4, 7)>;
+			drive-strength = "high";
+		};
+	};
+
+	/omit-if-no-ref/ acmphs_ivref0: acmphs_ivref0 {
+		group1 {
+			/* IVREF0 */
+			psels = <RA_PSEL(RA_PSEL_ACMPHS, 0, 1)>;
+			renesas,analog-enable;
+		};
+	};
+
+	/omit-if-no-ref/ acmphs_ivref1: acmphs_ivref1 {
+		group1 {
+			/* IVREF1 */
+			psels = <RA_PSEL(RA_PSEL_ACMPHS, 0, 3)>;
+			renesas,analog-enable;
+		};
+	};
+
+	/omit-if-no-ref/ acmphs0_ivcmp0: acmphs0_ivcmp0 {
+		group1 {
+			/* CH0 IVCMP0 */
+			psels = <RA_PSEL(RA_PSEL_ACMPHS, 0, 10)>;
+			renesas,analog-enable;
+		};
+	};
+
+	/omit-if-no-ref/ acmphs0_ivcmp2: acmphs0_ivcmp2 {
+		group1 {
+			/* CH0 IVCMP2 */
+			psels = <RA_PSEL(RA_PSEL_ACMPHS, 0, 4)>;
+			renesas,analog-enable;
+		};
+	};
+
+	/omit-if-no-ref/ acmphs0_ivcmp3: acmphs0_ivcmp3 {
+		group1 {
+			/* CH0 IVCMP3 */
+			psels = <RA_PSEL(RA_PSEL_ACMPHS, 0, 6)>;
+			renesas,analog-enable;
+		};
+	};
+
+	/omit-if-no-ref/ acmphs_vcout: acmphs_vcout {
+		group1 {
+			/* VCOUT */
+			psels = <RA_PSEL(RA_PSEL_ACMPHS_VCOUT, 2, 8)>;
+		};
+	};
+
+	ospi0_default: ospi0_default {
+		group1 {
+			/* sclk dqs sio0-7 */
+			psels = <RA_PSEL(RA_PSEL_OSPI, 8, 8)>, <RA_PSEL(RA_PSEL_OSPI, 8, 1)>,
+			<RA_PSEL(RA_PSEL_OSPI, 1, 0)>, <RA_PSEL(RA_PSEL_OSPI, 8, 3)>,
+			<RA_PSEL(RA_PSEL_OSPI, 1, 3)>, <RA_PSEL(RA_PSEL_OSPI, 1, 1)>,
+			<RA_PSEL(RA_PSEL_OSPI, 1, 2)>, <RA_PSEL(RA_PSEL_OSPI, 8, 0)>,
+			<RA_PSEL(RA_PSEL_OSPI, 8, 2)>, <RA_PSEL(RA_PSEL_OSPI, 8, 4)>;
+			drive-strength = "highspeed-high";
+		};
+
+		group2 {
+			/* cs1 rst ecsint1 */
+			psels = <RA_PSEL(RA_PSEL_OSPI, 1, 4)>, <RA_PSEL(RA_PSEL_OSPI, 1, 6)>,
+			<RA_PSEL(RA_PSEL_OSPI, 1, 5)>;
 			drive-strength = "high";
 		};
 	};

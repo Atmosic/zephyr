@@ -7,6 +7,7 @@
 #include <zephyr/linker/sections.h>
 #include <zephyr/linker/linker-defs.h>
 #include <zephyr/linker/linker-tool.h>
+#include <zephyr/linker/iterable_sections.h>
 
 #include "memory.h"
 
@@ -66,9 +67,13 @@ MEMORY
   irom0_0_seg(RX): org = IROM_SEG_ORG, len = IROM_SEG_LEN
   drom0_0_seg(R):  org = DROM_SEG_ORG, len = DROM_SEG_LEN
 
+#if CONFIG_ULP_COPROC_ENABLED
+  lp_ram_seg(RW):    org = LPSRAM_IRAM_START + ULP_COPROC_RESERVE_MEM,
+                     len = LPSRAM_SIZE - ULP_COPROC_RESERVE_MEM - CONFIG_RESERVE_RTC_MEM
+#else
   lp_ram_seg(RW):    org = LPSRAM_IRAM_START,
                      len = 0x4000 - CONFIG_RESERVE_RTC_MEM
-
+#endif
   /* We reduced the size of lp_ram_seg by CONFIG_RESERVE_RTC_MEM value.
      It reserves the amount of LP memory that we use for this memory segment.
      This segment is intended for keeping:
@@ -186,7 +191,6 @@ SECTIONS
 #endif
 
   /* --- START OF RTC --- */
-
   .rtc.text :
   {
     . = ALIGN(4);
@@ -317,10 +321,6 @@ SECTIONS
     *libzephyr.a:soc_random.*(.literal .text .literal.* .text.*)
 
     *libarch__riscv__core.a:(.literal .text .literal.* .text.*)
-    *libsubsys__net__l2__ethernet.a:(.literal .text .literal.* .text.*)
-    *libsubsys__net__lib__config.a:(.literal .text .literal.* .text.*)
-    *libsubsys__net__ip.a:(.literal .text .literal.* .text.*)
-    *libsubsys__net.a:(.literal .text .literal.* .text.*)
     *libkernel.a:(.literal .text .literal.* .text.*)
     *libgcc.a:lib2funcs.*(.literal .text .literal.* .text.*)
     *libdrivers__flash.a:flash_esp32.*(.literal .text .literal.* .text.*)
@@ -335,13 +335,11 @@ SECTIONS
     *libzephyr.a:log_output.*(.literal .text .literal.* .text.*)
     *libzephyr.a:log_backend_uart.*(.literal .text .literal.* .text.*)
     *libzephyr.a:rtc_*.*(.literal .text .literal.* .text.*)
-    *liblib__libc__newlib.a:string.*(.literal .text .literal.* .text.*)
-    *liblib__libc__minimal.a:string.*(.literal .text .literal.* .text.*)
-    *liblib__libc__picolib.a:string.*(.literal .text .literal.* .text.*)
     *libzephyr.a:periph_ctrl.*(.literal .text .literal.* .text.*)
+    *libzephyr.a:regi2c_ctrl.*(.literal .text .literal.* .text.*)
     *libgcov.a:(.literal .text .literal.* .text.*)
     *libphy.a:( .phyiram .phyiram.*)
-    *libc.a:*(.literal .text .literal.* .text.*)
+    *librtc.a:(.literal .text .literal.* .text.*)
 
     /* [mapping:hal] */
     *libzephyr.a:efuse_hal.*(.literal .text .literal.* .text.*)
@@ -380,7 +378,6 @@ SECTIONS
     *libzephyr.a:memspi_host_driver.*(.literal .literal.* .text .text.*)
     *libzephyr.a:flash_brownout_hook.*(.literal .literal.* .text .text.*)
     *libzephyr.a:spi_flash_wrap.*(.literal .literal.* .text .text.*)
-    *libzephyr.a:spi_flash_hpm_enable.*(.literal .literal.* .text .text.*)
     *libzephyr.a:flash_ops.*(.literal .literal.* .text .text.*)
 
     /* [mapping:esp_system] */
@@ -401,13 +398,12 @@ SECTIONS
     *libzephyr.a:esp_memory_utils.*(.literal .literal.* .text .text.*)
     *libzephyr.a:pmu_init.*(.literal .literal.* .text .text.*)
     *libzephyr.a:pmu_param.*(.literal .literal.* .text .text.*)
+    *libzephyr.a:pmu_sleep.*(.literal .literal.* .text .text.*)
     *libzephyr.a:rtc_clk.*(.literal .literal.* .text .text.*)
     *libzephyr.a:rtc_clk_init.*(.literal .literal.* .text .text.*)
     *libzephyr.a:rtc_time.*(.literal .literal.* .text .text.*)
     *libzephyr.a:rtc_sleep.*(.literal .literal.* .text .text.*)
     *libzephyr.a:systimer.*(.literal .literal.* .text .text.*)
-    *libzephyr.a:mspi_timing_config.*(.literal .literal.* .text .text.*)
-    *libzephyr.a:mspi_timing_tuning.*(.literal .literal.* .text .text.*)
     *(.literal.sar_periph_ctrl_power_enable .text.sar_periph_ctrl_power_enable)
 
     /* [mapping:soc_pm] */
@@ -447,6 +443,9 @@ SECTIONS
     *libpp.a:( .wifirxiram  .wifirxiram.* .wifislprxiram .wifislprxiram.*)
 #endif /* CONFIG_ESP32_WIFI_RX_IRAM_OPT */
 
+  *libble_app.a:(.high_perf_code_iram1 .high_perf_code_iram1.*)
+  *libble_app.a:(.bt_iram_text .bt_iram_text.*)
+
     . = ALIGN(4) + 16;
   } GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
 
@@ -485,8 +484,6 @@ SECTIONS
     *libzephyr.a:secure_boot.*(.literal .text .literal.* .text.*)
     *libzephyr.a:secure_boot_secure_features.*(.literal .text .literal.* .text.*)
     *libzephyr.a:secure_boot_signatures_bootloader.*(.literal .text .literal.* .text.*)
-
-    *libzephyr.a:regi2c_ctrl.*(.literal .text .literal.* .text.*)
 
     *libzephyr.a:cpu_region_protect.*(.literal .text .literal.* .text.*)
 
@@ -608,7 +605,6 @@ SECTIONS
     *libzephyr.a:memspi_host_driver.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:flash_brownout_hook.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:spi_flash_wrap.*(.rodata .rodata.* .srodata .srodata.*)
-    *libzephyr.a:spi_flash_hpm_enable.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:flash_ops.*(.rodata .rodata.* .sdata2 .sdata2.* .srodata .srodata.*)
     *libzephyr.a:flash_qio_mode.*(.rodata .rodata.* .srodata .srodata.*)
 
@@ -629,8 +625,6 @@ SECTIONS
     *libzephyr.a:rtc_clk.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:rtc_clk_init.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:systimer.*(.rodata .rodata.* .srodata .srodata.*)
-    *libzephyr.a:mspi_timing_config.*(.rodata .rodata.* .srodata .srodata.*)
-    *libzephyr.a:mspi_timing_tuning.*(.rodata .rodata.* .srodata .srodata.*)
     *(.rodata.sar_periph_ctrl_power_enable)
     *libzephyr.a:pmu_init.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:pmu_param.*(.rodata .rodata.* .srodata .srodata.*)
@@ -648,6 +642,8 @@ SECTIONS
     *libzephyr.a:esp_rom_efuse.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:esp_rom_systimer.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:esp_rom_hp_regi2c_esp32c6.*(.rodata .rodata.* .srodata .srodata.*)
+
+    *libphy.a:(.rodata .rodata.* .srodata .srodata.*)
 
     . = ALIGN(4);
     #include <snippets-rwdata.ld>
@@ -722,9 +718,17 @@ SECTIONS
     __bss_start = ABSOLUTE(.);
     _bss_start = ABSOLUTE(.);
 
-    *libbtdm_app.a:(.bss .bss.* COMMON)
     . = ALIGN (4);
-    _btdm_bss_end = ABSOLUTE(.);
+    _bt_bss_start = ABSOLUTE(.);
+    *libbtbb.a:(.bss .bss.* COMMON)
+    . = ALIGN (4);
+    _bt_bss_end = ABSOLUTE(.);
+
+    . = ALIGN (4);
+    _bt_controller_bss_start = ABSOLUTE(.);
+    *libble_app.a:(.bss .bss.* COMMON)
+    . = ALIGN (4);
+    _bt_controller_bss_end = ABSOLUTE(.);
 
     *(.dynsbss)
     *(.sbss)

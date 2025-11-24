@@ -218,8 +218,9 @@ static inline void print_nothing(const char *fmt, ...)
 #define TC_END_POST(result)                                                                        \
 	do {                                                                                       \
 		TC_PRINT((result == TC_PASS) ? "\x04" : "\x03");                                   \
-		k_sleep(K_MSEC(100));                                                              \
-	} while (1)
+		COND_CODE_1(CONFIG_ZTEST_NO_YIELD,                                                 \
+			   (k_busy_wait(USEC_PER_MSEC * 100)), (k_sleep(K_MSEC(100))));            \
+	} while (true)
 #else
 #define TC_END_POST(result)
 #endif /* CONFIG_ARCH_POSIX */

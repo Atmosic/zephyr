@@ -22,7 +22,7 @@ Click the operating system you are using.
 
    .. group-tab:: Ubuntu
 
-      This guide covers Ubuntu version 20.04 LTS and later.
+      This guide covers Ubuntu version 22.04 LTS and later.
       If you are using a different Linux distribution see :ref:`installation_linux`.
 
       .. code-block:: bash
@@ -73,27 +73,13 @@ The current minimum required version for the main dependencies are:
 
       .. _install_dependencies_ubuntu:
 
-      #. If using an Ubuntu version older than 22.04, it is necessary to add extra
-         repositories to meet the minimum required versions for the main
-         dependencies listed above. In that case, download, inspect and execute
-         the Kitware archive script to add the Kitware APT repository to your
-         sources list.
-         A detailed explanation of ``kitware-archive.sh`` can be found here
-         `kitware third-party apt repository <https://apt.kitware.com/>`_:
-
-         .. code-block:: bash
-
-            wget https://apt.kitware.com/kitware-archive.sh
-            sudo bash kitware-archive.sh
-
       #. Use ``apt`` to install the required dependencies:
 
          .. code-block:: bash
 
             sudo apt install --no-install-recommends git cmake ninja-build gperf \
-              ccache dfu-util device-tree-compiler wget \
-              python3-dev python3-pip python3-setuptools python3-tk python3-wheel xz-utils file \
-              make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
+              ccache dfu-util device-tree-compiler wget python3-dev python3-venv python3-tk \
+              xz-utils file make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
 
          .. note::
 
@@ -164,45 +150,38 @@ The current minimum required version for the main dependencies are:
       application from the Microsoft Store. Instructions are provided for a ``cmd.exe`` or
       PowerShell command prompts.
 
-      These instructions rely on `Chocolatey`_. If Chocolatey isn't an option,
-      you can install dependencies from their respective websites and ensure
-      the command line tools are on your :envvar:`PATH` :ref:`environment
-      variable <env_vars>`.
+      These instructions rely on Windows' official package manager, `winget`_.
+      If using winget isn't an option, you can install dependencies from their
+      respective websites and ensure the command line tools are on your
+      :envvar:`PATH` :ref:`environment variable <env_vars>`.
 
       |p|
 
       .. _install_dependencies_windows:
 
-      #. `Install chocolatey`_.
+      #. In modern Windows versions, winget is already pre-installed by default.
+         You can verify that this is the case by typing ``winget`` in a terminal
+         window. If that fails, you can then `install winget`_.
 
-      #. Open a ``cmd.exe`` or PowerShell terminal window as **Administrator**.
-         To do so, press the Windows key, type ``cmd.exe`` or PowerShell, right-click the
-         :guilabel:`Command Prompt` or :guilabel:`PowerShell` search result, and choose
-         :guilabel:`Run as Administrator`.
+      #. Open a Command Prompt (``cmd.exe``) or PowerShell terminal window.
+         To do so, press the Windows key, type ``cmd.exe`` or PowerShell and
+         click on the result.
 
-      #. Disable global confirmation to avoid having to confirm the
-         installation of individual programs:
-
-         .. code-block:: bat
-
-            choco feature enable -n allowGlobalConfirmation
-
-      #. Use ``choco`` to install the required dependencies:
+      #. Use ``winget`` to install the required dependencies:
 
          .. code-block:: bat
 
-            choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
-            choco install ninja gperf python311 git dtc-msys2 wget 7zip strawberryperl
-
-         .. warning::
-
-            As of November 2024, Python 3.13 is not recommended for Zephyr development on Windows,
-            as some required Python dependencies may be difficult to install.
+            winget install Kitware.CMake Ninja-build.Ninja oss-winget.gperf python Git.Git oss-winget.dtc wget 7zip.7zip
 
       #. Close the terminal window.
 
-.. _Chocolatey: https://chocolatey.org/
-.. _Install chocolatey: https://chocolatey.org/install
+      .. note::
+
+         You may need to add the 7zip installation folder to your ``PATH``.
+
+
+.. _winget: https://learn.microsoft.com/en-us/windows/package-manager/
+.. _install winget: https://aka.ms/getwinget
 
 .. _get_the_code:
 .. _clone-zephyr:
@@ -223,12 +202,6 @@ chosen. You'll also install Zephyr's additional Python dependencies in a
 .. tabs::
 
    .. group-tab:: Ubuntu
-
-      #. Use ``apt`` to install Python ``venv`` package:
-
-         .. code-block:: bash
-
-            sudo apt install python3-venv
 
       #. Create a new virtual environment:
 
@@ -259,11 +232,25 @@ chosen. You'll also install Zephyr's additional Python dependencies in a
 
       #. Get the Zephyr source code:
 
-         .. code-block:: bash
+         .. only:: not release
 
-           west init ~/zephyrproject
-           cd ~/zephyrproject
-           west update
+            .. code-block:: bash
+
+               west init ~/zephyrproject
+               cd ~/zephyrproject
+               west update
+
+         .. only:: release
+
+            .. We need to use a parsed-literal here because substitutions do not work in code
+               blocks. This means users can't copy-paste these lines as easily as other blocks but
+               should be good enough still :)
+
+            .. parsed-literal::
+
+               west init ~/zephyrproject --mr v |zephyr-version-ltrim|
+               cd ~/zephyrproject
+               west update
 
       #. Export a :ref:`Zephyr CMake package <cmake_pkg>`. This allows CMake to
          automatically load boilerplate code required for building Zephyr
@@ -530,7 +517,7 @@ another sample.
    When building for such boards it is necessary to specify the SoC or CPU
    cluster for which the sample must be built.
    For example to build :zephyr:code-sample:`blinky` for the ``cpuapp`` core on
-   the :ref:`nRF5340DK <nrf5340dk_nrf5340>` the board must be provided as:
+   the :zephyr:board:`nrf5340dk` the board must be provided as:
    ``nrf5340dk/nrf5340/cpuapp``. See also :ref:`board_terminology` for more
    details.
 

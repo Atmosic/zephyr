@@ -3,6 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <time.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/logging/log_backend.h>
 #include <zephyr/logging/log_ctrl.h>
@@ -12,6 +13,7 @@
 #include <zephyr/logging/log_link.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys_clock.h>
+#include <zephyr/sys/clock.h>
 #include <zephyr/init.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/atomic.h>
@@ -23,8 +25,9 @@
 #include <zephyr/logging/log_output_custom.h>
 #include <zephyr/linker/utils.h>
 
-#ifdef CONFIG_LOG_TIMESTAMP_USE_REALTIME
-#include <zephyr/posix/time.h>
+#if CONFIG_USERSPACE && CONFIG_LOG_ALWAYS_RUNTIME
+#include <zephyr/app_memory/app_memdomain.h>
+K_APPMEM_PARTITION_DEFINE(k_log_partition);
 #endif
 
 LOG_MODULE_REGISTER(log);
@@ -242,7 +245,7 @@ static log_timestamp_t default_rt_get_timestamp(void)
 {
 	struct timespec tspec;
 
-	clock_gettime(CLOCK_REALTIME, &tspec);
+	sys_clock_gettime(SYS_CLOCK_REALTIME, &tspec);
 
 	return ((uint64_t)tspec.tv_sec * MSEC_PER_SEC) + (tspec.tv_nsec / NSEC_PER_MSEC);
 }
@@ -288,6 +291,14 @@ void log_core_init(void)
 	if (IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING)) {
 		z_log_runtime_filters_init();
 	}
+
+	STRUCT_SECTION_FOREACH(log_backend, backend) {
+		uint32_t id;
+		/* As first slot in filtering mask is reserved, backend ID has offset.*/
+		id = LOG_FILTER_FIRST_BACKEND_SLOT_IDX;
+		id += backend - log_backend_get(0);
+		log_backend_id_set(backend, id);
+	}
 }
 
 static uint32_t activate_foreach_backend(uint32_t mask)
@@ -331,12 +342,6 @@ static uint32_t z_log_init(bool blocking, bool can_sleep)
 	int backend_index = 0;
 
 	STRUCT_SECTION_FOREACH(log_backend, backend) {
-		uint32_t id;
-		/* As first slot in filtering mask is reserved, backend ID has offset.*/
-		id = LOG_FILTER_FIRST_BACKEND_SLOT_IDX;
-		id += backend - log_backend_get(0);
-		log_backend_id_set(backend, id);
-
 		/* Activate autostart backends */
 		if (backend->autostart) {
 			log_backend_init(backend);
@@ -1003,7 +1008,8 @@ void log_flush(void)
 {
 	if (IS_ENABLED(CONFIG_LOG_PROCESS_THREAD)) {
 		while (atomic_get(&buffered_cnt)) {
-			k_sleep(K_MSEC(10));
+			log_thread_trigger();
+			k_sleep(K_USEC(CONFIG_LOG_FLUSH_SLEEP_US));
 		}
 	} else {
 		while (LOG_PROCESS()) {

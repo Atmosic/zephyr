@@ -142,12 +142,17 @@ static int lldp_send(struct ethernet_lldp *lldp)
 		}
 	}
 
-	net_pkt_lladdr_src(pkt)->addr = net_if_get_link_addr(lldp->iface)->addr;
-	net_pkt_lladdr_src(pkt)->len = sizeof(struct net_eth_addr);
-	net_pkt_lladdr_dst(pkt)->addr = (uint8_t *)lldp_multicast_eth_addr.addr;
-	net_pkt_lladdr_dst(pkt)->len = sizeof(struct net_eth_addr);
+	(void)net_linkaddr_copy(net_pkt_lladdr_src(pkt),
+				net_if_get_link_addr(lldp->iface));
 
-	if (net_if_send_data(lldp->iface, pkt) == NET_DROP) {
+	(void)net_linkaddr_set(net_pkt_lladdr_dst(pkt),
+			       (uint8_t *)lldp_multicast_eth_addr.addr,
+			       sizeof(struct net_eth_addr));
+
+	/* send without timeout, so we do not risk being blocked by tx when
+	 * being flooded
+	 */
+	if (net_if_try_send_data(lldp->iface, pkt, K_NO_WAIT) == NET_DROP) {
 		net_pkt_unref(pkt);
 		ret = -EIO;
 	}
@@ -229,7 +234,7 @@ static int lldp_check_iface(struct net_if *iface)
 	return 0;
 }
 
-static int lldp_start(struct net_if *iface, uint32_t mgmt_event)
+static int lldp_start(struct net_if *iface, uint64_t mgmt_event)
 {
 	struct ethernet_context *ctx;
 	int ret, slot;
@@ -323,7 +328,7 @@ int net_lldp_register_callback(struct net_if *iface, net_lldp_recv_cb_t recv_cb)
 }
 
 static void iface_event_handler(struct net_mgmt_event_callback *evt_cb,
-				uint32_t mgmt_event, struct net_if *iface)
+				uint64_t mgmt_event, struct net_if *iface)
 {
 	lldp_start(iface, mgmt_event);
 }
