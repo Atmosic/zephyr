@@ -117,7 +117,10 @@ static void dma_stm32_irq_handler(const struct device *dev, uint32_t id)
 		if (!stream->hal_override) {
 			dma_stm32_clear_ht(dma, id);
 		}
-		stream->dma_callback(dev, stream->user_data, callback_arg, DMA_STATUS_BLOCK);
+		if (stream->dma_callback != NULL) {
+			stream->dma_callback(dev, stream->user_data, callback_arg,
+					     DMA_STATUS_BLOCK);
+		}
 	} else if (stm32_dma_is_tc_irq_active(dma, id)) {
 		/* Circular buffer never stops receiving as long as peripheral is enabled */
 		if (!stream->cyclic) {
@@ -127,18 +130,31 @@ static void dma_stm32_irq_handler(const struct device *dev, uint32_t id)
 		if (!stream->hal_override) {
 			dma_stm32_clear_tc(dma, id);
 		}
-		stream->dma_callback(dev, stream->user_data, callback_arg, DMA_STATUS_COMPLETE);
+		if (stream->dma_callback != NULL) {
+			stream->dma_callback(dev, stream->user_data, callback_arg,
+					     DMA_STATUS_COMPLETE);
+		}
 	} else if (stm32_dma_is_unexpected_irq_happened(dma, id)) {
-		LOG_ERR("Unexpected irq happened.");
-		stream->dma_callback(dev, stream->user_data,
-				     callback_arg, -EIO);
+		/* Let HAL DMA handle flags on its own */
+		if (!stream->hal_override) {
+			LOG_ERR("Unexpected irq happened.");
+			stm32_dma_dump_stream_irq(dma, id);
+			stm32_dma_clear_stream_irq(dma, id);
+		}
+		if (stream->dma_callback != NULL) {
+			stream->dma_callback(dev, stream->user_data, callback_arg, -EIO);
+		}
 	} else {
-		LOG_ERR("Transfer Error.");
-		stream->busy = false;
-		dma_stm32_dump_stream_irq(dev, id);
-		dma_stm32_clear_stream_irq(dev, id);
-		stream->dma_callback(dev, stream->user_data,
-				     callback_arg, -EIO);
+		/* Let HAL DMA handle flags on its own */
+		if (!stream->hal_override) {
+			LOG_ERR("Transfer Error.");
+			stream->busy = false;
+			dma_stm32_dump_stream_irq(dev, id);
+			dma_stm32_clear_stream_irq(dev, id);
+		}
+		if (stream->dma_callback != NULL) {
+			stream->dma_callback(dev, stream->user_data, callback_arg, -EIO);
+		}
 	}
 }
 
@@ -273,10 +289,9 @@ DMA_STM32_EXPORT_API int dma_stm32_configure(const struct device *dev,
 					     struct dma_config *config)
 {
 	const struct dma_stm32_config *dev_config = dev->config;
-	struct dma_stm32_stream *stream =
-				&dev_config->streams[id - STM32_DMA_STREAM_OFFSET];
 	DMA_TypeDef *dma = (DMA_TypeDef *)dev_config->base;
 	LL_DMA_InitTypeDef DMA_InitStruct;
+	struct dma_stm32_stream *stream;
 	int ret;
 
 	LL_DMA_StructInit(&DMA_InitStruct);
@@ -289,6 +304,7 @@ DMA_STM32_EXPORT_API int dma_stm32_configure(const struct device *dev,
 		return -EINVAL;
 	}
 
+	stream = &dev_config->streams[id];
 	if (stream->busy) {
 		LOG_ERR("dma stream %d is busy.", id);
 		return -EBUSY;
@@ -492,10 +508,13 @@ DMA_STM32_EXPORT_API int dma_stm32_configure(const struct device *dev,
 #endif
 	LL_DMA_Init(dma, dma_stm32_id_to_stream(id), &DMA_InitStruct);
 
-	LL_DMA_EnableIT_TC(dma, dma_stm32_id_to_stream(id));
+	/* Enable transfer complete ISR if in non-cyclic mode or a callback is requested */
+	if (!stream->cyclic || stream->dma_callback != NULL) {
+		LL_DMA_EnableIT_TC(dma, dma_stm32_id_to_stream(id));
+	}
 
-	/* Enable Half-Transfer irq if circular mode is enabled */
-	if (stream->cyclic) {
+	/* Enable Half-Transfer irq if circular mode is enabled and a callback is requested */
+	if (stream->cyclic && stream->dma_callback != NULL) {
 		LL_DMA_EnableIT_HT(dma, dma_stm32_id_to_stream(id));
 	}
 
@@ -594,8 +613,8 @@ DMA_STM32_EXPORT_API int dma_stm32_start(const struct device *dev, uint32_t id)
 DMA_STM32_EXPORT_API int dma_stm32_stop(const struct device *dev, uint32_t id)
 {
 	const struct dma_stm32_config *config = dev->config;
-	struct dma_stm32_stream *stream = &config->streams[id - STM32_DMA_STREAM_OFFSET];
 	DMA_TypeDef *dma = (DMA_TypeDef *)(config->base);
+	struct dma_stm32_stream *stream;
 
 	/* Give channel from index 0 */
 	id = id - STM32_DMA_STREAM_OFFSET;
@@ -603,6 +622,8 @@ DMA_STM32_EXPORT_API int dma_stm32_stop(const struct device *dev, uint32_t id)
 	if (id >= config->max_streams) {
 		return -EINVAL;
 	}
+
+	stream = &config->streams[id];
 
 	if (stream->hal_override) {
 		stream->busy = false;

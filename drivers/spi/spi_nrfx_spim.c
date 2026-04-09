@@ -9,13 +9,10 @@
 #include <zephyr/cache.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/pm/device_runtime.h>
-#include <zephyr/drivers/clock_control/nrf_clock_control.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/mem_mgmt/mem_attr.h>
 #include <soc.h>
-#ifdef CONFIG_SOC_NRF54H20_GPD
-#include <nrf/gpd.h>
-#endif
+#include <dmm.h>
 #ifdef CONFIG_SOC_NRF52832_ALLOW_SPIM_DESPITE_PAN_58
 #include <nrfx_ppi.h>
 #endif
@@ -43,21 +40,19 @@ LOG_MODULE_REGISTER(spi_nrfx_spim, CONFIG_SPI_LOG_LEVEL);
 #define SPI_BUFFER_IN_RAM 1
 #endif
 
-#if defined(CONFIG_CLOCK_CONTROL_NRF_HSFLL_GLOBAL)
-#define SPIM_REQUESTS_CLOCK(node) \
-	DT_NODE_HAS_COMPAT(DT_CLOCKS_CTLR(node), nordic_nrf_hsfll_global)
-#define SPIM_REQUESTS_CLOCK_OR(node) SPIM_REQUESTS_CLOCK(node) ||
-#if (DT_FOREACH_STATUS_OKAY(nordic_nrf_spim, SPIM_REQUESTS_CLOCK_OR) 0)
-#define USE_CLOCK_REQUESTS 1
-/* If fast instances are used then system managed device PM cannot be used because
- * it may call PM actions from locked context and fast SPIM PM actions can only be
- * called from a thread context.
+/*
+ * We use NODELABEL here because the nrfx API requires us to call
+ * functions which are named according to SoC peripheral instance
+ * being operated on. Since DT_INST() makes no guarantees about that,
+ * it won't work.
  */
-BUILD_ASSERT(!IS_ENABLED(CONFIG_PM_DEVICE_SYSTEM_MANAGED));
-#endif
-#else
-#define SPIM_REQUESTS_CLOCK(node) 0
-#endif
+#define SPIM(idx)			DT_NODELABEL(spi##idx)
+#define SPIM_PROP(idx, prop)		DT_PROP(SPIM(idx), prop)
+#define SPIM_HAS_PROP(idx, prop)	DT_NODE_HAS_PROP(SPIM(idx), prop)
+
+/* Execute macro f(x) for all instances. */
+#define SPIM_FOR_EACH_INSTANCE(f, sep, off_code, ...) \
+	NRFX_FOREACH_PRESENT(SPIM, f, sep, off_code, __VA_ARGS__)
 
 struct spi_nrfx_data {
 	struct spi_context ctx;
@@ -74,9 +69,6 @@ struct spi_nrfx_data {
 	uint8_t ppi_ch;
 	uint8_t gpiote_ch;
 #endif
-#ifdef USE_CLOCK_REQUESTS
-	bool clock_requested;
-#endif
 };
 
 struct spi_nrfx_config {
@@ -91,61 +83,10 @@ struct spi_nrfx_config {
 #endif
 	uint32_t wake_pin;
 	nrfx_gpiote_t wake_gpiote;
-#ifdef CONFIG_DCACHE
-	uint32_t mem_attr;
-#endif
-#ifdef USE_CLOCK_REQUESTS
-	const struct device *clk_dev;
-	struct nrf_clock_spec clk_spec;
-#endif
+	void *mem_reg;
 };
 
 static void event_handler(const nrfx_spim_evt_t *p_event, void *p_context);
-
-static inline int request_clock(const struct device *dev)
-{
-#ifdef USE_CLOCK_REQUESTS
-	struct spi_nrfx_data *dev_data = dev->data;
-	const struct spi_nrfx_config *dev_config = dev->config;
-	int error;
-
-	if (!dev_config->clk_dev) {
-		return 0;
-	}
-
-	error = nrf_clock_control_request_sync(
-			dev_config->clk_dev, &dev_config->clk_spec,
-			K_MSEC(CONFIG_SPI_COMPLETION_TIMEOUT_TOLERANCE));
-	if (error < 0) {
-		LOG_ERR("Failed to request clock: %d", error);
-		return error;
-	}
-
-	dev_data->clock_requested = true;
-#else
-	ARG_UNUSED(dev);
-#endif
-
-	return 0;
-}
-
-static inline void release_clock(const struct device *dev)
-{
-#ifdef USE_CLOCK_REQUESTS
-	struct spi_nrfx_data *dev_data = dev->data;
-	const struct spi_nrfx_config *dev_config = dev->config;
-
-	if (!dev_data->clock_requested) {
-		return;
-	}
-
-	dev_data->clock_requested = false;
-
-	nrf_clock_control_release(dev_config->clk_dev, &dev_config->clk_spec);
-#else
-	ARG_UNUSED(dev);
-#endif
-}
 
 static inline void finalize_spi_transaction(const struct device *dev, bool deactivate_cs)
 {
@@ -161,20 +102,19 @@ static inline void finalize_spi_transaction(const struct device *dev, bool deact
 		nrfy_spim_disable(reg);
 	}
 
-	if (!pm_device_runtime_is_enabled(dev)) {
-		release_clock(dev);
-	}
-
 	pm_device_runtime_put_async(dev, K_NO_WAIT);
 }
 
 static inline uint32_t get_nrf_spim_frequency(uint32_t frequency)
 {
+	if (NRF_SPIM_HAS_PRESCALER) {
+		return frequency;
+	}
 	/* Get the highest supported frequency not exceeding the requested one.
 	 */
-	if (frequency >= MHZ(32) && (NRF_SPIM_HAS_32_MHZ_FREQ || NRF_SPIM_HAS_PRESCALER)) {
+	if (frequency >= MHZ(32) && NRF_SPIM_HAS_32_MHZ_FREQ) {
 		return MHZ(32);
-	} else if (frequency >= MHZ(16) && (NRF_SPIM_HAS_16_MHZ_FREQ || NRF_SPIM_HAS_PRESCALER)) {
+	} else if (frequency >= MHZ(16) && NRF_SPIM_HAS_16_MHZ_FREQ) {
 		return MHZ(16);
 	} else if (frequency >= MHZ(8)) {
 		return MHZ(8);
@@ -439,11 +379,6 @@ static void transfer_next_chunk(const struct device *dev)
 			}
 
 			memcpy(dev_data->tx_buffer, tx_buf, chunk_len);
-#ifdef CONFIG_DCACHE
-			if (dev_config->mem_attr & DT_MEM_CACHEABLE) {
-				sys_cache_data_flush_range(dev_data->tx_buffer, chunk_len);
-			}
-#endif
 			tx_buf = dev_data->tx_buffer;
 		}
 
@@ -460,10 +395,20 @@ static void transfer_next_chunk(const struct device *dev)
 
 		dev_data->chunk_len = chunk_len;
 
-		xfer.p_tx_buffer = tx_buf;
-		xfer.tx_length   = spi_context_tx_buf_on(ctx) ? chunk_len : 0;
-		xfer.p_rx_buffer = rx_buf;
-		xfer.rx_length   = spi_context_rx_buf_on(ctx) ? chunk_len : 0;
+		xfer.tx_length = spi_context_tx_buf_on(ctx) ? chunk_len : 0;
+		xfer.rx_length = spi_context_rx_buf_on(ctx) ? chunk_len : 0;
+
+		error = dmm_buffer_out_prepare(dev_config->mem_reg, tx_buf, xfer.tx_length,
+					       (void **)&xfer.p_tx_buffer);
+		if (error != 0) {
+			goto out_alloc_failed;
+		}
+
+		error = dmm_buffer_in_prepare(dev_config->mem_reg, rx_buf, xfer.rx_length,
+					      (void **)&xfer.p_rx_buffer);
+		if (error != 0) {
+			goto in_alloc_failed;
+		}
 
 #ifdef CONFIG_SOC_NRF52832_ALLOW_SPIM_DESPITE_PAN_58
 		if (xfer.rx_length == 1 && xfer.tx_length <= 1) {
@@ -486,8 +431,15 @@ static void transfer_next_chunk(const struct device *dev)
 			anomaly_58_workaround_clear(dev_data);
 #endif
 		}
+
+		/* On nrfx_spim_xfer() error */
+		dmm_buffer_in_release(dev_config->mem_reg, rx_buf, xfer.rx_length,
+				      (void **)&xfer.p_rx_buffer);
+in_alloc_failed:
+		dmm_buffer_out_release(dev_config->mem_reg, (void **)&xfer.p_tx_buffer);
 	}
 
+out_alloc_failed:
 	finish_transaction(dev, error);
 }
 
@@ -495,9 +447,7 @@ static void event_handler(const nrfx_spim_evt_t *p_event, void *p_context)
 {
 	const struct device *dev = p_context;
 	struct spi_nrfx_data *dev_data = dev->data;
-#ifdef CONFIG_DCACHE
 	const struct spi_nrfx_config *dev_config = dev->config;
-#endif
 
 	if (p_event->type == NRFX_SPIM_EVENT_DONE) {
 		/* Chunk length is set to 0 when a transaction is aborted
@@ -511,15 +461,21 @@ static void event_handler(const nrfx_spim_evt_t *p_event, void *p_context)
 #ifdef CONFIG_SOC_NRF52832_ALLOW_SPIM_DESPITE_PAN_58
 		anomaly_58_workaround_clear(dev_data);
 #endif
+
+		if (spi_context_tx_buf_on(&dev_data->ctx)) {
+			dmm_buffer_out_release(dev_config->mem_reg,
+					       (void **)p_event->xfer_desc.p_tx_buffer);
+		}
+
+		if (spi_context_rx_buf_on(&dev_data->ctx)) {
+			dmm_buffer_in_release(dev_config->mem_reg, dev_data->ctx.rx_buf,
+				dev_data->chunk_len, p_event->xfer_desc.p_rx_buffer);
+		}
+
 #ifdef SPI_BUFFER_IN_RAM
 		if (spi_context_rx_buf_on(&dev_data->ctx) &&
 		    p_event->xfer_desc.p_rx_buffer != NULL &&
 		    p_event->xfer_desc.p_rx_buffer != dev_data->ctx.rx_buf) {
-#ifdef CONFIG_DCACHE
-			if (dev_config->mem_attr & DT_MEM_CACHEABLE) {
-				sys_cache_data_invd_range(dev_data->rx_buffer, dev_data->chunk_len);
-			}
-#endif
 			(void)memcpy(dev_data->ctx.rx_buf,
 				     dev_data->rx_buffer,
 				     dev_data->chunk_len);
@@ -549,10 +505,6 @@ static int transceive(const struct device *dev,
 	spi_context_lock(&dev_data->ctx, asynchronous, cb, userdata, spi_cfg);
 
 	error = configure(dev, spi_cfg);
-
-	if (error == 0 && !pm_device_runtime_is_enabled(dev)) {
-		error = request_clock(dev);
-	}
 
 	if (error == 0) {
 		dev_data->busy = true;
@@ -643,6 +595,12 @@ static int spi_nrfx_release(const struct device *dev,
 {
 	struct spi_nrfx_data *dev_data = dev->data;
 
+#ifdef CONFIG_MULTITHREADING
+	if (dev_data->ctx.owner != spi_cfg) {
+		return -EALREADY;
+	}
+#endif
+
 	if (!spi_context_configured(&dev_data->ctx, spi_cfg)) {
 		return -EINVAL;
 	}
@@ -682,11 +640,7 @@ static int spim_resume(const struct device *dev)
 		return -EAGAIN;
 	}
 
-#ifdef CONFIG_SOC_NRF54H20_GPD
-	nrf_gpd_retain_pins_set(dev_config->pcfg, false);
-#endif
-
-	return pm_device_runtime_is_enabled(dev) ? request_clock(dev) : 0;
+	return 0;
 }
 
 static void spim_suspend(const struct device *dev)
@@ -699,15 +653,7 @@ static void spim_suspend(const struct device *dev)
 		dev_data->initialized = false;
 	}
 
-	if (pm_device_runtime_is_enabled(dev)) {
-		release_clock(dev);
-	}
-
 	spi_context_cs_put_all(&dev_data->ctx);
-
-#ifdef CONFIG_SOC_NRF54H20_GPD
-	nrf_gpd_retain_pins_set(dev_config->pcfg, true);
-#endif
 
 	(void)pinctrl_apply_state(dev_config->pcfg, PINCTRL_STATE_SLEEP);
 }
@@ -731,10 +677,10 @@ static int spi_nrfx_init(const struct device *dev)
 	struct spi_nrfx_data *dev_data = dev->data;
 	int err;
 
-	err = pinctrl_apply_state(dev_config->pcfg, PINCTRL_STATE_DEFAULT);
-	if (err < 0) {
-		return err;
-	}
+	/* Apply sleep state by default.
+	 * If PM is disabled, the default state will be applied in pm_device_driver_init.
+	 */
+	(void)pinctrl_apply_state(dev_config->pcfg, PINCTRL_STATE_SLEEP);
 
 	if (dev_config->wake_pin != WAKE_PIN_NOT_USED) {
 		err = spi_nrfx_wake_init(&dev_config->wake_gpiote, dev_config->wake_pin);
@@ -787,17 +733,6 @@ static int spi_nrfx_deinit(const struct device *dev)
 	return 0;
 }
 
-/*
- * We use NODELABEL here because the nrfx API requires us to call
- * functions which are named according to SoC peripheral instance
- * being operated on. Since DT_INST() makes no guarantees about that,
- * it won't work.
- */
-#define SPIM(idx)			DT_NODELABEL(spi##idx)
-#define SPIM_PROP(idx, prop)		DT_PROP(SPIM(idx), prop)
-#define SPIM_HAS_PROP(idx, prop)	DT_NODE_HAS_PROP(SPIM(idx), prop)
-#define SPIM_MEM_REGION(idx)		DT_PHANDLE(SPIM(idx), memory_regions)
-
 #define SPI_NRFX_SPIM_EXTENDED_CONFIG(idx)				\
 	IF_ENABLED(NRFX_SPIM_EXTENDED_ENABLED,				\
 		(.dcx_pin = NRF_SPIM_PIN_NOT_CONNECTED,			\
@@ -806,30 +741,9 @@ static int spi_nrfx_deinit(const struct device *dev)
 			     ())					\
 		))
 
-#define SPIM_GET_MEM_ATTR(idx)								 \
-	COND_CODE_1(SPIM_HAS_PROP(idx, memory_regions),					 \
-		(COND_CODE_1(DT_NODE_HAS_PROP(SPIM_MEM_REGION(idx), zephyr_memory_attr), \
-			(DT_PROP(SPIM_MEM_REGION(idx), zephyr_memory_attr)),		 \
-			(0))),								 \
-		(0))
-
-/* Fast instances depend on the global HSFLL clock controller (as they need
- * to request the highest frequency from it to operate correctly), so they
- * must be initialized after that controller driver, hence the default SPI
- * initialization priority may be too early for them.
- */
-#if defined(CONFIG_CLOCK_CONTROL_NRF_HSFLL_GLOBAL_INIT_PRIORITY) && \
-	CONFIG_SPI_INIT_PRIORITY < CONFIG_CLOCK_CONTROL_NRF_HSFLL_GLOBAL_INIT_PRIORITY
-#define SPIM_INIT_PRIORITY(idx) \
-	COND_CODE_1(SPIM_REQUESTS_CLOCK(SPIM(idx)), \
-		(UTIL_INC(CONFIG_CLOCK_CONTROL_NRF_HSFLL_GLOBAL_INIT_PRIORITY)), \
-		(CONFIG_SPI_INIT_PRIORITY))
-#else
-#define SPIM_INIT_PRIORITY(idx) CONFIG_SPI_INIT_PRIORITY
-#endif
-
 #define SPI_NRFX_SPIM_DEFINE(idx)					       \
 	NRF_DT_CHECK_NODE_HAS_PINCTRL_SLEEP(SPIM(idx));			       \
+	NRF_DT_CHECK_NODE_HAS_REQUIRED_MEMORY_REGIONS(SPIM(idx));	       \
 	static void irq_connect##idx(void)				       \
 	{								       \
 		IRQ_CONNECT(DT_IRQN(SPIM(idx)), DT_IRQ(SPIM(idx), priority),   \
@@ -838,10 +752,10 @@ static int spi_nrfx_deinit(const struct device *dev)
 	IF_ENABLED(SPI_BUFFER_IN_RAM,					       \
 		(static uint8_t spim_##idx##_tx_buffer			       \
 			[CONFIG_SPI_NRFX_RAM_BUFFER_SIZE]		       \
-			SPIM_MEMORY_SECTION(idx);			       \
+			DMM_MEMORY_SECTION(SPIM(idx));			       \
 		 static uint8_t spim_##idx##_rx_buffer			       \
 			[CONFIG_SPI_NRFX_RAM_BUFFER_SIZE]		       \
-			SPIM_MEMORY_SECTION(idx);))			       \
+			DMM_MEMORY_SECTION(SPIM(idx));))		       \
 	static struct spi_nrfx_data spi_##idx##_data = {		       \
 		IF_ENABLED(CONFIG_MULTITHREADING,			       \
 			(SPI_CONTEXT_INIT_LOCK(spi_##idx##_data, ctx),))       \
@@ -878,15 +792,7 @@ static int spi_nrfx_deinit(const struct device *dev)
 		.wake_pin = NRF_DT_GPIOS_TO_PSEL_OR(SPIM(idx), wake_gpios,     \
 						    WAKE_PIN_NOT_USED),	       \
 		.wake_gpiote = WAKE_GPIOTE_INSTANCE(SPIM(idx)),		       \
-		IF_ENABLED(CONFIG_DCACHE,				       \
-			(.mem_attr = SPIM_GET_MEM_ATTR(idx),))		       \
-		IF_ENABLED(USE_CLOCK_REQUESTS,				       \
-			(.clk_dev = SPIM_REQUESTS_CLOCK(SPIM(idx))	       \
-				  ? DEVICE_DT_GET(DT_CLOCKS_CTLR(SPIM(idx)))   \
-				  : NULL,				       \
-			 .clk_spec = {					       \
-				.frequency = NRF_CLOCK_CONTROL_FREQUENCY_MAX,  \
-			 },))						       \
+		.mem_reg = DMM_DEV_TO_REG(SPIM(idx)),			       \
 	};								       \
 	BUILD_ASSERT(!SPIM_HAS_PROP(idx, wake_gpios) ||			       \
 		     !(DT_GPIO_FLAGS(SPIM(idx), wake_gpios) & GPIO_ACTIVE_LOW),\
@@ -898,16 +804,10 @@ static int spi_nrfx_deinit(const struct device *dev)
 		      PM_DEVICE_DT_GET(SPIM(idx)),			       \
 		      &spi_##idx##_data,				       \
 		      &spi_##idx##z_config,				       \
-		      POST_KERNEL, SPIM_INIT_PRIORITY(idx),		       \
+		      POST_KERNEL, CONFIG_SPI_INIT_PRIORITY,		       \
 		      &spi_nrfx_driver_api)
-
-#define SPIM_MEMORY_SECTION(idx)					       \
-	COND_CODE_1(SPIM_HAS_PROP(idx, memory_regions),			       \
-		(__attribute__((__section__(LINKER_DT_NODE_REGION_NAME(	       \
-			SPIM_MEM_REGION(idx)))))),			       \
-		())
 
 #define COND_NRF_SPIM_DEVICE(unused, prefix, i, _) \
 	IF_ENABLED(CONFIG_HAS_HW_NRF_SPIM##prefix##i, (SPI_NRFX_SPIM_DEFINE(prefix##i);))
 
-NRFX_FOREACH_PRESENT(SPIM, COND_NRF_SPIM_DEVICE, (), (), _)
+SPIM_FOR_EACH_INSTANCE(COND_NRF_SPIM_DEVICE, (), (), _)

@@ -15,11 +15,12 @@
 	compatible = "st,stm32u385rg-nucleo-q";
 
 	chosen {
+		zephyr,canbus = &fdcan1;
+		zephyr,code-partition = &slot0_partition;
 		zephyr,console = &usart1;
+		zephyr,flash = &flash0;
 		zephyr,shell-uart = &usart1;
 		zephyr,sram = &sram0;
-		zephyr,flash = &flash0;
-		zephyr,code-partition = &slot0_partition;
 	};
 
 	leds: leds {
@@ -106,7 +107,15 @@
 	status = "okay";
 };
 
+&clk_hsi48 {
+	status = "okay";
+};
+
 &clk_lse {
+	status = "okay";
+};
+
+&clk_msik {
 	status = "okay";
 };
 
@@ -136,9 +145,15 @@
 };
 
 &dac1 {
-	status = "okay";
 	pinctrl-0 = <&dac1_out1_pa4>;
 	pinctrl-names = "default";
+	status = "okay";
+};
+
+&fdcan1 {
+	pinctrl-0 = <&fdcan1_rx_pa11 &fdcan1_tx_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
 };
 
 &i2c1 {
@@ -153,13 +168,22 @@
 	status = "okay";
 };
 
-&i2c3 {
-	pinctrl-0 = <&i2c3_scl_pa7 &i2c3_sda_pc1>;
-	pinctrl-names = "default";
+&rng {
+	clocks = <&rcc STM32_CLOCK(AHB2, 18)>,
+		 <&rcc STM32_SRC_MSIK RNG_SEL(1)>;
 	status = "okay";
 };
 
-&rng {
+&spi1 {
+	pinctrl-0 = <&spi1_sck_pa5 &spi1_miso_pa6
+		     &spi1_mosi_pa7>;
+	pinctrl-names = "default";
+
+	/* Arduino D10 (SPI_NSS) is wired to PC9 which
+	 * doesn't support hardware NSS; the software
+	 * cs-gpios must be used instead.
+	 */
+	cs-gpios = <&gpioc 9 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
@@ -175,5 +199,11 @@
 };
 
 &wwdg {
+	status = "okay";
+};
+
+zephyr_udc0: &usb {
+	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
+	pinctrl-names = "default";
 	status = "okay";
 };

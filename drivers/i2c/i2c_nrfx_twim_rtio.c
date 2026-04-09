@@ -254,6 +254,7 @@ static int i2c_nrfx_twim_rtio_deinit(const struct device *dev)
 
 #define I2C_NRFX_TWIM_RTIO_DEVICE(idx)                                                             \
 	NRF_DT_CHECK_NODE_HAS_PINCTRL_SLEEP(I2C(idx));                                             \
+	NRF_DT_CHECK_NODE_HAS_REQUIRED_MEMORY_REGIONS(I2C(idx));                                   \
 	BUILD_ASSERT(I2C_FREQUENCY(idx) != I2C_NRFX_TWIM_INVALID_FREQUENCY,                        \
 		     "Wrong I2C " #idx " frequency setting in dts");                               \
 	static void irq_connect##idx(void)                                                         \
@@ -286,7 +287,7 @@ static int i2c_nrfx_twim_rtio_deinit(const struct device *dev)
 			},                                                                         \
 		.ctx = &_i2c##idx##_twim_rtio,                                                     \
 	};                                                                                         \
-	PM_DEVICE_DT_DEFINE(I2C(idx), twim_nrfx_pm_action, PM_DEVICE_ISR_SAFE);                    \
+	PM_DEVICE_DT_DEFINE(I2C(idx), twim_nrfx_pm_action, I2C_PM_ISR_SAFE(idx));                  \
 	I2C_DEVICE_DT_DEINIT_DEFINE(I2C(idx), i2c_nrfx_twim_rtio_init, i2c_nrfx_twim_rtio_deinit,  \
 			     PM_DEVICE_DT_GET(I2C(idx)), &twim_##idx##z_data,                      \
 			     &twim_##idx##z_config, POST_KERNEL, CONFIG_I2C_INIT_PRIORITY,         \

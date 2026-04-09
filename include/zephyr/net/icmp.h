@@ -4,11 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/** @file icmp.h
+/**
+ * @file icmp.h
+ * @brief Header file for ICMP protocol support.
+ * @ingroup icmp
  *
- * @brief ICMP sending and receiving.
- *
- * @defgroup icmp Send and receive IPv4 or IPv6 ICMP Echo Request messages.
+ * @defgroup icmp ICMP
+ * @brief Send and receive IPv4 or IPv6 ICMP (Internet Control Message Protocol)
+ *        Echo Request messages.
  * @since 3.5
  * @version 0.8.0
  * @ingroup networking
@@ -93,6 +96,9 @@ struct net_icmp_ctx {
 	/** Opaque user supplied data */
 	void *user_data;
 
+	/** Address family the handler is registered for */
+	uint8_t family;
+
 	/** ICMP type of the response we are waiting */
 	uint8_t type;
 
@@ -157,12 +163,13 @@ struct net_icmp_ping_params {
  *        system.
  *
  * @param ctx ICMP context used in this request.
+ * @param family Address family the context is using.
  * @param type Type of ICMP message we are handling.
  * @param code Code of ICMP message we are handling.
  * @param handler Callback function that is called when a response is received.
  */
-int net_icmp_init_ctx(struct net_icmp_ctx *ctx, uint8_t type, uint8_t code,
-		      net_icmp_handler_t handler);
+int net_icmp_init_ctx(struct net_icmp_ctx *ctx, uint8_t family, uint8_t type,
+		      uint8_t code, net_icmp_handler_t handler);
 
 /**
  * @brief Cleanup the ICMP context structure. This will unregister the ICMP handler

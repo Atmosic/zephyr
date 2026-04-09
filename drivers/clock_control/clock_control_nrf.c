@@ -494,7 +494,7 @@ static int async_start(const struct device *dev, clock_control_subsys_t subsys,
 	subdata->cb = cb;
 	subdata->user_data = user_data;
 
-	 get_sub_config(dev, type)->start();
+	get_sub_config(dev, type)->start();
 
 	return 0;
 }
@@ -695,6 +695,20 @@ void z_nrf_clock_control_lf_on(enum nrf_lfclk_start_mode start_mode)
 	}
 }
 
+static void hfclkstarted_handle(const struct device *dev)
+{
+	struct nrf_clock_control_sub_data *data =
+			get_sub_data(dev, CLOCK_CONTROL_NRF_TYPE_HFCLK);
+
+	if (GET_STATUS(data->flags) == CLOCK_CONTROL_STATUS_STARTING) {
+		/* Handler is called only if state is set. BT specific API
+		 * does not set this state and does not require handler to
+		 * be called.
+		 */
+		clkstarted_handle(dev, CLOCK_CONTROL_NRF_TYPE_HFCLK);
+	}
+}
+
 static void clock_event_handler(nrfx_clock_evt_type_t event)
 {
 	const struct device *dev = CLOCK_DEVICE;
@@ -702,7 +716,7 @@ static void clock_event_handler(nrfx_clock_evt_type_t event)
 	switch (event) {
 #if NRF_CLOCK_HAS_XO_TUNE
 	case NRFX_CLOCK_EVT_XO_TUNED:
-		clkstarted_handle(dev, CLOCK_CONTROL_NRF_TYPE_HFCLK);
+		hfclkstarted_handle(dev);
 		break;
 	case NRFX_CLOCK_EVT_XO_TUNE_ERROR:
 	case NRFX_CLOCK_EVT_XO_TUNE_FAILED:
@@ -716,19 +730,8 @@ static void clock_event_handler(nrfx_clock_evt_type_t event)
 #else
 	/* HFCLK started should be used only if tune operation is done implicitly. */
 	case NRFX_CLOCK_EVT_HFCLK_STARTED:
-	{
-		struct nrf_clock_control_sub_data *data =
-				get_sub_data(dev, CLOCK_CONTROL_NRF_TYPE_HFCLK);
-
-		/* Check needed due to anomaly 201:
-		 * HFCLKSTARTED may be generated twice.
-		 */
-		if (GET_STATUS(data->flags) == CLOCK_CONTROL_STATUS_STARTING) {
-			clkstarted_handle(dev, CLOCK_CONTROL_NRF_TYPE_HFCLK);
-		}
-
+		hfclkstarted_handle(dev);
 		break;
-	}
 #endif
 #if NRF_CLOCK_HAS_HFCLK24M
 	case NRFX_CLOCK_EVT_HFCLK24M_STARTED:
@@ -751,7 +754,7 @@ static void clock_event_handler(nrfx_clock_evt_type_t event)
 		}
 		clkstarted_handle(dev, CLOCK_CONTROL_NRF_TYPE_LFCLK);
 		break;
-#if NRF_CLOCK_HAS_CALIBRATION
+#if NRF_CLOCK_HAS_CALIBRATION || NRF_LFRC_HAS_CALIBRATION
 	case NRFX_CLOCK_EVT_CAL_DONE:
 		if (IS_ENABLED(CONFIG_CLOCK_CONTROL_NRF_DRIVER_CALIBRATION)) {
 			z_nrf_clock_calibration_done_handler();
@@ -800,6 +803,10 @@ static int clk_init(const struct device *dev)
 		.start = onoff_start,
 		.stop = onoff_stop
 	};
+
+#if NRF_LFRC_HAS_CALIBRATION
+	IRQ_CONNECT(LFRC_IRQn, DT_INST_IRQ(0, priority), nrfx_isr, nrfx_power_clock_irq_handler, 0);
+#endif
 
 	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority),
 		    nrfx_isr, nrfx_power_clock_irq_handler, 0);

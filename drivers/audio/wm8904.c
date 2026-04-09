@@ -504,7 +504,7 @@ static int wm8904_configure(const struct device *dev, struct audio_codec_cfg *cf
 
 	wm8904_audio_fmt_config(dev, &cfg->dai_cfg, cfg->mclk_freq);
 
-	if ((cfg->dai_cfg.i2s.options & I2S_OPT_FRAME_CLK_MASTER) == I2S_OPT_FRAME_CLK_MASTER) {
+	if ((cfg->dai_cfg.i2s.options & I2S_OPT_FRAME_CLK_SLAVE) == 0) {
 		wm8904_set_master_clock(dev, &cfg->dai_cfg, cfg->mclk_freq);
 	} else {
 		/* BCLK/LRCLK default direction input */
@@ -671,7 +671,7 @@ static const struct audio_codec_api wm8904_driver_api = {
 #define WM8904_INIT(n)                                                                             \
 	static const struct wm8904_driver_config wm8904_device_config_##n = {                      \
 		.i2c = I2C_DT_SPEC_INST_GET(n),                                                    \
-		.clock_source = DT_INST_PROP_OR(n, clk_source, 0),                                 \
+		.clock_source = DT_INST_ENUM_IDX(n, clock_source),				   \
 		.mclk_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR_BY_NAME(n, mclk)),                   \
 		.mclk_name = (clock_control_subsys_t)DT_INST_CLOCKS_CELL_BY_NAME(n, mclk, name)};  \
                                                                                                    \

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-if (CONFIG_BUILD_ONLY_NO_BLOBS)
+if(CONFIG_BUILD_ONLY_NO_BLOBS)
   message(WARNING "
   ---------------------------------------------------------------------------
   Building only the Bluetooth driver without binary blobs and patches.
@@ -54,9 +54,5 @@ zephyr_library_sources_ifdef(CONFIG_BT_H4_NXP_CTLR hci_nxp_setup.c)
 
 if(CONFIG_BT_USERCHAN)
   zephyr_library_sources(userchan.c)
-  if (CONFIG_NATIVE_LIBRARY)
-    target_sources(native_simulator INTERFACE userchan_bottom.c)
-  else()
-    zephyr_library_sources(userchan_bottom.c)
-  endif()
+  target_sources(native_simulator INTERFACE userchan_bottom.c)
 endif()

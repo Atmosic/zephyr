@@ -453,16 +453,24 @@ static int lan865x_port_send(const struct device *dev, struct net_pkt *pkt)
 	return 0;
 }
 
+const struct device *lan865x_get_phy(const struct device *dev)
+{
+	const struct lan865x_config *cfg = dev->config;
+
+	return cfg->phy;
+}
+
 static const struct ethernet_api lan865x_api_func = {
 	.iface_api.init = lan865x_iface_init,
 	.get_capabilities = lan865x_port_get_capabilities,
 	.set_config = lan865x_set_config,
 	.send = lan865x_port_send,
+	.get_phy = lan865x_get_phy,
 };
 
 #define LAN865X_DEFINE(inst)                                                                       \
 	static const struct lan865x_config lan865x_config_##inst = {                               \
-		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
+		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8)),                                \
 		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                               \
 		.reset = GPIO_DT_SPEC_INST_GET(inst, rst_gpios),                                   \
 		.timeout = CONFIG_ETH_LAN865X_TIMEOUT,                                             \
@@ -478,7 +486,7 @@ static const struct ethernet_api lan865x_api_func = {
 		.tc6 = &oa_tc6_##inst};                                                            \
                                                                                                    \
 	ETH_NET_DEVICE_DT_INST_DEFINE(inst, lan865x_init, NULL, &lan865x_data_##inst,              \
-				      &lan865x_config_##inst, CONFIG_ETH_INIT_PRIORITY,            \
+				      &lan865x_config_##inst, CONFIG_ETH_LAN865X_INIT_PRIORITY,    \
 				      &lan865x_api_func, NET_ETH_MTU);
 
 DT_INST_FOREACH_STATUS_OKAY(LAN865X_DEFINE);

@@ -214,6 +214,12 @@ Additionally the tool allows you to specify the modules you want to list,
 fetch or clean blobs for by typing the module names as a command-line
 parameter.
 
+The argument ``--allow-regex`` can be passed ``west blobs fetch`` to restrict
+the specific blobs that are fetched, by passing a regular expression::
+
+  # For example, only download esp32 blobs, skip the other variants
+  west blobs fetch hal_espressif --allow-regex 'lib/esp32/.*'
+
 .. _west-twister:
 
 Twister wrapper: ``west twister``
@@ -245,6 +251,10 @@ You can search for a custom descriptor by type and ID, for example::
 You can dump all of the descriptors in an image using::
 
    west bindesc dump build/zephyr/zephyr.bin
+
+You can extract the descriptor data area of the image to a file using::
+
+   west bindesc extract
 
 You can list all known standard descriptor names using::
 

@@ -9,7 +9,6 @@
 #include <zephyr/sys/util.h>
 #include "test_gpio_api.h"
 
-#define TEST_GPIO_MAX_SINGLE_ENDED_RISE_FALL_TIME_MS    100
 #define TEST_POINT(n)   (n)
 
 static void pin_get_raw_and_verify(const struct device *port,
@@ -196,7 +195,7 @@ ZTEST(gpio_api_1pin_conf, test_gpio_pin_configure_single_ended)
 	}
 	zassert_equal(ret, 0, "Failed to configure pin as an input");
 
-	k_sleep(K_MSEC(TEST_GPIO_MAX_SINGLE_ENDED_RISE_FALL_TIME_MS));
+	k_sleep(K_MSEC(CONFIG_TEST_GPIO_MAX_SINGLE_ENDED_RISE_FALL_TIME_MS));
 
 	pin_in_val = gpio_pin_get_raw(port, TEST_PIN);
 	zassert_true(pin_in_val >= 0, "Failed to get pin value");
@@ -248,7 +247,7 @@ ZTEST(gpio_api_1pin_conf, test_gpio_pin_configure_single_ended)
 		zassert_equal(ret, 0,
 			      "Failed to configure the pin in Open Source mode");
 
-		k_sleep(K_MSEC(TEST_GPIO_MAX_SINGLE_ENDED_RISE_FALL_TIME_MS));
+		k_sleep(K_MSEC(CONFIG_TEST_GPIO_MAX_SINGLE_ENDED_RISE_FALL_TIME_MS));
 
 		pin_get_raw_and_verify(port, TEST_PIN, 1, TEST_POINT(3));
 
@@ -295,7 +294,7 @@ ZTEST(gpio_api_1pin_conf, test_gpio_pin_configure_single_ended)
 		zassert_equal(ret, 0,
 			      "Failed to configure the pin in Open Drain mode");
 
-		k_sleep(K_MSEC(TEST_GPIO_MAX_SINGLE_ENDED_RISE_FALL_TIME_MS));
+		k_sleep(K_MSEC(CONFIG_TEST_GPIO_MAX_SINGLE_ENDED_RISE_FALL_TIME_MS));
 
 		pin_get_raw_and_verify(port, TEST_PIN, 0, TEST_POINT(7));
 

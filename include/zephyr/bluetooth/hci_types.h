@@ -60,6 +60,7 @@ struct bt_hci_sco_hdr {
 struct bt_hci_evt_hdr {
 	uint8_t  evt;
 	uint8_t  len;
+	uint8_t  data[];
 } __packed;
 #define BT_HCI_EVT_HDR_SIZE             2
 
@@ -207,7 +208,8 @@ struct bt_hci_cmd_hdr {
 #define BT_LE_FEAT_BIT_CHANNEL_SOUNDING         46
 #define BT_LE_FEAT_BIT_CHANNEL_SOUNDING_HOST    47
 #define BT_LE_FEAT_BIT_CHANNEL_SOUNDING_TONE_QUAL_IND    48
-#define BT_LE_FEAT_BIT_LL_EXTENDED_FEAT_SET     63
+#define BT_LE_FEAT_BIT_EXTENDED_FEAT_SET        63
+#define BT_LE_FEAT_BIT_FRAME_SPACE_UPDATE       65
 
 #define BT_LE_FEAT_TEST(feat, n)                (feat[(n) >> 3] & \
 						 BIT((n) & 7))
@@ -284,6 +286,10 @@ struct bt_hci_cmd_hdr {
 						  BT_LE_FEAT_BIT_CHANNEL_SOUNDING)
 #define BT_FEAT_LE_CHANNEL_SOUNDING_HOST(feat)    BT_LE_FEAT_TEST(feat, \
 						  BT_LE_FEAT_BIT_CHANNEL_SOUNDING_HOST)
+#define BT_FEAT_LE_EXTENDED_FEAT_SET(feat)        BT_LE_FEAT_TEST(feat, \
+						  BT_LE_FEAT_BIT_EXTENDED_FEAT_SET)
+#define BT_FEAT_LE_FRAME_SPACE_UPDATE_SET(feat)   BT_LE_FEAT_TEST(feat, \
+						  BT_LE_FEAT_BIT_FRAME_SPACE_UPDATE)
 
 #define BT_FEAT_LE_CIS(feat)            (BT_FEAT_LE_CIS_CENTRAL(feat) | \
 					BT_FEAT_LE_CIS_PERIPHERAL(feat))
@@ -363,6 +369,7 @@ struct bt_hci_cmd_hdr {
 
 /* OpCode Group Fields */
 #define BT_OGF_LINK_CTRL                        0x01
+#define BT_OGF_LINK_POLICY                      0x02
 #define BT_OGF_BASEBAND                         0x03
 #define BT_OGF_INFO                             0x04
 #define BT_OGF_STATUS                           0x05
@@ -558,6 +565,57 @@ struct bt_hci_cp_io_capability_neg_reply {
 	uint8_t   reason;
 } __packed;
 
+#define BT_HCI_OP_SWITCH_ROLE                   BT_OP(BT_OGF_LINK_POLICY, 0x000b)
+struct bt_hci_cp_switch_role {
+	bt_addr_t bdaddr;
+	uint8_t   role;
+} __packed;
+
+#define BT_HCI_LINK_POLICY_SETTINGS_ENABLE_ROLE_SWITCH  BIT(0)
+#define BT_HCI_LINK_POLICY_SETTINGS_ENABLE_HOLD_MODE    BIT(1)
+#define BT_HCI_LINK_POLICY_SETTINGS_ENABLE_SNIFF_SWITCH BIT(2)
+
+#define BT_HCI_OP_READ_LINK_POLICY_SETTINGS     BT_OP(BT_OGF_LINK_POLICY, 0x000c)
+struct bt_hci_cp_read_link_policy_settings {
+	uint16_t handle;
+} __packed;
+struct bt_hci_rp_read_link_policy_settings {
+	uint8_t  status;
+	uint16_t handle;
+	uint16_t link_policy_settings;
+} __packed;
+
+#define BT_HCI_OP_WRITE_LINK_POLICY_SETTINGS    BT_OP(BT_OGF_LINK_POLICY, 0x000d)
+struct bt_hci_cp_write_link_policy_settings {
+	uint16_t handle;
+	uint16_t link_policy_settings;
+} __packed;
+
+#define BT_HCI_OP_READ_DEFAULT_LINK_POLICY_SETTINGS  BT_OP(BT_OGF_LINK_POLICY, 0x000e)
+struct bt_hci_rp_read_default_link_policy_settings {
+	uint8_t  status;
+	uint16_t default_link_policy_settings;
+} __packed;
+
+#define BT_HCI_OP_WRITE_DEFAULT_LINK_POLICY_SETTINGS BT_OP(BT_OGF_LINK_POLICY, 0x000f)
+struct bt_hci_cp_write_default_link_policy_settings {
+	uint16_t default_link_policy_settings;
+} __packed;
+
+#define BT_HCI_OP_SNIFF_MODE                    BT_OP(BT_OGF_LINK_POLICY, 0x0003) /* 0x0803 */
+struct bt_hci_cp_sniff_mode {
+	uint16_t handle;
+	uint16_t max_interval;
+	uint16_t min_interval;
+	uint16_t attempt;
+	uint16_t timeout;
+} __packed;
+
+#define BT_HCI_OP_EXIT_SNIFF_MODE               BT_OP(BT_OGF_LINK_POLICY, 0x0004) /* 0x0804 */
+struct bt_hci_cp_exit_sniff_mode {
+	uint16_t handle;
+} __packed;
+
 #define BT_HCI_OP_SET_EVENT_MASK                BT_OP(BT_OGF_BASEBAND, 0x0001) /* 0x0c01 */
 struct bt_hci_cp_set_event_mask {
 	uint8_t  events[8];
@@ -706,6 +764,7 @@ struct bt_hci_cp_le_set_tx_power_report_enable {
 	uint8_t  remote_enable;
 } __packed;
 
+#define BT_HCI_OP_LE_SET_PATH_LOSS_REPORTING_PARAMETERS BT_OP(BT_OGF_LE, 0x0078) /* 0x2078 */
 struct bt_hci_cp_le_set_path_loss_reporting_parameters {
 	uint16_t handle;
 	uint8_t  high_threshold;
@@ -715,16 +774,27 @@ struct bt_hci_cp_le_set_path_loss_reporting_parameters {
 	uint16_t min_time_spent;
 } __packed;
 
+struct bt_hci_rp_le_set_path_loss_reporting_parameters {
+	uint16_t handle;
+	uint8_t  status;
+} __packed;
+
+
+#define BT_HCI_LE_PATH_LOSS_REPORTING_DISABLE       0x00
+#define BT_HCI_LE_PATH_LOSS_REPORTING_ENABLE        0x01
+#define BT_HCI_OP_LE_SET_PATH_LOSS_REPORTING_ENABLE BT_OP(BT_OGF_LE, 0x0079) /* 0x2079 */
+
 struct bt_hci_cp_le_set_path_loss_reporting_enable {
 	uint16_t handle;
 	uint8_t  enable;
 } __packed;
 
-#define BT_HCI_OP_LE_SET_PATH_LOSS_REPORTING_PARAMETERS BT_OP(BT_OGF_LE, 0x0078) /* 0x2078 */
+struct bt_hci_rp_le_set_path_loss_reporting_enable {
+	uint16_t handle;
+	uint8_t  status;
+} __packed;
 
-#define BT_HCI_LE_PATH_LOSS_REPORTING_DISABLE       0x00
-#define BT_HCI_LE_PATH_LOSS_REPORTING_ENABLE        0x01
-#define BT_HCI_OP_LE_SET_PATH_LOSS_REPORTING_ENABLE BT_OP(BT_OGF_LE, 0x0079) /* 0x2079 */
+#define BT_HCI_OP_LE_SET_DEFAULT_SUBRATE BT_OP(BT_OGF_LE, 0x007D) /* 0x207D */
 
 struct bt_hci_cp_le_set_default_subrate {
 	uint16_t subrate_min;
@@ -734,6 +804,8 @@ struct bt_hci_cp_le_set_default_subrate {
 	uint16_t supervision_timeout;
 } __packed;
 
+#define BT_HCI_OP_LE_SUBRATE_REQUEST     BT_OP(BT_OGF_LE, 0x007E) /* 0x207E */
+
 struct bt_hci_cp_le_subrate_request {
 	uint16_t handle;
 	uint16_t subrate_min;
@@ -742,9 +814,6 @@ struct bt_hci_cp_le_subrate_request {
 	uint16_t continuation_number;
 	uint16_t supervision_timeout;
 } __packed;
-
-#define BT_HCI_OP_LE_SET_DEFAULT_SUBRATE BT_OP(BT_OGF_LE, 0x007D) /* 0x207D */
-#define BT_HCI_OP_LE_SUBRATE_REQUEST     BT_OP(BT_OGF_LE, 0x007E) /* 0x207E */
 
 #define BT_HCI_CTL_TO_HOST_FLOW_DISABLE         0x00
 #define BT_HCI_CTL_TO_HOST_FLOW_ENABLE          0x01
@@ -859,6 +928,7 @@ struct bt_hci_rp_configure_data_path {
 #define BT_HCI_VERSION_5_4                      13
 #define BT_HCI_VERSION_6_0                      14
 #define BT_HCI_VERSION_6_1                      15
+#define BT_HCI_VERSION_6_2                      16
 
 #define BT_HCI_OP_READ_LOCAL_VERSION_INFO       BT_OP(BT_OGF_INFO, 0x0001) /* 0x1001 */
 struct bt_hci_rp_read_local_version_info {
@@ -2438,6 +2508,22 @@ struct bt_hci_cp_le_tx_test_v4 {
 	uint8_t  ant_ids[0];
 } __packed;
 
+#define BT_HCI_OP_LE_READ_ALL_LOCAL_SUPPORTED_FEATURES BT_OP(BT_OGF_LE, 0x0087) /* 0x2087 */
+struct bt_hci_rp_le_read_all_local_supported_features {
+	uint8_t  status;
+	uint8_t  max_page;
+	uint8_t  features[248];
+} __packed;
+
+#define BT_READ_ALL_LOCAL_FEATURES_SUPPORTED(supported_commands)                                   \
+	BT_CMD_TEST(supported_commands, 47, 2)
+
+#define BT_HCI_OP_LE_READ_ALL_REMOTE_FEATURES BT_OP(BT_OGF_LE, 0x0088) /* 0x2088 */
+struct bt_hci_cp_le_read_all_remote_features {
+	uint16_t handle;
+	uint8_t  pages_requested;
+} __packed;
+
 #define BT_HCI_TX_TEST_POWER_MIN -0x7F
 #define BT_HCI_TX_TEST_POWER_MAX 0x14
 
@@ -2759,6 +2845,30 @@ struct bt_hci_cp_le_cs_remove_config {
 
 #define BT_HCI_OP_LE_CS_TEST_END BT_OP(BT_OGF_LE, 0x0096) /* 0x2096 */
 
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_PHY_1M_MASK    BIT(0)
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_PHY_2M_MASK    BIT(1)
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_PHY_CODED_MASK BIT(2)
+
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_SPACING_TYPE_IFS_ACL_CP_MASK BIT(0)
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_SPACING_TYPE_IFS_ACL_PC_MASK BIT(1)
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_SPACING_TYPE_MCES_MASK       BIT(2)
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_SPACING_TYPE_IFS_CIS_MASK    BIT(3)
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_SPACING_TYPE_MSS_CIS_MASK    BIT(4)
+
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_INITIATOR_LOCAL_HOST       (0)
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_INITIATOR_LOCAL_CONTROLLER (1)
+#define BT_HCI_LE_FRAME_SPACE_UPDATE_INITIATOR_PEER             (2)
+
+struct bt_hci_cp_le_frame_space_update {
+	uint16_t handle;
+	uint16_t frame_space_min;
+	uint16_t frame_space_max;
+	uint8_t  phys;
+	uint16_t spacing_types;
+} __packed;
+
+#define BT_HCI_OP_LE_FRAME_SPACE_UPDATE BT_OP(BT_OGF_LE, 0x009D) /* 0x209D */
+
 /* Event definitions */
 
 #define BT_HCI_EVT_UNKNOWN                      0x00
@@ -2867,6 +2977,19 @@ struct bt_hci_evt_role_change {
 struct bt_hci_evt_num_completed_packets {
 	uint8_t  num_handles;
 	struct bt_hci_handle_count h[0];
+} __packed;
+
+/* Current mode */
+#define BT_ACTIVE_MODE 0x00
+#define BT_HOLD_MODE   0x01
+#define BT_SNIFF_MODE  0x02
+
+#define BT_HCI_EVT_MODE_CHANGE                  0x14
+struct bt_hci_evt_mode_change {
+	uint8_t  status;
+	uint16_t handle;
+	uint8_t  mode;
+	uint16_t interval;
 } __packed;
 
 #define BT_HCI_EVT_PIN_CODE_REQ                 0x16
@@ -3084,6 +3207,7 @@ struct bt_hci_evt_user_passkey_notify {
 #define BT_HCI_EVT_LE_META_EVENT                0x3e
 struct bt_hci_evt_le_meta_event {
 	uint8_t  subevent;
+	uint8_t  data[];
 } __packed;
 
 #define BT_HCI_EVT_AUTH_PAYLOAD_TIMEOUT_EXP     0x57
@@ -3552,6 +3676,20 @@ struct bt_hci_evt_le_cis_established_v2 {
 	uint8_t  framing;
 } __packed;
 
+#define BT_HCI_EVT_LE_READ_ALL_REMOTE_FEAT_COMPLETE 0x2b
+
+#define BT_HCI_LE_FEATURE_PAGE_MAX          10
+#define BT_HCI_LE_BYTES_PER_FEATURE_PAGE    24
+#define BT_HCI_LE_BYTES_PAGE_0_FEATURE_PAGE 8
+
+struct bt_hci_evt_le_read_all_remote_feat_complete {
+	uint8_t  status;
+	uint16_t handle;
+	uint8_t  max_remote_page;
+	uint8_t  max_valid_page;
+	uint8_t  features[248];
+} __packed;
+
 #define BT_HCI_LE_CS_INITIATOR_ROLE_MASK BIT(0)
 #define BT_HCI_LE_CS_REFLECTOR_ROLE_MASK BIT(1)
 
@@ -3934,6 +4072,16 @@ struct bt_hci_evt_le_cs_procedure_enable_complete {
 	uint16_t max_procedure_len;
 } __packed;
 
+#define BT_HCI_EVT_LE_FRAME_SPACE_UPDATE_COMPLETE 0x35
+struct bt_hci_evt_le_frame_space_update_complete {
+	uint8_t  status;
+	uint16_t handle;
+	uint8_t  initiator;
+	uint16_t frame_space;
+	uint8_t  phys;
+	uint16_t spacing_types;
+} __packed;
+
 /* Event mask bits */
 
 #define BT_EVT_BIT(n) (1ULL << (n))
@@ -4024,6 +4172,8 @@ struct bt_hci_evt_le_cs_procedure_enable_complete {
 #define BT_EVT_MASK_LE_ENH_CONN_COMPLETE_V2        BT_EVT_BIT(40)
 #define BT_EVT_MASK_LE_CIS_ESTABLISHED_V2          BT_EVT_BIT(41)
 
+#define BT_EVT_MASK_LE_READ_ALL_REMOTE_FEAT_COMPLETE BT_EVT_BIT(42)
+
 #define BT_EVT_MASK_LE_CS_READ_REMOTE_SUPPORTED_CAPABILITIES_COMPLETE BT_EVT_BIT(43)
 #define BT_EVT_MASK_LE_CS_READ_REMOTE_FAE_TABLE_COMPLETE              BT_EVT_BIT(44)
 #define BT_EVT_MASK_LE_CS_SECURITY_ENABLE_COMPLETE                    BT_EVT_BIT(45)
@@ -4032,6 +4182,8 @@ struct bt_hci_evt_le_cs_procedure_enable_complete {
 #define BT_EVT_MASK_LE_CS_SUBEVENT_RESULT                             BT_EVT_BIT(48)
 #define BT_EVT_MASK_LE_CS_SUBEVENT_RESULT_CONTINUE                    BT_EVT_BIT(49)
 #define BT_EVT_MASK_LE_CS_TEST_END_COMPLETE                           BT_EVT_BIT(50)
+
+#define BT_EVT_MASK_LE_FRAME_SPACE_UPDATE_COMPLETE BT_EVT_BIT(52)
 
 /** HCI Error Codes, BT Core Spec v5.4 [Vol 1, Part F]. */
 #define BT_HCI_ERR_SUCCESS                      0x00

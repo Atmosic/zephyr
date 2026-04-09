@@ -17,13 +17,13 @@ config BT_LLL_VENDOR_NORDIC
 	select EXPERIMENTAL if !ENTROPY_HAS_DRIVER
 
 	select BT_HAS_HCI_VS
+	select BT_HCI_VS_FATAL_ERROR_SUPPORT
 	select BT_CTLR_CRYPTO_SUPPORT
 	select BT_CTLR_LE_ENC_SUPPORT if BT_CTLR_CRYPTO_SUPPORT && \
 					 !BT_CTLR_DATA_LENGTH_CLEAR && \
 					 !BT_CTLR_PHY_2M_NRF
 	select BT_CTLR_PRIVACY_SUPPORT if BT_CTLR_CRYPTO_SUPPORT && \
-					  !SOC_SERIES_NRF51X && \
-					  !SOC_COMPATIBLE_NRF54LX
+					  !SOC_SERIES_NRF51X
 	select BT_CTLR_CONN_PARAM_REQ_SUPPORT
 	select BT_CTLR_EXT_REJ_IND_SUPPORT
 	select BT_CTLR_PER_INIT_FEAT_XCHG_SUPPORT
@@ -69,6 +69,8 @@ config BT_LLL_VENDOR_NORDIC
 	select BT_TICKER_LAZY_GET if BT_CTLR_ADV_PERIODIC || BT_CTLR_CONN_ISO || BT_CTLR_SYNC_TRANSFER_SENDER
 
 	select BT_TICKER_PREFER_START_BEFORE_STOP if BT_TICKER_SLOT_AGNOSTIC
+
+	select BT_CTLR_ASSERT_OPTIMIZE_FOR_SIZE_SUPPORT if CPU_CORTEX_M
 
 	default y
 	help
@@ -524,10 +526,20 @@ config BT_CTLR_ADV_EXT_PDU_EXTRA_DATA_MEMORY
 	  that is part of PDU data.
 
 config BT_CTRL_ADV_ADI_IN_SCAN_RSP
+	bool "Include ADI in AUX_SCAN_RSP PDU [DEPRECATED]"
+	depends on BT_BROADCASTER && BT_CTLR_ADV_EXT
+	select BT_CTLR_ADV_ADI_IN_SCAN_RSP
+	select DEPRECATED
+	help
+	  DEPRECATED: Renamed as BT_CTLR_ADV_ADI_IN_SCAN_RSP.
+
+	  Enable ADI field in AUX_SCAN_RSP PDU.
+
+config BT_CTLR_ADV_ADI_IN_SCAN_RSP
 	bool "Include ADI in AUX_SCAN_RSP PDU"
 	depends on BT_BROADCASTER && BT_CTLR_ADV_EXT
 	help
-	  Enable ADI field in AUX_SCAN_RSP PDU
+	  Enable ADI field in AUX_SCAN_RSP PDU.
 
 config BT_CTLR_SCAN_AUX_USE_CHAINS
 	bool "Use new chains based implementation for following advertising chains"
@@ -1126,7 +1138,7 @@ config BT_CTLR_FORCE_MD_AUTO
 
 config BT_CTLR_CONN_RANDOM_FORCE
 	bool "Random forced scheduling for peripheral on missed anchor point"
-	depends on BT_PERIPHERAL
+	depends on BT_PERIPHERAL && (BT_MAX_CONN > 1)
 	default y
 	help
 	  When enabled, controller will have legacy behavior and randomly force
@@ -1259,7 +1271,6 @@ config BT_TICKER_REMAINDER_GET
 	depends on BT_TICKER_REMAINDER_SUPPORT
 	select BT_TICKER_NEXT_SLOT_GET
 	select BT_TICKER_NEXT_SLOT_GET_MATCH
-	default y
 	help
 	  This option enables ticker interface to iterate through active
 	  ticker nodes, returning tick to expire and remainder from a reference

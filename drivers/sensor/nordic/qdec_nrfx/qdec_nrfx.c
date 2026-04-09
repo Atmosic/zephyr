@@ -7,6 +7,7 @@
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/dt-bindings/sensor/qdec_nrf.h>
 #include <soc.h>
 
 #include <nrfx_qdec.h>
@@ -24,6 +25,22 @@ LOG_MODULE_REGISTER(qdec_nrfx, CONFIG_SENSOR_LOG_LEVEL);
 #define ACC_MAX (INT_MAX / FULL_ANGLE)
 #define ACC_MIN (INT_MIN / FULL_ANGLE)
 
+BUILD_ASSERT(NRF_QDEC_SAMPLEPER_128US == SAMPLEPER_128US,
+	     "Different SAMPLEPER register values in devicetree binding and nRF HAL");
+BUILD_ASSERT(NRF_QDEC_SAMPLEPER_256US == SAMPLEPER_256US,
+	     "Different SAMPLEPER register values in devicetree binding and nRF HAL");
+BUILD_ASSERT(NRF_QDEC_SAMPLEPER_512US == SAMPLEPER_512US,
+	     "Different SAMPLEPER register values in devicetree binding and nRF HAL");
+BUILD_ASSERT(NRF_QDEC_SAMPLEPER_1024US == SAMPLEPER_1024US,
+	     "Different SAMPLEPER register values in devicetree binding and nRF HAL");
+BUILD_ASSERT(NRF_QDEC_SAMPLEPER_2048US == SAMPLEPER_2048US,
+	     "Different SAMPLEPER register values in devicetree binding and nRF HAL");
+BUILD_ASSERT(NRF_QDEC_SAMPLEPER_4096US == SAMPLEPER_4096US,
+	     "Different SAMPLEPER register values in devicetree binding and nRF HAL");
+BUILD_ASSERT(NRF_QDEC_SAMPLEPER_8192US == SAMPLEPER_8192US,
+	     "Different SAMPLEPER register values in devicetree binding and nRF HAL");
+BUILD_ASSERT(NRF_QDEC_SAMPLEPER_16384US == SAMPLEPER_16384US,
+	     "Different SAMPLEPER register values in devicetree binding and nRF HAL");
 
 struct qdec_nrfx_data {
 	int32_t fetched_acc;
@@ -255,6 +272,26 @@ static int qdec_nrfx_init(const struct device *dev)
 #define QDEC(idx)			DT_NODELABEL(qdec##idx)
 #define QDEC_PROP(idx, prop)		DT_PROP(QDEC(idx), prop)
 
+/* Macro determines PM actions interrupt safety level.
+ *
+ * Requesting/releasing QDEC device may be ISR safe, but it cannot be reliably known whether
+ * managing its power domain is. It is then assumed that if power domains are used, device is
+ * no longer ISR safe. This macro let's us check if we will be requesting/releasing
+ * power domains and determines PM device ISR safety value.
+ */
+#define QDEC_PM_ISR_SAFE(idx)									\
+	COND_CODE_1(										\
+		UTIL_AND(									\
+			IS_ENABLED(CONFIG_PM_DEVICE_POWER_DOMAIN),				\
+			UTIL_AND(								\
+				DT_NODE_HAS_PROP(QDEC(idx), power_domains),			\
+				DT_NODE_HAS_STATUS_OKAY(DT_PHANDLE(QDEC(idx), power_domains))	\
+			)									\
+		),										\
+		(0),										\
+		(PM_DEVICE_ISR_SAFE)								\
+	)
+
 #define SENSOR_NRFX_QDEC_DEVICE(idx)							     \
 	NRF_DT_CHECK_NODE_HAS_PINCTRL_SLEEP(QDEC(idx));					     \
 	BUILD_ASSERT(QDEC_PROP(idx, steps) > 0,						     \
@@ -272,7 +309,7 @@ static int qdec_nrfx_init(const struct device *dev)
 		.qdec = NRFX_QDEC_INSTANCE(idx),					     \
 		.config = {								     \
 			.reportper = NRF_QDEC_REPORTPER_40,				     \
-			.sampleper = NRF_QDEC_SAMPLEPER_2048US,				     \
+			.sampleper = DT_STRING_TOKEN(QDEC(idx), nordic_period),              \
 			.skip_gpio_cfg = true,						     \
 			.skip_psel_cfg = true,						     \
 			.ledpre  = QDEC_PROP(idx, led_pre),				     \
@@ -284,7 +321,7 @@ static int qdec_nrfx_init(const struct device *dev)
 		.enable_pin = DT_PROP_OR(QDEC(idx), enable_pin, NRF_QDEC_PIN_NOT_CONNECTED), \
 		.steps = QDEC_PROP(idx, steps),						     \
 	};										     \
-	PM_DEVICE_DT_DEFINE(QDEC(idx), qdec_nrfx_pm_action, PM_DEVICE_ISR_SAFE);	     \
+	PM_DEVICE_DT_DEFINE(QDEC(idx), qdec_nrfx_pm_action, QDEC_PM_ISR_SAFE(idx));	     \
 	SENSOR_DEVICE_DT_DEFINE(QDEC(idx),						     \
 				qdec_nrfx_init,						     \
 				PM_DEVICE_DT_GET(QDEC(idx)),				     \

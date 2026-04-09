@@ -20,6 +20,7 @@
 		watchdog0 = &wdt0;
 		rtc = &pfc8563_rtc;
 		pwm-led0 = &backlight_pwm;
+		fuel-gauge0 = &fuel_gauge;
 	};
 
 	chosen {
@@ -139,6 +140,7 @@
 	axp2101@34 {
 		compatible = "x-powers,axp2101";
 		reg = <0x34>;
+		int-gpios = <&gpio0 21 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 
 		charger {
 			compatible = "x-powers,axp2101-charger";
@@ -227,6 +229,10 @@
 			dldo2 {
 				regulator-boot-off;
 			};
+		};
+
+		fuel_gauge: fuel_gauge {
+			compatible = "x-powers,axp2101-fuel-gauge";
 		};
 	};
 };

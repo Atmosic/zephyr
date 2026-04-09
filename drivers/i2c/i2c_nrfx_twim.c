@@ -253,6 +253,7 @@ static DEVICE_API(i2c, i2c_nrfx_twim_driver_api) = {
 
 #define I2C_NRFX_TWIM_DEVICE(idx)					       \
 	NRF_DT_CHECK_NODE_HAS_PINCTRL_SLEEP(I2C(idx));			       \
+	NRF_DT_CHECK_NODE_HAS_REQUIRED_MEMORY_REGIONS(I2C(idx));	       \
 	BUILD_ASSERT(I2C_FREQUENCY(idx) !=				       \
 		     I2C_NRFX_TWIM_INVALID_FREQUENCY,			       \
 		     "Wrong I2C " #idx " frequency setting in dts");	       \
@@ -284,7 +285,7 @@ static DEVICE_API(i2c, i2c_nrfx_twim_driver_api) = {
 				DT_PROP(I2C(idx), easydma_maxcnt_bits)),       \
 	};								       \
 	PM_DEVICE_DT_DEFINE(I2C(idx), twim_nrfx_pm_action,                     \
-			PM_DEVICE_ISR_SAFE);                                   \
+			I2C_PM_ISR_SAFE(idx));                                 \
 	I2C_DEVICE_DT_DEINIT_DEFINE(I2C(idx),				       \
 		      i2c_nrfx_twim_init,				       \
 		      i2c_nrfx_twim_deinit,				       \

@@ -74,4 +74,14 @@
 
 #endif
 
+#ifdef CONFIG_ZERO_LATENCY_IRQS
+
+#define _curr_cpu_arch_mie_raw \
+	(___cpu_t_arch_OFFSET + ___cpu_arch_t_mie_raw_OFFSET)
+
+#define _curr_cpu_arch_nzli_disable \
+	(___cpu_t_arch_OFFSET + ___cpu_arch_t_nzli_disable_OFFSET)
+
+#endif
+
 #endif /* ZEPHYR_ARCH_RISCV_INCLUDE_OFFSETS_SHORT_ARCH_H_ */

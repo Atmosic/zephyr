@@ -18,6 +18,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(wifi_nrf, CONFIG_WIFI_NRF70_LOG_LEVEL);
 
+#include <zephyr/net/conn_mgr_monitor.h>
 #include <zephyr/sys/reboot.h>
 
 #include "net_private.h"
@@ -72,6 +73,8 @@ static void nrf_wifi_rpu_recovery_work_handler(struct k_work *work)
 								struct nrf_wifi_vif_ctx_zep,
 								nrf_wifi_rpu_recovery_work);
 	struct nrf_wifi_ctx_zep *rpu_ctx_zep = NULL;
+	struct nrf_wifi_fmac_dev_ctx *fmac_dev_ctx = NULL;
+	struct nrf_wifi_hal_dev_ctx *hal_dev_ctx = NULL;
 	int ret;
 
 	if (!vif_ctx_zep) {
@@ -87,6 +90,18 @@ static void nrf_wifi_rpu_recovery_work_handler(struct k_work *work)
 	rpu_ctx_zep = vif_ctx_zep->rpu_ctx_zep;
 	if (!rpu_ctx_zep || !rpu_ctx_zep->rpu_ctx) {
 		LOG_ERR("%s: rpu_ctx_zep is NULL", __func__);
+		return;
+	}
+
+	fmac_dev_ctx = rpu_ctx_zep->rpu_ctx;
+	if (!fmac_dev_ctx) {
+		LOG_ERR("%s: fmac_dev_ctx is NULL", __func__);
+		return;
+	}
+
+	hal_dev_ctx = fmac_dev_ctx->hal_dev_ctx;
+	if (!hal_dev_ctx) {
+		LOG_ERR("%s: hal_dev_ctx is NULL", __func__);
 		return;
 	}
 
@@ -134,6 +149,8 @@ static void nrf_wifi_rpu_recovery_work_handler(struct k_work *work)
 	}
 #endif
 	rpu_ctx_zep->rpu_recovery_in_progress = true;
+	rpu_ctx_zep->wdt_irq_received += hal_dev_ctx->wdt_irq_received;
+	rpu_ctx_zep->wdt_irq_ignored += hal_dev_ctx->wdt_irq_ignored;
 #ifdef CONFIG_NRF_WIFI_RPU_RECOVERY_DEBUG
 	LOG_ERR("%s: Bringing the interface down", __func__);
 #else
@@ -239,39 +256,6 @@ static void nrf_wifi_net_iface_work_handler(struct k_work *work)
 	}
 }
 
-#if defined(CONFIG_NRF70_RAW_DATA_RX) || defined(CONFIG_NRF70_PROMISC_DATA_RX)
-void nrf_wifi_if_sniffer_rx_frm(void *os_vif_ctx, void *frm,
-				struct raw_rx_pkt_header *raw_rx_hdr,
-				bool pkt_free)
-{
-	struct nrf_wifi_vif_ctx_zep *vif_ctx_zep = os_vif_ctx;
-	struct net_if *iface = vif_ctx_zep->zep_net_if_ctx;
-	struct net_pkt *pkt;
-	struct nrf_wifi_ctx_zep *rpu_ctx_zep = vif_ctx_zep->rpu_ctx_zep;
-	struct nrf_wifi_fmac_dev_ctx *fmac_dev_ctx = rpu_ctx_zep->rpu_ctx;
-	struct nrf_wifi_sys_fmac_dev_ctx *sys_dev_ctx = NULL;
-	int ret;
-
-	sys_dev_ctx = wifi_dev_priv(fmac_dev_ctx);
-
-	pkt = net_raw_pkt_from_nbuf(iface, frm, sizeof(struct raw_rx_pkt_header),
-				    raw_rx_hdr,
-				    pkt_free);
-	if (!pkt) {
-		LOG_DBG("Failed to allocate net_pkt");
-		return;
-	}
-
-	net_capture_pkt(iface, pkt);
-
-	ret = net_recv_data(iface, pkt);
-	if (ret < 0) {
-		LOG_DBG("RCV Packet dropped by NET stack: %d", ret);
-		net_pkt_unref(pkt);
-	}
-}
-#endif /* CONFIG_NRF70_RAW_DATA_RX || CONFIG_NRF70_PROMISC_DATA_RX */
-
 void nrf_wifi_if_rx_frm(void *os_vif_ctx, void *frm)
 {
 	struct nrf_wifi_vif_ctx_zep *vif_ctx_zep = os_vif_ctx;
@@ -341,6 +325,39 @@ static bool is_eapol(struct net_pkt *pkt)
 }
 #endif /* CONFIG_NRF70_DATA_TX */
 
+#if defined(CONFIG_NRF70_RAW_DATA_RX) || defined(CONFIG_NRF70_PROMISC_DATA_RX)
+void nrf_wifi_if_sniffer_rx_frm(void *os_vif_ctx, void *frm,
+				struct raw_rx_pkt_header *raw_rx_hdr,
+				bool pkt_free)
+{
+	struct nrf_wifi_vif_ctx_zep *vif_ctx_zep = os_vif_ctx;
+	struct net_if *iface = vif_ctx_zep->zep_net_if_ctx;
+	struct net_pkt *pkt;
+	struct nrf_wifi_ctx_zep *rpu_ctx_zep = vif_ctx_zep->rpu_ctx_zep;
+	struct nrf_wifi_fmac_dev_ctx *fmac_dev_ctx = rpu_ctx_zep->rpu_ctx;
+	struct nrf_wifi_sys_fmac_dev_ctx *sys_dev_ctx = NULL;
+	int ret;
+
+	sys_dev_ctx = wifi_dev_priv(fmac_dev_ctx);
+
+	pkt = net_raw_pkt_from_nbuf(iface, frm, sizeof(struct raw_rx_pkt_header),
+				    raw_rx_hdr,
+				    pkt_free);
+	if (!pkt) {
+		LOG_DBG("Failed to allocate net_pkt");
+		return;
+	}
+
+	net_capture_pkt(iface, pkt);
+
+	ret = net_recv_data(iface, pkt);
+	if (ret < 0) {
+		LOG_DBG("RCV Packet dropped by NET stack: %d", ret);
+		net_pkt_unref(pkt);
+	}
+}
+#endif /* CONFIG_NRF70_RAW_DATA_RX || CONFIG_NRF70_PROMISC_DATA_RX */
+
 enum ethernet_hw_caps nrf_wifi_if_caps_get(const struct device *dev)
 {
 	enum ethernet_hw_caps caps = (ETHERNET_LINK_10BASE |
@@ -363,7 +380,7 @@ enum ethernet_hw_caps nrf_wifi_if_caps_get(const struct device *dev)
 int nrf_wifi_if_send(const struct device *dev,
 		     struct net_pkt *pkt)
 {
-	int ret = -1;
+	int ret = -EINVAL;
 #ifdef CONFIG_NRF70_DATA_TX
 	struct nrf_wifi_vif_ctx_zep *vif_ctx_zep = NULL;
 	struct nrf_wifi_ctx_zep *rpu_ctx_zep = NULL;
@@ -404,6 +421,7 @@ int nrf_wifi_if_send(const struct device *dev,
 
 	if (nbuf == NULL) {
 		LOG_ERR("%s: allocation failed", __func__);
+		ret = -ENOMEM;
 		goto drop;
 	}
 
@@ -420,6 +438,7 @@ int nrf_wifi_if_send(const struct device *dev,
 #endif /* CONFIG_NRF70_RAW_DATA_TX */
 		if ((vif_ctx_zep->if_carr_state != NRF_WIFI_FMAC_IF_CARR_STATE_ON) ||
 		    (!vif_ctx_zep->authorized && !is_eapol(pkt))) {
+			ret = -EPERM;
 			goto drop;
 		}
 
@@ -432,6 +451,8 @@ int nrf_wifi_if_send(const struct device *dev,
 	if (ret == NRF_WIFI_STATUS_FAIL) {
 		/* FMAC API takes care of freeing the nbuf */
 		host_stats->total_tx_drop_pkts++;
+		/* Could be many reasons, but likely no space in the queue */
+		ret = -ENOBUFS;
 	}
 	goto unlock;
 drop:
@@ -682,6 +703,11 @@ void nrf_wifi_if_init_zep(struct net_if *iface)
 		    nrf_wifi_net_iface_work_handler);
 #endif /* CONFIG_NRF70_DATA_TX */
 
+#ifdef CONFIG_NRF70_SCAN_ONLY
+	/* In scan only mode this interface should be ignored by the connectivity manager */
+	conn_mgr_ignore_iface(iface);
+#endif /* CONFIG_NRF70_SCAN_ONLY */
+
 #ifdef CONFIG_NRF_WIFI_RPU_RECOVERY
 	k_work_init(&vif_ctx_zep->nrf_wifi_rpu_recovery_work,
 		    nrf_wifi_rpu_recovery_work_handler);
@@ -798,8 +824,7 @@ int nrf_wifi_if_start_zep(const struct device *dev)
 	}
 
 	k_mutex_init(&vif_ctx_zep->vif_lock);
-	rpu_ctx_zep->vif_ctx_zep[vif_ctx_zep->vif_idx].if_type =
-		add_vif_info.iftype;
+	vif_ctx_zep->if_type = add_vif_info.iftype;
 
 	/* Check if user has provided a valid MAC address, if not
 	 * fetch it from OTP.
@@ -1188,6 +1213,16 @@ out:
 struct net_stats_eth *nrf_wifi_eth_stats_get(const struct device *dev)
 {
 	struct nrf_wifi_vif_ctx_zep *vif_ctx_zep = NULL;
+#ifdef CONFIG_NET_STATISTICS_ETHERNET_VENDOR
+	struct nrf_wifi_ctx_zep *rpu_ctx_zep = NULL;
+	struct rpu_sys_op_stats stats;
+	enum nrf_wifi_status status;
+	size_t fw_stats_size;
+	size_t num_uint32;
+	const uint8_t *fw_stats_bytes;
+	size_t i;
+	int vendor_idx = 0;
+#endif /* CONFIG_NET_STATISTICS_ETHERNET_VENDOR */
 
 	if (!dev) {
 		LOG_ERR("%s Device not found", __func__);
@@ -1200,6 +1235,69 @@ struct net_stats_eth *nrf_wifi_eth_stats_get(const struct device *dev)
 		goto out;
 	}
 
+#ifdef CONFIG_NET_STATISTICS_ETHERNET_VENDOR
+	rpu_ctx_zep = vif_ctx_zep->rpu_ctx_zep;
+	if (!rpu_ctx_zep || !rpu_ctx_zep->rpu_ctx) {
+		LOG_ERR("%s: rpu_ctx_zep or rpu_ctx is NULL", __func__);
+		goto out;
+	}
+
+	memset(&stats, 0, sizeof(stats));
+	status = nrf_wifi_sys_fmac_stats_get(rpu_ctx_zep->rpu_ctx,
+					     RPU_STATS_TYPE_ALL,
+					     &stats);
+	if (status != NRF_WIFI_STATUS_SUCCESS) {
+		LOG_ERR("%s: Failed to get RPU stats", __func__);
+		goto ret;
+	}
+
+	/* Treat stats.fw as a blob and divide into uint32_t chunks */
+	fw_stats_size = sizeof(stats.fw);
+	num_uint32 = fw_stats_size / sizeof(uint32_t);
+	fw_stats_bytes = (const uint8_t *)&stats.fw;
+
+	vendor_idx = 0;
+
+	for (i = 0; i < num_uint32 && vendor_idx < MAX_VENDOR_STATS - 1; i++) {
+		uint32_t val;
+		const char **key_ptr;
+		uint32_t *val_ptr;
+
+		/* Extract uint32_t value from blob */
+		memcpy(&val, fw_stats_bytes + i * sizeof(uint32_t), sizeof(uint32_t));
+
+		/* Create key name */
+		snprintk(vif_ctx_zep->vendor_key_strings[vendor_idx], 16, "fw_%zu", i);
+
+		/* Assign key */
+		key_ptr = (const char **)
+			&vif_ctx_zep->eth_stats_vendor_data[vendor_idx].key;
+		*key_ptr = vif_ctx_zep->vendor_key_strings[vendor_idx];
+
+		/* Assign value */
+		val_ptr = (uint32_t *)
+			&vif_ctx_zep->eth_stats_vendor_data[vendor_idx].value;
+		*val_ptr = val;
+
+		vendor_idx++;
+	}
+
+	/* Null terminator entry */
+	{
+		const char **key_ptr = (const char **)
+			&vif_ctx_zep->eth_stats_vendor_data[vendor_idx].key;
+		uint32_t *val_ptr = (uint32_t *)
+			&vif_ctx_zep->eth_stats_vendor_data[vendor_idx].value;
+
+		*key_ptr = NULL;
+		*val_ptr = 0;
+	}
+
+	/* Point to the static vendor data */
+	vif_ctx_zep->eth_stats.vendor = vif_ctx_zep->eth_stats_vendor_data;
+
+ret:
+#endif /* CONFIG_NET_STATISTICS_ETHERNET_VENDOR */
 	return &vif_ctx_zep->eth_stats;
 out:
 	return NULL;

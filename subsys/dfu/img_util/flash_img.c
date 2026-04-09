@@ -2,7 +2,7 @@
  * Copyright (c) 2017-2025 Nordic Semiconductor ASA
  * Copyright (c) 2017 Linaro Limited
  * Copyright (c) 2020 Gerson Fernando Budke <nandojve@gmail.com>
- * Copyright (c) 2023 Atmosic
+ * Copyright (c) 2023-2026 Atmosic
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -24,14 +24,26 @@ LOG_MODULE_REGISTER(flash_img, CONFIG_IMG_MANAGER_LOG_LEVEL);
 #include <bootutil/bootutil_public.h>
 #endif
 
+#ifdef CONFIG_USE_DT_CODE_PARTITION
+#define FIXED_PARTITION_IS_RUNNING_APP_PARTITION(label)                                            \
+	(DT_SAME_NODE(DT_NODELABEL(label), DT_PARENT(DT_CHOSEN(zephyr_code_partition))) ||         \
+	 DT_SAME_NODE(DT_NODELABEL(label), DT_CHOSEN(zephyr_code_partition)))
+#else
+#define FIXED_PARTITION_IS_RUNNING_APP_PARTITION(label)                                            \
+	(FIXED_PARTITION_OFFSET(label) <= CONFIG_FLASH_LOAD_OFFSET &&                              \
+	 FIXED_PARTITION_OFFSET(label) + FIXED_PARTITION_SIZE(label) > CONFIG_FLASH_LOAD_OFFSET)
+#endif
+
 #include <zephyr/devicetree.h>
-#if defined(CONFIG_TRUSTED_EXECUTION_NONSECURE) && !defined(CONFIG_MERGE_SPE_NSPE)
-	#define UPLOAD_FLASH_AREA_LABEL slot1_ns_partition
+#if defined(CONFIG_TRUSTED_EXECUTION_NONSECURE) && (CONFIG_TFM_MCUBOOT_IMAGE_NUMBER == 2) &&       \
+	!defined(CONFIG_MERGE_SPE_NSPE)
+#define UPLOAD_FLASH_AREA_LABEL slot1_ns_partition
 #else
-#if FIXED_PARTITION_EXISTS(slot1_partition)
-	#define UPLOAD_FLASH_AREA_LABEL slot1_partition
+#if FIXED_PARTITION_EXISTS(slot1_partition) && \
+	FIXED_PARTITION_IS_RUNNING_APP_PARTITION(slot0_partition)
+#define UPLOAD_FLASH_AREA_LABEL slot1_partition
 #else
-	#define UPLOAD_FLASH_AREA_LABEL slot0_partition
+#define UPLOAD_FLASH_AREA_LABEL slot0_partition
 #endif
 #endif
 

@@ -7,6 +7,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import collections
 import copy
+import glob
 import itertools
 import json
 import logging
@@ -50,6 +51,7 @@ from devicetree import edtlib  # pylint: disable=unused-import
 
 sys.path.insert(0, os.path.join(ZEPHYR_BASE, "scripts/"))
 
+
 class Filters:
     # platform keys
     PLATFORM_KEY = 'platform key filter'
@@ -69,11 +71,16 @@ class Filters:
     MODULE = 'Module filter'
     # in case of missing env. variable required for a platform
     ENVIRONMENT = 'Environment filter'
+
+
 class TestLevel:
     name = None
     levels = []
     scenarios = []
+
+
 class TestConfiguration:
+    __test__ = False
     tc_schema_path = os.path.join(
         ZEPHYR_BASE,
         "scripts",
@@ -169,7 +176,7 @@ class TestPlan:
         self.selected_platforms = []
         self.default_platforms = []
         self.load_errors = 0
-        self.instances = dict()
+        self.instances: dict[str, TestInstance] = {}
         self.instance_fail_count = 0
         self.warnings = 0
 
@@ -203,13 +210,12 @@ class TestPlan:
 
     def discover(self):
         self.handle_modules()
-        if self.options.test:
-            self.run_individual_testsuite = self.options.test
-
         self.test_config = TestConfiguration(self.env.test_config)
 
         self.add_configurations()
-        num = self.add_testsuites(testsuite_filter=self.run_individual_testsuite)
+        num = self.add_testsuites(testsuite_filter=self.options.test,
+                                testsuite_pattern=self.options.test_pattern)
+
         if num == 0:
             raise TwisterRuntimeError("No testsuites found at the specified location...")
         if self.load_errors:
@@ -508,9 +514,35 @@ class TestPlan:
                             testcases.remove(case.detailed_name)
         return testcases
 
-    def add_testsuites(self, testsuite_filter=None):
+    def _is_testsuite_selected(self, suite: TestSuite, testsuite_filter, testsuite_patterns_r):
+        """Check if the testsuite is selected by the user."""
+        if not testsuite_filter and not testsuite_patterns_r:
+            # no matching requested, include all testsuites
+            return True
+        if testsuite_filter:
+            scenario = os.path.basename(suite.name)
+            if (
+                suite.name
+                and (suite.name in testsuite_filter or scenario in testsuite_filter)
+            ):
+                return True
+        if testsuite_patterns_r:
+            for r in testsuite_patterns_r:
+                if r.search(suite.id):
+                    return True
+        return False
+
+    def add_testsuites(self, testsuite_filter=None, testsuite_pattern=None):
         if testsuite_filter is None:
             testsuite_filter = []
+
+        testsuite_patterns_r = []
+        if testsuite_pattern is None:
+            testsuite_pattern = []
+        else:
+            for pattern in testsuite_pattern:
+                testsuite_patterns_r.append(re.compile(pattern))
+
         for root in self.env.test_roots:
             root = os.path.abspath(root)
 
@@ -575,14 +607,11 @@ class TestPlan:
                         else:
                             suite.add_subcases(suite_dict)
 
-                        if testsuite_filter:
-                            scenario = os.path.basename(suite.name)
-                            if (
-                                suite.name
-                                and (suite.name in testsuite_filter or scenario in testsuite_filter)
-                            ):
-                                self.testsuites[suite.name] = suite
-                        elif suite.name in self.testsuites:
+                        if not self._is_testsuite_selected(suite, testsuite_filter,
+                                                       testsuite_patterns_r):
+                            # skip testsuite if they were not selected directly by the user
+                            continue
+                        if suite.name in self.testsuites:
                             msg = (
                                 f"test suite '{suite.name}' in '{suite.yamlfile}' is already added"
                             )
@@ -716,6 +745,7 @@ class TestPlan:
         except FileNotFoundError as e:
             logger.error(f"{e}")
             return 1
+        self.apply_changes_for_required_applications(loaded_from_file=True)
 
     def check_platform(self, platform, platform_list):
         return any(p in platform.aliases for p in platform_list)
@@ -723,6 +753,7 @@ class TestPlan:
     def apply_filters(self, **kwargs):
 
         platform_filter = self.options.platform
+        platform_pattern = self.options.platform_pattern
         vendor_filter = self.options.vendor
         exclude_platform = self.options.exclude_platform
         testsuite_filter = self.run_individual_testsuite
@@ -737,11 +768,12 @@ class TestPlan:
         ignore_platform_key = self.options.ignore_platform_key
         emu_filter = self.options.emulation_only
 
-        logger.debug("platform filter: " + str(platform_filter))
-        logger.debug("  vendor filter: " + str(vendor_filter))
-        logger.debug("    arch_filter: " + str(arch_filter))
-        logger.debug("     tag_filter: " + str(tag_filter))
-        logger.debug("    exclude_tag: " + str(exclude_tag))
+        logger.debug(" platform filter: " + str(platform_filter))
+        logger.debug("platform_pattern: " + str(platform_pattern))
+        logger.debug("   vendor filter: " + str(vendor_filter))
+        logger.debug("     arch_filter: " + str(arch_filter))
+        logger.debug("      tag_filter: " + str(tag_filter))
+        logger.debug("     exclude_tag: " + str(exclude_tag))
 
         default_platforms = False
         vendor_platforms = False
@@ -751,7 +783,7 @@ class TestPlan:
             logger.info("Selecting all possible platforms per testsuite scenario")
             # When --all used, any --platform arguments ignored
             platform_filter = []
-        elif not platform_filter and not emu_filter and not vendor_filter:
+        elif not platform_filter and not emu_filter and not vendor_filter and not platform_pattern:
             logger.info("Selecting default platforms per testsuite scenario")
             default_platforms = True
         elif emu_filter:
@@ -766,6 +798,11 @@ class TestPlan:
             # find in aliases and rename
             platform_filter = self.verify_platforms_existence(platform_filter, "platform_filter")
             platforms = list(filter(lambda p: p.name in platform_filter, self.platforms))
+        elif platform_pattern:
+            platforms = list(
+                filter(lambda p: any(re.match(pat, alias) for pat in platform_pattern \
+                                    for alias in p.aliases), self.platforms)
+            )
         elif emu_filter:
             platforms = list(
                 filter(lambda p: bool(p.simulator_by_name(self.options.sim_name)), self.platforms)
@@ -803,14 +840,14 @@ class TestPlan:
             else:
                 _integration_platforms = []
 
-            if (ts.build_on_all and not platform_filter and
+            if (ts.build_on_all and not platform_filter and not platform_pattern and
                 self.test_config.increased_platform_scope):
                 # if build_on_all is set, we build on all platforms
                 platform_scope = self.platforms
             elif ts.integration_platforms and self.options.integration:
                 # if integration is set, we build on integration platforms
                 platform_scope = _integration_platforms
-            elif ts.integration_platforms and not platform_filter:
+            elif ts.integration_platforms and not platform_filter and not platform_pattern:
                 # if integration platforms are set, we build on those and integration mode is set
                 # for this test suite, we build on integration platforms
                 if any(ts.id.startswith(i) for i in integration_mode_list):
@@ -1157,6 +1194,8 @@ class TestPlan:
             else:
                 self.add_instances(instance_list)
 
+        self.apply_changes_for_required_applications()
+
         for _, case in self.instances.items():
             # Do not create files for filtered instances
             if case.status == TwisterStatus.FILTER:
@@ -1180,6 +1219,116 @@ class TestPlan:
         for inst in filtered_and_skipped_instances:
             change_skip_to_error_if_integration(self.options, inst)
             inst.add_missing_case_status(inst.status)
+
+    def _find_required_instance(self, required_app, instance: TestInstance) -> TestInstance | None:
+        if req_platform := required_app.get("platform", None):
+            platform = self.get_platform(req_platform)
+            if not platform:
+                raise TwisterRuntimeError(
+                    f"Unknown platform {req_platform} in required application"
+                )
+            req_platform = platform.name
+        else:
+            req_platform = instance.platform.name
+
+        for inst in self.instances.values():
+            if required_app["name"] == inst.testsuite.id and req_platform == inst.platform.name:
+                return inst
+        return None
+
+    def _find_required_application_in_outdir(self, required_app,
+                                             instance: TestInstance) -> str | None:
+        """Check if required application exists in build directory."""
+        if not (
+            self.options.no_clean
+            or self.options.only_failed
+            or self.options.test_only
+            or self.options.report_summary
+        ):
+            return None
+
+        if platform := required_app.get("platform", None):
+            platform = self.get_platform(platform)
+        else:
+            platform = instance.platform
+        name = required_app["name"]
+        glob_pattern = f"{self.options.outdir}/{platform.normalized_name}/**/{name}"
+        build_dirs = glob.glob(glob_pattern, recursive=True)
+        if not build_dirs:
+            return None
+        if not os.path.exists(os.path.join(build_dirs[0], "zephyr")):
+            # application was only pre-built
+            return None
+        logger.debug(f"Found existing build directory for required app: {build_dirs[0]}")
+        return build_dirs[0]
+
+    def apply_changes_for_required_applications(self, loaded_from_file=False) -> None:
+        # check if required applications are in scope
+        for instance in self.instances.values():
+            if not instance.testsuite.required_applications:
+                continue
+            if instance.status == TwisterStatus.FILTER:
+                # do not proceed if the test is already filtered
+                continue
+
+            if self.options.subset:
+                instance.add_filter("Required applications are not supported with --subsets",
+                                    Filters.CMD_LINE)
+                continue
+
+            if self.options.runtime_artifact_cleanup:
+                instance.add_filter(
+                    "Required applications are not supported with --runtime-artifact-cleanup",
+                    Filters.CMD_LINE
+                )
+                continue
+
+            for required_app in instance.testsuite.required_applications:
+                req_instance = self._find_required_instance(required_app, instance)
+                if not req_instance:
+                    # check if required application exists in build directory
+                    if req_build_dir := self._find_required_application_in_outdir(
+                        required_app,
+                        instance
+                    ):
+                        # keep path to required build directory to use it in harness module
+                        instance.required_build_dirs.append(req_build_dir)
+                        continue
+
+                    instance.add_filter(f"Missing required application {required_app['name']}",
+                                        Filters.TESTSUITE)
+                    logger.debug(
+                        f"{instance.name}: Required application '{required_app['name']}' was not"
+                        " found. Please verify if required test is provided with --testsuite-root"
+                        " or build all required applications and rerun twister with --no-cleanup"
+                        " option."
+                    )
+                    break
+
+                if req_instance.status == TwisterStatus.FILTER:
+                    # check if required application is filtered because is not runnable
+                    if loaded_from_file or (
+                            self.options.device_testing and not req_instance.run
+                            and len(req_instance.filters) == 1
+                            and req_instance.reason == "Not runnable on device"):
+                        # clear status flag to build required application
+                        self.instances[req_instance.name].status = TwisterStatus.NONE
+                    else:
+                        instance.add_filter(f"Required app {req_instance.name} is filtered",
+                                            Filters.TESTSUITE)
+                        logger.debug(f"{instance.name}: Required application '{req_instance.name}'"
+                                     " is filtered")
+                        break
+
+                if instance.testsuite.id in req_instance.testsuite.required_applications:
+                    instance.add_filter("Circular dependency in required applications",
+                                        Filters.TESTSUITE)
+                    logger.warning(f"{instance.name}: Circular dependency, current app also"
+                                   f" required by {req_instance.name}")
+                    break
+                # keep dependencies to use it in the runner module to synchronize
+                # building of applications
+                instance.required_applications.append(req_instance.name)
 
     def add_instances(self, instance_list):
         for instance in instance_list:

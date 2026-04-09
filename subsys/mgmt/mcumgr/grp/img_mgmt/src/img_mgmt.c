@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2018-2021 mcumgr authors
  * Copyright (c) 2022-2024 Nordic Semiconductor ASA
+ * Copyright (c) 2026 Atmosic
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -48,8 +49,15 @@
 	to be able to figure out application running slot.
 #endif
 
-#define FIXED_PARTITION_IS_RUNNING_APP_PARTITION(label)	\
-	 (FIXED_PARTITION_OFFSET(label) == CONFIG_FLASH_LOAD_OFFSET)
+#ifdef CONFIG_USE_DT_CODE_PARTITION
+#define FIXED_PARTITION_IS_RUNNING_APP_PARTITION(label)                                            \
+	(DT_SAME_NODE(DT_NODELABEL(label), DT_PARENT(DT_CHOSEN(zephyr_code_partition))) ||         \
+	 DT_SAME_NODE(DT_NODELABEL(label), DT_CHOSEN(zephyr_code_partition)))
+#else
+#define FIXED_PARTITION_IS_RUNNING_APP_PARTITION(label)                                            \
+	(FIXED_PARTITION_OFFSET(label) <= CONFIG_FLASH_LOAD_OFFSET &&                              \
+	 FIXED_PARTITION_OFFSET(label) + FIXED_PARTITION_SIZE(label) > CONFIG_FLASH_LOAD_OFFSET)
+#endif
 
 BUILD_ASSERT(sizeof(struct image_header) == IMAGE_HEADER_SIZE,
 	     "struct image_header not required size");
@@ -172,7 +180,7 @@ static bool img_mgmt_slot_max_size(size_t *area_sizes, zcbor_state_t *zse)
 
 	ARG_UNUSED(area_sizes);
 
-	rc = blinfo_lookup(BLINFO_MAX_APPLICATION_SIZE, &max_app_size, sizeof(max_app_size))
+	rc = blinfo_lookup(BLINFO_MAX_APPLICATION_SIZE, &max_app_size, sizeof(max_app_size));
 
 	if (rc < 0) {
 		LOG_ERR("Failed to lookup max application size: %d", rc);
@@ -322,7 +330,7 @@ int img_mgmt_read_info(int image_slot, struct image_version *ver, uint8_t *hash,
 		if (tlv.it_type == 0xff && tlv.it_len == 0xffff) {
 			return IMG_MGMT_ERR_INVALID_TLV;
 		}
-		if (tlv.it_type != IMAGE_TLV_SHA256 || tlv.it_len != IMAGE_HASH_LEN) {
+		if (tlv.it_type != IMAGE_TLV_SHA || tlv.it_len != IMAGE_SHA_LEN) {
 			/* Non-hash TLV.  Skip it. */
 			data_off += sizeof(tlv) + tlv.it_len;
 			continue;
@@ -336,14 +344,15 @@ int img_mgmt_read_info(int image_slot, struct image_version *ver, uint8_t *hash,
 
 		data_off += sizeof(tlv);
 		if (hash != NULL) {
-			if (data_off + IMAGE_HASH_LEN > data_end) {
+			if (data_off + IMAGE_SHA_LEN > data_end) {
 				return IMG_MGMT_ERR_TLV_INVALID_SIZE;
 			}
-			rc = img_mgmt_read(image_slot, data_off, hash, IMAGE_HASH_LEN);
+			rc = img_mgmt_read(image_slot, data_off, hash, IMAGE_SHA_LEN);
 			if (rc != 0) {
 				return rc;
 			}
 		}
+		data_off += IMAGE_SHA_LEN;
 	}
 
 	if (!hash_found) {
@@ -382,13 +391,13 @@ int
 img_mgmt_find_by_hash(uint8_t *find, struct image_version *ver)
 {
 	int i;
-	uint8_t hash[IMAGE_HASH_LEN];
+	uint8_t hash[IMAGE_SHA_LEN];
 
 	for (i = 0; i < SLOTS_PER_IMAGE * CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER; i++) {
 		if (img_mgmt_read_info(i, ver, hash, NULL) != 0) {
 			continue;
 		}
-		if (!memcmp(hash, find, IMAGE_HASH_LEN)) {
+		if (!memcmp(hash, find, IMAGE_SHA_LEN)) {
 			return i;
 		}
 	}
@@ -624,7 +633,7 @@ static int img_mgmt_slot_info(struct smp_streamer *ctxt)
 			}
 
 #if defined(CONFIG_MCUMGR_GRP_IMG_TOO_LARGE_SYSBUILD) || \
-	defined(MCUMGR_GRP_IMG_TOO_LARGE_BOOTLOADER_INFO)
+	defined(CONFIG_MCUMGR_GRP_IMG_TOO_LARGE_BOOTLOADER_INFO)
 			ok = img_mgmt_slot_max_size(area_sizes, zse);
 
 			if (!ok) {
@@ -698,7 +707,7 @@ img_mgmt_upload_good_rsp(struct smp_streamer *ctxt)
 static int
 img_mgmt_upload_log(bool is_first, bool is_last, int status)
 {
-	uint8_t hash[IMAGE_HASH_LEN];
+	uint8_t hash[IMAGE_SHA_LEN];
 	const uint8_t *hashp;
 	int rc;
 

@@ -36,6 +36,8 @@ source "drivers/pwm/Kconfig.b91"
 
 source "drivers/pwm/Kconfig.cc13xx_cc26xx_timer"
 
+source "drivers/pwm/Kconfig.cc23x0_timer"
+
 source "drivers/pwm/Kconfig.stm32"
 
 source "drivers/pwm/Kconfig.sifive"
@@ -108,6 +110,8 @@ source "drivers/pwm/Kconfig.xmc4xxx_ccu4"
 
 source "drivers/pwm/Kconfig.xmc4xxx_ccu8"
 
+source "drivers/pwm/Kconfig.mchp"
+
 source "drivers/pwm/Kconfig.mcux_ctimer"
 
 source "drivers/pwm/Kconfig.mspm0"
@@ -124,7 +128,7 @@ source "drivers/pwm/Kconfig.renesas_ra"
 
 source "drivers/pwm/Kconfig.renesas_rx_mtu"
 
-source "drivers/pwm/Kconfig.ifx_cat1"
+source "drivers/pwm/Kconfig.ifx_tcpwm"
 
 source "drivers/pwm/Kconfig.fake"
 
@@ -135,5 +139,7 @@ source "drivers/pwm/Kconfig.rts5912"
 source "drivers/pwm/Kconfig.neorv32"
 
 source "drivers/pwm/Kconfig.wch"
+
+source "drivers/pwm/Kconfig.ambiq_timer"
 
 endif # PWM

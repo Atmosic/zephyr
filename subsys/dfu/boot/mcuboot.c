@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2017 Nordic Semiconductor ASA
  * Copyright (c) 2016-2017 Linaro Limited
+ * Copyright (c) 2026 Atmosic
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,9 +21,18 @@
 #include "bootutil/bootutil_public.h"
 #include <zephyr/dfu/mcuboot.h>
 
-#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD)
+#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD) || \
+	defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD_WITH_REVERT)
+/* For RAM LOAD mode, the active image must be fetched from the bootloader */
 #include <bootutil/boot_status.h>
 #include <zephyr/retention/blinfo.h>
+
+#define SLOT0_PARTITION		slot0_partition
+#define SLOT1_PARTITION		slot1_partition
+#define SLOT2_PARTITION		slot2_partition
+#define SLOT3_PARTITION		slot3_partition
+#define SLOT4_PARTITION		slot4_partition
+#define SLOT5_PARTITION		slot5_partition
 #endif
 
 #include "mcuboot_priv.h"
@@ -49,16 +59,16 @@ enum IMAGE_INDEXES {
 	IMAGE_INDEX_2
 };
 
-#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD)
+#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD) || \
+	defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD_WITH_REVERT)
 /* For RAM LOAD mode, the active image must be fetched from the bootloader */
 #define ACTIVE_SLOT_FLASH_AREA_ID boot_fetch_active_slot()
 #define INVALID_SLOT_ID 255
-#elif defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP)
+#elif CONFIG_MERGE_SPE_NSPE
+#define ACTIVE_SLOT_FLASH_AREA_ID FLASH_AREA_IMAGE_PRIMARY
+#else
 /* Get active partition. zephyr,code-partition chosen node must be defined */
 #define ACTIVE_SLOT_FLASH_AREA_ID DT_FIXED_PARTITION_ID(DT_CHOSEN(zephyr_code_partition))
-#else
-// FIXME
-#define ACTIVE_SLOT_FLASH_AREA_ID FLASH_AREA_IMAGE_PRIMARY
 #endif
 
 /*
@@ -84,7 +94,8 @@ struct mcuboot_v1_raw_header {
  * End of strict defines
  */
 
-#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD)
+#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD) || \
+	defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD_WITH_REVERT)
 uint8_t boot_fetch_active_slot(void)
 {
 	int rc;
@@ -99,15 +110,52 @@ uint8_t boot_fetch_active_slot(void)
 	}
 
 	LOG_DBG("Active slot: %d", slot);
+	/* Map slot number back to flash area ID */
+	switch (slot) {
+	case 0:
+		return FIXED_PARTITION_ID(SLOT0_PARTITION);
 
-	return slot;
+#if FIXED_PARTITION_EXISTS(SLOT1_PARTITION)
+	case 1:
+		return FIXED_PARTITION_ID(SLOT1_PARTITION);
+#endif
+
+#if FIXED_PARTITION_EXISTS(SLOT2_PARTITION)
+	case 2:
+		return FIXED_PARTITION_ID(SLOT2_PARTITION);
+#endif
+
+#if FIXED_PARTITION_EXISTS(SLOT3_PARTITION)
+	case 3:
+		return FIXED_PARTITION_ID(SLOT3_PARTITION);
+#endif
+
+#if FIXED_PARTITION_EXISTS(SLOT4_PARTITION)
+	case 4:
+		return FIXED_PARTITION_ID(SLOT4_PARTITION);
+#endif
+
+#if FIXED_PARTITION_EXISTS(SLOT5_PARTITION)
+	case 5:
+		return FIXED_PARTITION_ID(SLOT5_PARTITION);
+#endif
+
+	default:
+		break;
+	}
+
+	return INVALID_SLOT_ID;
 }
-#else  /* CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD */
+#else  /* CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD ||
+	* CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD_WITH_REVERT
+	*/
 uint8_t boot_fetch_active_slot(void)
 {
 	return ACTIVE_SLOT_FLASH_AREA_ID;
 }
-#endif /* CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD */
+#endif /* CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD ||
+	* CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD_WITH_REVERT
+	*/
 
 #if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_USING_OFFSET)
 size_t boot_get_image_start_offset(uint8_t area_id)
@@ -153,7 +201,16 @@ size_t boot_get_image_start_offset(uint8_t area_id)
 			    num_sectors != SWAP_USING_OFFSET_SECTOR_UPDATE_BEGIN) {
 				LOG_ERR("Failed to get sector details: %d", rc);
 			} else {
-				off = sector_data.fs_size;
+				struct image_header hdr;
+
+				/* Read header at initial offset */
+				rc = flash_area_read(fa, sector_data.fs_size, &hdr, sizeof(hdr));
+				if (rc != 0) {
+					LOG_ERR("Failed to read header at offset 0x%x: %d", off,
+						rc);
+				} else if (hdr.ih_magic == IMAGE_MAGIC) {
+					off = sector_data.fs_size;
+				}
 			}
 		}
 
@@ -325,25 +382,16 @@ bool boot_is_img_confirmed(void)
 
 int boot_write_img_confirmed(void)
 {
-#ifdef CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP
 	const struct flash_area *fa;
-#endif // CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP
 	int rc = 0;
 
-#ifdef CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP
 	if (flash_area_open(ACTIVE_SLOT_FLASH_AREA_ID, &fa) != 0) {
-#else
-	rc = boot_set_confirmed();
-	if (rc) {
-#endif // CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP
 		return -EIO;
 	}
 
-#ifdef CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP
 	rc = boot_set_next(fa, true, true);
 
 	flash_area_close(fa);
-#endif // CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP
 
 	return rc;
 }

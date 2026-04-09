@@ -6,12 +6,13 @@
 
 /*
  * Copyright (c) 2017 Intel Corporation
- * Copyright (c) 2018 Nordic Semiconductor ASA
+ * Copyright (c) 2018-2025 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -53,6 +54,9 @@
 #include "controller/ll_sw/shell/ll.h"
 #endif /* CONFIG_BT_LL_SW_SPLIT */
 #include "host/shell/bt.h"
+#if defined(CONFIG_BT_CLASSIC)
+#include "host/classic/shell/bredr.h"
+#endif
 
 static bool no_settings_load;
 
@@ -1007,6 +1011,69 @@ void subrate_changed(struct bt_conn *conn,
 }
 #endif
 
+#if defined(CONFIG_BT_LE_EXTENDED_FEAT_SET)
+void read_all_remote_feat_complete(struct bt_conn *conn,
+				   const struct bt_conn_le_read_all_remote_feat_complete *params)
+{
+	if (params->status == BT_HCI_ERR_SUCCESS) {
+		uint8_t number_of_bytes = BT_HCI_LE_BYTES_PAGE_0_FEATURE_PAGE;
+
+		if (params->max_valid_page > 0) {
+			number_of_bytes +=
+				(params->max_valid_page * BT_HCI_LE_BYTES_PER_FEATURE_PAGE);
+		}
+
+		bt_shell_fprintf_print(
+			"Read all remote features complete, Max Remote Page %d, LE Features: 0x",
+			params->max_remote_page);
+
+		for (int i = number_of_bytes - 1; i >= 0; i--) {
+			uint8_t features = params->features[i];
+			char features_str[(2 * sizeof(uint8_t)) + 1];
+
+			bin2hex(&features, sizeof(features), features_str, sizeof(features_str));
+			bt_shell_fprintf_print("%s", features_str);
+		}
+		bt_shell_fprintf_print("\n");
+	} else {
+		bt_shell_print("Read all remote features failed (HCI status 0x%02x)",
+			       params->status);
+	}
+}
+#endif
+
+#if defined(CONFIG_BT_FRAME_SPACE_UPDATE)
+static const char *frame_space_initiator_to_str(
+	enum bt_conn_le_frame_space_update_initiator initiator)
+{
+	switch (initiator) {
+	case BT_CONN_LE_FRAME_SPACE_UPDATE_INITIATOR_LOCAL_HOST:
+		return "Local Host";
+	case BT_CONN_LE_FRAME_SPACE_UPDATE_INITIATOR_LOCAL_CONTROLLER:
+		return "Local Controller";
+	case BT_CONN_LE_FRAME_SPACE_UPDATE_INITIATOR_PEER:
+		return "Peer";
+	default:
+		return "Unknown";
+	}
+}
+
+void frame_space_updated(struct bt_conn *conn,
+			 const struct bt_conn_le_frame_space_updated *params)
+{
+	if (params->status != BT_HCI_ERR_SUCCESS) {
+		bt_shell_print("Frame space update failed (HCI status 0x%02x)",
+			       params->status);
+		return;
+	}
+
+	bt_shell_print(
+		"Frame space updated: frame space %d us, PHYs 0x%04x, spacing types 0x%04x, initiator %s",
+		params->frame_space, params->phys, params->spacing_types,
+		frame_space_initiator_to_str(params->initiator));
+}
+#endif
+
 #if defined(CONFIG_BT_CHANNEL_SOUNDING)
 void print_remote_cs_capabilities(struct bt_conn *conn,
 				  uint8_t status,
@@ -1109,10 +1176,12 @@ static void le_cs_config_created(struct bt_conn *conn,
 	const char *chsel_type_str[3] = {"Algorithm #3b", "Algorithm #3c", "Invalid"};
 	const char *ch3c_shape_str[3] = {"Hat shape", "X shape", "Invalid"};
 
-	uint8_t main_mode_idx = config->main_mode_type > 0 && config->main_mode_type < 4
-					? config->main_mode_type
+	uint8_t main_mode_type = BT_CONN_LE_CS_MODE_MAIN_MODE_PART(config->mode);
+	uint8_t sub_mode_type = BT_CONN_LE_CS_MODE_SUB_MODE_PART(config->mode);
+	uint8_t main_mode_idx = main_mode_type > 0 && main_mode_type < 4
+					? main_mode_type
 					: 4;
-	uint8_t sub_mode_idx = config->sub_mode_type < 4 ? config->sub_mode_type : 0;
+	uint8_t sub_mode_idx = sub_mode_type;
 	uint8_t role_idx = MIN(config->role, 2);
 	uint8_t rtt_type_idx = MIN(config->rtt_type, 7);
 	uint8_t phy_idx =
@@ -1157,7 +1226,7 @@ static void le_cs_config_removed(struct bt_conn *conn, uint8_t config_id)
 }
 #endif
 
-static struct bt_conn_cb conn_callbacks = {
+BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.connected = connected,
 	.disconnected = disconnected,
 	.le_param_req = le_param_req,
@@ -1186,11 +1255,20 @@ static struct bt_conn_cb conn_callbacks = {
 #if defined(CONFIG_BT_SUBRATING)
 	.subrate_changed = subrate_changed,
 #endif
+#if defined(CONFIG_BT_LE_EXTENDED_FEAT_SET)
+	.read_all_remote_feat_complete = read_all_remote_feat_complete,
+#endif
+#if defined(CONFIG_BT_FRAME_SPACE_UPDATE)
+	.frame_space_updated = frame_space_updated,
+#endif
 #if defined(CONFIG_BT_CHANNEL_SOUNDING)
 	.le_cs_read_remote_capabilities_complete = print_remote_cs_capabilities,
 	.le_cs_read_remote_fae_table_complete = print_remote_cs_fae_table,
 	.le_cs_config_complete = le_cs_config_created,
 	.le_cs_config_removed = le_cs_config_removed,
+#endif
+#if defined(CONFIG_BT_CLASSIC)
+	.role_changed = role_changed,
 #endif
 };
 #endif /* CONFIG_BT_CONN */
@@ -1334,10 +1412,6 @@ static void bt_ready(int err)
 
 #if defined(CONFIG_BT_CONN)
 	default_conn = NULL;
-
-	/* Unregister to avoid register repeatedly */
-	bt_conn_cb_unregister(&conn_callbacks);
-	bt_conn_cb_register(&conn_callbacks);
 #endif /* CONFIG_BT_CONN */
 
 #if defined(CONFIG_BT_PER_ADV_SYNC)
@@ -2168,9 +2242,10 @@ static int cmd_directed_adv(const struct shell *sh,
 #endif /* CONFIG_BT_PERIPHERAL */
 
 #if defined(CONFIG_BT_EXT_ADV)
-static bool adv_param_parse(size_t argc, char *argv[],
-			    struct bt_le_adv_param *param)
+static bool parse_and_set_adv_param(size_t argc, char *argv[], struct bt_le_adv_param *param)
 {
+	static uint8_t next_adv_sid = BT_GAP_SID_MIN;
+
 	memset(param, 0, sizeof(struct bt_le_adv_param));
 
 	if (!strcmp(argv[1], "conn-scan")) {
@@ -2239,7 +2314,7 @@ static bool adv_param_parse(size_t argc, char *argv[],
 	}
 
 	param->id = selected_id;
-	param->sid = 0;
+	param->sid = next_adv_sid++;
 	if (param->peer &&
 	    !(param->options & BT_LE_ADV_OPT_DIR_MODE_LOW_DUTY)) {
 		param->interval_min = 0;
@@ -2247,6 +2322,10 @@ static bool adv_param_parse(size_t argc, char *argv[],
 	} else {
 		param->interval_min = BT_GAP_ADV_FAST_INT_MIN_2;
 		param->interval_max = BT_GAP_ADV_FAST_INT_MAX_2;
+	}
+
+	if (next_adv_sid > BT_GAP_SID_MAX) {
+		next_adv_sid = BT_GAP_SID_MIN;
 	}
 
 	return true;
@@ -2259,7 +2338,7 @@ static int cmd_adv_create(const struct shell *sh, size_t argc, char *argv[])
 	uint8_t adv_index;
 	int err;
 
-	if (!adv_param_parse(argc, argv, &param)) {
+	if (!parse_and_set_adv_param(argc, argv, &param)) {
 		shell_help(sh);
 		return -ENOEXEC;
 	}
@@ -2290,7 +2369,7 @@ static int cmd_adv_param(const struct shell *sh, size_t argc, char *argv[])
 	struct bt_le_adv_param param;
 	int err;
 
-	if (!adv_param_parse(argc, argv, &param)) {
+	if (!parse_and_set_adv_param(argc, argv, &param)) {
 		shell_help(sh);
 		return -ENOEXEC;
 	}
@@ -2575,7 +2654,7 @@ static int cmd_adv_info(const struct shell *sh, size_t argc, char *argv[])
 	}
 
 	shell_print(sh, "Advertiser[%d] %p", selected_adv, adv);
-	shell_print(sh, "Id: %d, TX power: %d dBm", info.id, info.tx_power);
+	shell_print(sh, "Id: %d, SID %u, TX power: %d dBm", info.id, info.sid, info.tx_power);
 	shell_print(sh, "Adv state: %d", info.ext_adv_state);
 	print_le_addr("Address", info.addr);
 
@@ -3277,6 +3356,83 @@ static int cmd_subrate_request(const struct shell *sh, size_t argc, char *argv[]
 	err = bt_conn_le_subrate_request(default_conn, &params);
 	if (err) {
 		shell_error(sh, "bt_conn_le_subrate_request returned error %d", err);
+		return -ENOEXEC;
+	}
+
+	return 0;
+}
+#endif
+
+#if defined(CONFIG_BT_LE_EXTENDED_FEAT_SET)
+static int cmd_read_all_remote_features(const struct shell *sh, size_t argc, char *argv[])
+{
+	int err = 0;
+
+	if (default_conn == NULL) {
+		shell_error(sh, "Conn handle error, at least one connection is required.");
+		return -ENOEXEC;
+	}
+
+	uint8_t pages_requested = shell_strtoul(argv[1], 10, &err);
+
+	if (err != 0) {
+		shell_help(sh);
+		shell_error(sh, "Could not parse input for pages_requested");
+		return SHELL_CMD_HELP_PRINTED;
+	}
+
+	err = bt_conn_le_read_all_remote_features(default_conn, pages_requested);
+	if (err != 0) {
+		shell_error(sh, "bt_conn_le_read_all_remote_features returned error %d", err);
+		return -ENOEXEC;
+	}
+
+	return 0;
+}
+#endif
+
+#if defined(CONFIG_BT_FRAME_SPACE_UPDATE)
+static int cmd_frame_space_update(const struct shell *sh, size_t argc, char *argv[])
+{
+	int err = 0;
+	struct bt_conn_le_frame_space_update_param params;
+
+	if (default_conn == NULL) {
+		shell_error(sh, "Conn handle error, at least one connection is required.");
+		return -ENOEXEC;
+	}
+
+	params.frame_space_min = shell_strtoul(argv[1], 10, &err);
+	if (err) {
+		shell_help(sh);
+		shell_error(sh, "Could not parse frame_space_min input");
+		return SHELL_CMD_HELP_PRINTED;
+	}
+
+	params.frame_space_max = shell_strtoul(argv[2], 10, &err);
+	if (err) {
+		shell_help(sh);
+		shell_error(sh, "Could not parse frame_space_max input");
+		return SHELL_CMD_HELP_PRINTED;
+	}
+
+	params.phys = shell_strtoul(argv[3], 16, &err);
+	if (err) {
+		shell_help(sh);
+		shell_error(sh, "Could not parse phys input");
+		return SHELL_CMD_HELP_PRINTED;
+	}
+
+	params.spacing_types = shell_strtoul(argv[4], 16, &err);
+	if (err) {
+		shell_help(sh);
+		shell_error(sh, "Could not parse spacing_types input");
+		return SHELL_CMD_HELP_PRINTED;
+	}
+
+	err = bt_conn_le_frame_space_update(default_conn, &params);
+	if (err != 0) {
+		shell_error(sh, "bt_conn_le_frame_space_update returned error %d", err);
 		return -ENOEXEC;
 	}
 
@@ -4265,6 +4421,15 @@ static void br_bond_deleted(const bt_addr_t *peer)
 }
 #endif /* CONFIG_BT_CLASSIC */
 
+#if defined(CONFIG_BT_APP_PASSKEY)
+static uint32_t app_passkey = BT_PASSKEY_RAND;
+
+static uint32_t auth_app_passkey(struct bt_conn *conn)
+{
+	return app_passkey;
+}
+#endif /* CONFIG_BT_APP_PASSKEY */
+
 static struct bt_conn_auth_cb auth_cb_display = {
 	.passkey_display = auth_passkey_display,
 #if defined(CONFIG_BT_PASSKEY_KEYPRESS)
@@ -4281,6 +4446,9 @@ static struct bt_conn_auth_cb auth_cb_display = {
 #if defined(CONFIG_BT_SMP_APP_PAIRING_ACCEPT)
 	.pairing_accept = pairing_accept,
 #endif
+#if defined(CONFIG_BT_APP_PASSKEY)
+	.app_passkey = auth_app_passkey,
+#endif
 };
 
 static struct bt_conn_auth_cb auth_cb_display_yes_no = {
@@ -4289,6 +4457,9 @@ static struct bt_conn_auth_cb auth_cb_display_yes_no = {
 	.passkey_confirm = auth_passkey_confirm,
 #if defined(CONFIG_BT_CLASSIC)
 	.pincode_entry = auth_pincode_entry,
+#endif
+#if defined(CONFIG_BT_APP_PASSKEY)
+	.app_passkey = auth_app_passkey,
 #endif
 	.oob_data_request = NULL,
 	.cancel = auth_cancel,
@@ -4305,6 +4476,9 @@ static struct bt_conn_auth_cb auth_cb_input = {
 #if defined(CONFIG_BT_CLASSIC)
 	.pincode_entry = auth_pincode_entry,
 #endif
+#if defined(CONFIG_BT_APP_PASSKEY)
+	.app_passkey = auth_app_passkey,
+#endif
 	.oob_data_request = NULL,
 	.cancel = auth_cancel,
 	.pairing_confirm = auth_pairing_confirm,
@@ -4316,6 +4490,9 @@ static struct bt_conn_auth_cb auth_cb_input = {
 static struct bt_conn_auth_cb auth_cb_confirm = {
 #if defined(CONFIG_BT_CLASSIC)
 	.pincode_entry = auth_pincode_entry,
+#endif
+#if defined(CONFIG_BT_APP_PASSKEY)
+	.app_passkey = auth_app_passkey,
 #endif
 	.oob_data_request = NULL,
 	.cancel = auth_cancel,
@@ -4331,6 +4508,9 @@ static struct bt_conn_auth_cb auth_cb_all = {
 	.passkey_confirm = auth_passkey_confirm,
 #if defined(CONFIG_BT_CLASSIC)
 	.pincode_entry = auth_pincode_entry,
+#endif
+#if defined(CONFIG_BT_APP_PASSKEY)
+	.app_passkey = auth_app_passkey,
 #endif
 	.oob_data_request = auth_pairing_oob_data_request,
 	.cancel = auth_cancel,
@@ -4547,16 +4727,15 @@ static int cmd_fal_connect(const struct shell *sh, size_t argc, char *argv[])
 #endif /* CONFIG_BT_CENTRAL */
 #endif /* defined(CONFIG_BT_FILTER_ACCEPT_LIST) */
 
-#if defined(CONFIG_BT_FIXED_PASSKEY)
-static int cmd_fixed_passkey(const struct shell *sh,
-			     size_t argc, char *argv[])
+#if defined(CONFIG_BT_APP_PASSKEY)
+static int cmd_app_passkey(const struct shell *sh,
+			    size_t argc, char *argv[])
 {
-	unsigned int passkey;
-	int err;
+	uint32_t passkey;
 
 	if (argc < 2) {
-		bt_passkey_set(BT_PASSKEY_INVALID);
-		shell_print(sh, "Fixed passkey cleared");
+		app_passkey = BT_PASSKEY_RAND;
+		shell_print(sh, "App passkey cleared");
 		return 0;
 	}
 
@@ -4566,14 +4745,12 @@ static int cmd_fixed_passkey(const struct shell *sh,
 		return -ENOEXEC;
 	}
 
-	err = bt_passkey_set(passkey);
-	if (err) {
-		shell_print(sh, "Setting fixed passkey failed (err %d)", err);
-	}
+	app_passkey = passkey;
+	shell_print(sh, "App passkey set to %06u", passkey);
 
-	return err;
+	return 0;
 }
-#endif
+#endif /* CONFIG_BT_APP_PASSKEY */
 
 static int cmd_auth_passkey(const struct shell *sh,
 			    size_t argc, char *argv[])
@@ -5035,6 +5212,16 @@ SHELL_STATIC_SUBCMD_SET_CREATE(bt_cmds,
 		"<min continuation number> <supervision timeout (seconds)>",
 		cmd_subrate_request, 6, 0),
 #endif
+#if defined(CONFIG_BT_LE_EXTENDED_FEAT_SET)
+	SHELL_CMD_ARG(read-all-remote-features, NULL, "<pages_requested>",
+		cmd_read_all_remote_features, 2, 0),
+#endif
+#if defined(CONFIG_BT_FRAME_SPACE_UPDATE)
+	SHELL_CMD_ARG(frame-space-update, NULL,
+		      "[frame_space_min <us>] [frame_space_max <us>] [phys <phy mask>] "
+		      "[spacing_types <spacing types mask>]",
+		      cmd_frame_space_update, 5, 0),
+#endif
 #if defined(CONFIG_BT_BROADCASTER)
 	SHELL_CMD_ARG(advertise, NULL,
 		      "<type: off, on, nconn> [mode: discov, non_discov] "
@@ -5174,10 +5361,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(bt_cmds,
 		      cmd_fal_connect, 2, 3),
 #endif /* CONFIG_BT_CENTRAL */
 #endif /* defined(CONFIG_BT_FILTER_ACCEPT_LIST) */
-#if defined(CONFIG_BT_FIXED_PASSKEY)
-	SHELL_CMD_ARG(fixed-passkey, NULL, "[passkey]", cmd_fixed_passkey,
+#if defined(CONFIG_BT_APP_PASSKEY)
+	SHELL_CMD_ARG(app-passkey, NULL, "[passkey]", cmd_app_passkey,
 		      1, 1),
-#endif
+#endif /* CONFIG_BT_APP_PASSKEY */
 #endif /* CONFIG_BT_SMP || CONFIG_BT_CLASSIC) */
 #endif /* CONFIG_BT_CONN */
 

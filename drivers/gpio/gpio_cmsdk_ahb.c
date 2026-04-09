@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016 Linaro Limited.
- * Copyright (c) 2025 Atmosic
+ * Copyright (c) 2025-2026 Atmosic
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -109,7 +109,13 @@ int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask, gpio_flags_t 
 		return -ENOTSUP;
 	}
 
-#ifndef CONFIG_SOC_FAMILY_ATM
+#ifdef CONFIG_SOC_FAMILY_ATM
+#ifdef CONFIG_SOC_SERIES_ATMX2
+	if ((flags & GPIO_PULL_DOWN) != 0) {
+		return -ENOTSUP;
+	}
+#endif
+#else
 	if ((flags & (GPIO_PULL_UP | GPIO_PULL_DOWN)) != 0) {
 		return -ENOTSUP;
 	}
@@ -137,11 +143,13 @@ int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask, gpio_flags_t 
 	}
 
 #ifdef CONFIG_SOC_FAMILY_ATM
+#ifndef CONFIG_SOC_SERIES_ATMX2
 	if ((flags & GPIO_PULL_DOWN) != 0) {
 		cfg->port->pulldown_enable_set = mask;
 	} else {
 		cfg->port->pulldown_enable_clr = mask;
 	}
+#endif
 
 	if ((flags & GPIO_PULL_UP) != 0) {
 		cfg->port->pullup_enable_set = mask;
@@ -175,8 +183,11 @@ static int gpio_cmsdk_ahb_get_config(const struct device *dev, gpio_pin_t pin, g
 	}
 
 #ifdef CONFIG_SOC_FAMILY_ATM
+#ifndef CONFIG_SOC_SERIES_ATMX2
 	*flags |= (cfg->port->pulldown_enable_set & mask) ? GPIO_PULL_DOWN : 0;
+#endif
 	*flags |= (cfg->port->pullup_enable_set & mask) ? GPIO_PULL_UP : 0;
+
 	*flags |= (cfg->port->inenable_set & mask) ? GPIO_INPUT : 0;
 	if (!(cfg->port->intenset & mask)) {
 		*flags |= GPIO_INT_DISABLE;

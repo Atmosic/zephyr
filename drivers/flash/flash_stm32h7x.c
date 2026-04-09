@@ -14,6 +14,7 @@
 #include <zephyr/init.h>
 #include <zephyr/sys/barrier.h>
 #include <soc.h>
+#include <stm32_bitops.h>
 #if defined(CONFIG_SOC_SERIES_STM32H7RSX)
 #include <stm32h7rsxx_ll_bus.h>
 #include <stm32h7rsxx_ll_utils.h>
@@ -37,6 +38,7 @@ LOG_MODULE_REGISTER(LOG_DOMAIN);
 /* No information in documentation about that. */
 #define STM32H7_FLASH_OPT_TIMEOUT_MS 800
 
+#if DT_NODE_HAS_PROP(DT_INST(0, st_stm32_nv_flash), bank2_flash_size)
 #define STM32H7_M4_FLASH_SIZE DT_PROP_OR(DT_INST(0, st_stm32_nv_flash), bank2_flash_size, 0)
 #ifdef CONFIG_CPU_CORTEX_M4
 #if STM32H7_M4_FLASH_SIZE == 0
@@ -45,11 +47,10 @@ LOG_MODULE_REGISTER(LOG_DOMAIN);
 #define REAL_FLASH_SIZE_KB (KB(STM32H7_M4_FLASH_SIZE * 2))
 #endif
 #else
-#if defined(DUAL_BANK)
 #define REAL_FLASH_SIZE_KB (DT_REG_SIZE(DT_INST(0, st_stm32_nv_flash)) * 2)
+#endif
 #else
 #define REAL_FLASH_SIZE_KB DT_REG_SIZE(DT_INST(0, st_stm32_nv_flash))
-#endif
 #endif
 #define SECTOR_PER_BANK ((REAL_FLASH_SIZE_KB / FLASH_SECTOR_SIZE) / 2)
 #if defined(DUAL_BANK)
@@ -465,9 +466,10 @@ static struct flash_stm32_sector_t get_sector(const struct device *dev, off_t of
 #ifdef DUAL_BANK
 	off_t temp_offset = offset + (CONFIG_FLASH_BASE_ADDRESS & 0xffffff);
 
-	bool bank_swap;
 	/* Check whether bank1/2 are swapped */
-	bank_swap = (READ_BIT(FLASH->OPTCR, FLASH_OPTCR_SWAP_BANK) == FLASH_OPTCR_SWAP_BANK);
+	bool bank_swap = stm32_reg_read_bits(&FLASH->OPTCR, FLASH_OPTCR_SWAP_BANK) ==
+			 FLASH_OPTCR_SWAP_BANK;
+
 	sector.sector_index = offset / FLASH_SECTOR_SIZE;
 	if ((temp_offset < (REAL_FLASH_SIZE_KB / 2)) && !bank_swap) {
 		sector.bank = 1;

@@ -1,6 +1,6 @@
 /*
  *  Copyright (c) 2021, The OpenThread Authors.
- *  Copyright (c) 2022-2024, NXP.
+ *  Copyright (c) 2022-2025, NXP.
  *
  *  All rights reserved.
  *
@@ -46,6 +46,8 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_OPENTHREAD_PLATFORM_LOG_LEVEL);
 #include <zephyr/kernel.h>
 #include <zephyr/net/net_pkt.h>
 #include <openthread-system.h>
+#include <stdalign.h>
+#include <common/new.hpp>
 
 enum pending_events {
 	PENDING_EVENT_FRAME_TO_SEND, /* There is a tx frame to send  */
@@ -59,6 +61,11 @@ static ot::Spinel::RadioSpinel *psRadioSpinel;
 static ot::Url::Url *psRadioUrl;
 static ot::Hdlc::HdlcInterface *pSpinelInterface;
 static ot::Spinel::SpinelDriver *psSpinelDriver;
+
+alignas(ot::Spinel::RadioSpinel) static uint8_t gRadioBuf[sizeof(ot::Spinel::RadioSpinel)];
+alignas(ot::Url::Url) static uint8_t gUrlBuf[sizeof(ot::Url::Url)];
+alignas(ot::Hdlc::HdlcInterface) static uint8_t gIfaceBuf[sizeof(ot::Hdlc::HdlcInterface)];
+alignas(ot::Spinel::SpinelDriver) static uint8_t gDriverBuf[sizeof(ot::Spinel::SpinelDriver)];
 
 static const otRadioCaps sRequiredRadioCaps =
 #if OPENTHREAD_CONFIG_THREAD_VERSION >= OT_THREAD_VERSION_1_2
@@ -346,8 +353,14 @@ exit:
 #endif
 
 #if OPENTHREAD_CONFIG_DIAG_ENABLE
-otError otPlatDiagProcess(otInstance *aInstance, int argc, char *argv[], char *aOutput,
-			  size_t aOutputMaxLen)
+void otPlatDiagSetOutputCallback(otInstance *aInstance, otPlatDiagOutputCallback aCallback, void *aContext)
+{
+    OT_UNUSED_VARIABLE(aInstance);
+
+    psRadioSpinel->SetDiagOutputCallback(aCallback, aContext);
+}
+
+otError otPlatDiagProcess(otInstance *aInstance, int argc, char *argv[])
 {
 	/* Deliver the platform specific diags commands to radio only ncp */
 	OT_UNUSED_VARIABLE(aInstance);
@@ -359,12 +372,12 @@ otError otPlatDiagProcess(otInstance *aInstance, int argc, char *argv[], char *a
 		cur += snprintf(cur, static_cast<size_t>(end - cur), "%s ", argv[index]);
 	}
 
-	return psRadioSpinel->PlatDiagProcess(cmd, aOutput, aOutputMaxLen);
+	return psRadioSpinel->PlatDiagProcess(cmd);
 }
 
 void otPlatDiagModeSet(bool aMode)
 {
-	SuccessOrExit(psRadioSpinel->PlatDiagProcess(aMode ? "start" : "stop", NULL, 0));
+	SuccessOrExit(psRadioSpinel->PlatDiagProcess(aMode ? "start" : "stop"));
 	psRadioSpinel->SetDiagEnabled(aMode);
 
 exit:
@@ -381,7 +394,7 @@ void otPlatDiagTxPowerSet(int8_t aTxPower)
 	char cmd[OPENTHREAD_CONFIG_DIAG_CMD_LINE_BUFFER_SIZE];
 
 	snprintf(cmd, sizeof(cmd), "power %d", aTxPower);
-	SuccessOrExit(psRadioSpinel->PlatDiagProcess(cmd, NULL, 0));
+	SuccessOrExit(psRadioSpinel->PlatDiagProcess(cmd));
 
 exit:
 	return;
@@ -392,7 +405,7 @@ void otPlatDiagChannelSet(uint8_t aChannel)
 	char cmd[OPENTHREAD_CONFIG_DIAG_CMD_LINE_BUFFER_SIZE];
 
 	snprintf(cmd, sizeof(cmd), "channel %d", aChannel);
-	SuccessOrExit(psRadioSpinel->PlatDiagProcess(cmd, NULL, 0));
+	SuccessOrExit(psRadioSpinel->PlatDiagProcess(cmd));
 
 exit:
 	return;
@@ -521,11 +534,11 @@ extern "C" void platformRadioInit(void)
 
 	iidList[0] = 0;
 
-	psRadioSpinel = new ot::Spinel::RadioSpinel();
-	psSpinelDriver = new ot::Spinel::SpinelDriver();
+	psRadioSpinel = new(gRadioBuf) ot::Spinel::RadioSpinel();
+	psSpinelDriver = new(gDriverBuf) ot::Spinel::SpinelDriver();
 
-	psRadioUrl = new ot::Url::Url();
-	pSpinelInterface = new ot::Hdlc::HdlcInterface(*psRadioUrl);
+	psRadioUrl = new(gUrlBuf) ot::Url::Url();
+	pSpinelInterface = new(gIfaceBuf) ot::Hdlc::HdlcInterface(*psRadioUrl);
 
 	OT_UNUSED_VARIABLE(psSpinelDriver->Init(*pSpinelInterface, true /* aSoftwareReset */,
 						iidList, OT_ARRAY_LENGTH(iidList)));

@@ -759,7 +759,7 @@ static int gmap_ac_cap_unicast_start(const struct gmap_unicast_ac_param *param,
 			 * location bit accordingly
 			 */
 			if (param->conn_cnt > 1U || param->snk_cnt[i] > 1U) {
-				const int err = bt_audio_codec_cfg_set_chan_allocation(
+				err = bt_audio_codec_cfg_set_chan_allocation(
 					stream_param->codec_cfg, (enum bt_audio_location)BIT(i));
 
 				if (err < 0) {
@@ -785,7 +785,7 @@ static int gmap_ac_cap_unicast_start(const struct gmap_unicast_ac_param *param,
 			 * location bit accordingly
 			 */
 			if (param->conn_cnt > 1U || param->src_cnt[i] > 1U) {
-				const int err = bt_audio_codec_cfg_set_chan_allocation(
+				err = bt_audio_codec_cfg_set_chan_allocation(
 					stream_param->codec_cfg, (enum bt_audio_location)BIT(i));
 
 				if (err < 0) {
@@ -900,7 +900,7 @@ static int gmap_ac_unicast(const struct gmap_unicast_ac_param *param,
 	return 0;
 }
 
-static void unicast_audio_stop(struct bt_cap_unicast_group *unicast_group)
+static void cap_initiator_unicast_audio_stop(struct bt_cap_unicast_group *unicast_group)
 {
 	struct bt_cap_unicast_audio_stop_param param;
 	int err;
@@ -998,7 +998,7 @@ static void test_gmap_ugg_unicast_ac(const struct gmap_unicast_ac_param *param)
 		WAIT_FOR_FLAG(flag_audio_received);
 	}
 
-	unicast_audio_stop(unicast_group);
+	cap_initiator_unicast_audio_stop(unicast_group);
 
 	unicast_group_delete(unicast_group);
 	unicast_group = NULL;

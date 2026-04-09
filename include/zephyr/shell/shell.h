@@ -130,7 +130,44 @@ struct shell_static_args {
  * start with this text.  Pass null if no prefix match is required.
  */
 const struct device *shell_device_lookup(size_t idx,
-				   const char *prefix);
+					 const char *prefix);
+
+/**
+ * @brief Get by index a device that matches .
+ *
+ * This can be used, for example, to identify I2C_1 as the second I2C
+ * device.
+ *
+ * Devices that failed to initialize - or deferred to be - are included
+ * from the candidates for a match, minus the ones who do not have
+ * a non-empty name.
+ *
+ * @param idx the device number starting from zero.
+ *
+ * @param prefix optional name prefix used to restrict candidate
+ * devices.  Indexing is done relative to devices with names that
+ * start with this text.  Pass null if no prefix match is required.
+ */
+const struct device *shell_device_lookup_all(size_t idx,
+					     const char *prefix);
+
+/**
+ * @brief Get by index a non-initialized device that matches .
+ *
+ * This can be used, for example, to identify I2C_1 as the second I2C
+ * device.
+ *
+ * Devices that initialized successfully or do not have a non-empty name
+ * are excluded.
+ *
+ * @param idx the device number starting from zero.
+ *
+ * @param prefix optional name prefix used to restrict candidate
+ * devices.  Indexing is done relative to devices with names that
+ * start with this text.  Pass null if no prefix match is required.
+ */
+const struct device *shell_device_lookup_non_ready(size_t idx,
+						   const char *prefix);
 
 /**
  * @brief Filter callback type, for use with shell_device_lookup_filter
@@ -181,6 +218,23 @@ const struct device *shell_device_filter(size_t idx,
  * failed.
  */
 const struct device *shell_device_get_binding(const char *name);
+
+/**
+ * @brief Get a @ref device reference from its @ref device.name field or label.
+ *
+ * This function iterates through the devices on the system. If a device with
+ * the given @p name field is found, this function returns a pointer to the
+ * device.
+ *
+ * If no device has the given @p name, this function returns `NULL`.
+ *
+ * @param name device name to search for. A null pointer, or a pointer to an
+ * empty string, will cause NULL to be returned.
+ *
+ * @return pointer to device structure with the given name; `NULL` if the device
+ * is not found.
+ */
+const struct device *shell_device_get_binding_all(const char *name);
 
 /**
  * @brief Shell command handler prototype.
@@ -900,11 +954,10 @@ union shell_backend_ctx {
 };
 
 enum shell_signal {
-	SHELL_SIGNAL_RXRDY,
-	SHELL_SIGNAL_LOG_MSG,
-	SHELL_SIGNAL_KILL,
-	SHELL_SIGNAL_TXDONE, /* TXDONE must be last one before SHELL_SIGNALS */
-	SHELL_SIGNALS
+	SHELL_SIGNAL_RXRDY = BIT(0),
+	SHELL_SIGNAL_LOG_MSG = BIT(1),
+	SHELL_SIGNAL_KILL = BIT(2),
+	SHELL_SIGNAL_TXDONE = BIT(3),
 };
 
 /**
@@ -962,14 +1015,9 @@ struct shell_ctx {
 	volatile union shell_backend_cfg cfg;
 	volatile union shell_backend_ctx ctx;
 
-	struct k_poll_signal signals[SHELL_SIGNALS];
+	struct k_event signal_event;
 
-	/** Events that should be used only internally by shell thread.
-	 * Event for SHELL_SIGNAL_TXDONE is initialized but unused.
-	 */
-	struct k_poll_event events[SHELL_SIGNALS];
-
-	struct k_mutex wr_mtx;
+	struct k_sem lock_sem;
 	k_tid_t tid;
 	int ret_val;
 };

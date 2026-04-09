@@ -271,6 +271,8 @@ static int adxl345_attr_set(const struct device *dev,
 	switch (attr) {
 	case SENSOR_ATTR_SAMPLING_FREQUENCY:
 		return adxl345_attr_set_odr(dev, chan, attr, val);
+	case SENSOR_ATTR_UPPER_THRESH:
+		return adxl345_reg_write_byte(dev, ADXL345_THRESH_ACT_REG, val->val1);
 	default:
 		return -ENOTSUP;
 	}
@@ -393,7 +395,7 @@ static int adxl345_interrupt_config(const struct device *dev,
 	int ret;
 	const struct adxl345_dev_config *cfg = dev->config;
 
-	ret = adxl345_reg_write_byte(dev, ADXL345_INT_MAP, int1);
+	ret = adxl345_reg_write_byte(dev, ADXL345_INT_MAP, cfg->route_to_int2 ? int1 : ~int1);
 	if (ret) {
 		return ret;
 	}
@@ -485,6 +487,10 @@ static int adxl345_init(const struct device *dev)
 	if (rc) {
 		return rc;
 	}
+	rc = adxl345_interrupt_config(dev, ADXL345_INT_MAP_ACT_MSK);
+	if (rc) {
+		return rc;
+	}
 #endif
 
 	rc = adxl345_reg_read_byte(dev, ADXL345_DATA_FORMAT_REG, &full_res);
@@ -495,8 +501,18 @@ static int adxl345_init(const struct device *dev)
 }
 
 #ifdef CONFIG_ADXL345_TRIGGER
+
 #define ADXL345_CFG_IRQ(inst)									   \
-		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int2_gpios),
+	COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, int1_gpios),					   \
+		(										   \
+			.interrupt = GPIO_DT_SPEC_INST_GET(inst, int1_gpios),			   \
+			.route_to_int2 = false,							   \
+		),										   \
+		(										   \
+			.interrupt = GPIO_DT_SPEC_INST_GET(inst, int2_gpios),			   \
+			.route_to_int2 = true,							   \
+		))
+
 #else
 #define ADXL345_CFG_IRQ(inst)
 #endif /* CONFIG_ADXL345_TRIGGER */
@@ -505,7 +521,7 @@ static int adxl345_init(const struct device *dev)
 	COND_CODE_1(CONFIG_SPI_RTIO,								   \
 			(SPI_DT_IODEV_DEFINE(adxl345_iodev_##inst, DT_DRV_INST(inst),		   \
 			SPI_WORD_SET(8) | SPI_TRANSFER_MSB |					   \
-			SPI_MODE_CPOL | SPI_MODE_CPHA, 0U);),					   \
+			SPI_MODE_CPOL | SPI_MODE_CPHA);),					   \
 			())
 
 #define ADXL345_RTIO_I2C_DEFINE(inst)								   \
@@ -544,13 +560,13 @@ static int adxl345_init(const struct device *dev)
 						    SPI_WORD_SET(8) |				   \
 						    SPI_TRANSFER_MSB |				   \
 						    SPI_MODE_CPOL |				   \
-						    SPI_MODE_CPHA,				   \
-						    0)},					   \
+						    SPI_MODE_CPHA)},				   \
 		.bus_is_ready = adxl345_bus_is_ready_spi,					   \
 		.reg_access = adxl345_reg_access_spi,						   \
 		.bus_type = ADXL345_BUS_SPI,							   \
 		ADXL345_CONFIG(inst)								   \
-		COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, int2_gpios),				   \
+		COND_CODE_1(UTIL_OR(DT_INST_NODE_HAS_PROP(inst, int1_gpios),			   \
+				    DT_INST_NODE_HAS_PROP(inst, int2_gpios)),			   \
 		(ADXL345_CFG_IRQ(inst)), ())							   \
 	}
 
@@ -561,7 +577,8 @@ static int adxl345_init(const struct device *dev)
 		.reg_access = adxl345_reg_access_i2c,						   \
 		.bus_type = ADXL345_BUS_I2C,							   \
 		ADXL345_CONFIG(inst)								   \
-		COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, int2_gpios),				   \
+		COND_CODE_1(UTIL_OR(DT_INST_NODE_HAS_PROP(inst, int1_gpios),			   \
+				    DT_INST_NODE_HAS_PROP(inst, int2_gpios)),			   \
 		(ADXL345_CFG_IRQ(inst)), ())							   \
 	}
 

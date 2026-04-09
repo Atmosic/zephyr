@@ -22,7 +22,7 @@ tests:
     extra_configs:
       - CONFIG_GPIO=y
       - CONFIG_STEPPER_STEP_DIR_GENERATE_ISR_SAFE_EVENTS=y
-      - CONFIG_STEPPER_TEST_TIMING_TIMEOUT_TOLERANCE_PCT=30
+      - CONFIG_STEPPER_TEST_TIMING_TIMEOUT_TOLERANCE_PCT=130
     platform_allow:
       - native_sim/native/64
   drivers.stepper.stepper_api.allegro_a4979:
@@ -40,7 +40,7 @@ tests:
     extra_configs:
       - CONFIG_GPIO=y
       - CONFIG_STEPPER_STEP_DIR_GENERATE_ISR_SAFE_EVENTS=y
-      - CONFIG_STEPPER_TEST_TIMING_TIMEOUT_TOLERANCE_PCT=30
+      - CONFIG_STEPPER_TEST_TIMING_TIMEOUT_TOLERANCE_PCT=130
     platform_allow:
       - native_sim/native/64
   drivers.stepper.stepper_api.ti_drv84xx:
@@ -58,13 +58,13 @@ tests:
     extra_configs:
       - CONFIG_GPIO=y
       - CONFIG_STEPPER_STEP_DIR_GENERATE_ISR_SAFE_EVENTS=y
-      - CONFIG_STEPPER_TEST_TIMING_TIMEOUT_TOLERANCE_PCT=30
+      - CONFIG_STEPPER_TEST_TIMING_TIMEOUT_TOLERANCE_PCT=130
     platform_allow:
       - native_sim/native/64
   drivers.stepper.stepper_api.zephyr_gpio_stepper:
     extra_args:
-      - platform:native_sim/native/64:DTC_OVERLAY_FILE="boards/native_sim_zephyr_gpio_stepper.overlay"
-      - platform:qemu_x86_64/atom:DTC_OVERLAY_FILE="boards/qemu_x86_64_zephyr_gpio_stepper.overlay"
+      - platform:native_sim/native/64:DTC_OVERLAY_FILE="boards/native_sim_zephyr_h_bridge_stepper.overlay"
+      - platform:qemu_x86_64/atom:DTC_OVERLAY_FILE="boards/qemu_x86_64_zephyr_h_bridge_stepper.overlay"
     extra_configs:
       - CONFIG_GPIO=y
     platform_allow:

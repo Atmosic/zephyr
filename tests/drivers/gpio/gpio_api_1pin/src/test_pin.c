@@ -118,7 +118,7 @@ ZTEST(gpio_api_1pin_pin, test_gpio_pin_toggle_visual)
 	TC_PRINT("LED ON\n");
 
 	for (int i = 0; i < 3; i++) {
-		k_sleep(K_SECONDS(2));
+		k_sleep(K_MSEC(CONFIG_TEST_GPIO_PIN_TOGGLE_VISUAL_DELAY_MS));
 
 		ret = gpio_pin_toggle(port, TEST_PIN);
 		zassert_equal(ret, 0, "Failed to toggle pin value");

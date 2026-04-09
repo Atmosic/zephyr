@@ -21,6 +21,9 @@ LOG_MODULE_REGISTER(nxp_imx_eth);
 #include <zephyr/net/phy.h>
 #include <ethernet/eth_stats.h>
 #include <zephyr/net/dsa_core.h>
+#ifdef CONFIG_GIC_V3_ITS
+#include <zephyr/drivers/interrupt_controller/gicv3_its.h>
+#endif
 #include "../eth.h"
 #include "eth_nxp_imx_netc_priv.h"
 
@@ -75,6 +78,7 @@ static int netc_eth_rx(const struct device *dev)
 	struct net_if *iface_dst = data->iface;
 #if defined(NETC_HAS_NO_SWITCH_TAG_SUPPORT)
 	struct ethernet_context *ctx = net_if_l2_data(iface_dst);
+	struct dsa_switch_context *dsa_switch_ctx = ctx->dsa_switch_ctx;
 #endif
 	netc_frame_attr_t attr = {0};
 	struct net_pkt *pkt;
@@ -92,7 +96,9 @@ static int netc_eth_rx(const struct device *dev)
 		goto out;
 	}
 
-	if (result != kStatus_Success) {
+	if (result != kStatus_NETC_RxTsrResp &&
+	    result != kStatus_NETC_RxHRNotZeroFrame &&
+	    result != kStatus_Success) {
 		LOG_ERR("Error on received frame");
 		ret = -EIO;
 		goto out;
@@ -108,7 +114,7 @@ static int netc_eth_rx(const struct device *dev)
 
 #if defined(NETC_HAS_NO_SWITCH_TAG_SUPPORT)
 	if (ctx->dsa_port == DSA_CONDUIT_PORT) {
-		iface_dst = ctx->dsa_switch_ctx->iface_user[attr.srcPort];
+		iface_dst = dsa_switch_ctx->iface_user[attr.srcPort];
 	}
 #endif
 	/* Copy to pkt */
@@ -173,6 +179,28 @@ static void netc_eth_rx_thread(void *arg1, void *unused1, void *unused2)
 	}
 }
 
+#ifdef CONFIG_ETH_NXP_IMX_NETC_MSI_GIC
+
+static void netc_tx_isr_handler(const void *arg)
+{
+	const struct device *dev = (const struct device *)arg;
+	struct netc_eth_data *data = dev->data;
+
+	EP_CleanTxIntrFlags(&data->handle, 1, 0);
+	data->tx_done = true;
+}
+
+static void netc_rx_isr_handler(const void *arg)
+{
+	const struct device *dev = (const struct device *)arg;
+	struct netc_eth_data *data = dev->data;
+
+	EP_CleanRxIntrFlags(&data->handle, 1);
+	k_sem_give(&data->rx_sem);
+}
+
+#else /* CONFIG_ETH_NXP_IMX_NETC_MSI_GIC */
+
 static void msgintr_isr(void)
 {
 	uint32_t irqs = NETC_MSGINTR->MSI[NETC_MSGINTR_CHANNEL].MSIR;
@@ -203,6 +231,8 @@ static void msgintr_isr(void)
 	SDK_ISR_EXIT_BARRIER;
 }
 
+#endif
+
 int netc_eth_init_common(const struct device *dev)
 {
 	const struct netc_eth_config *config = dev->config;
@@ -218,10 +248,57 @@ int netc_eth_init_common(const struct device *dev)
 	config->bdr_init(&bdr_config, &rx_bdr_config, &tx_bdr_config);
 
 #ifdef CONFIG_PTP_CLOCK_NXP_NETC
-	bdr_config.rxBdrConfig[0].extendDescEn = true;
+	if (netc_eth_get_ptp_clock(dev) != NULL) {
+		bdr_config.rxBdrConfig[0].extendDescEn = true;
+	}
 #endif
 
 	/* MSIX entry configuration */
+#ifdef CONFIG_ETH_NXP_IMX_NETC_MSI_GIC
+	int ret;
+
+	if (config->msi_dev == NULL) {
+		LOG_ERR("MSI device is not configured");
+		return -ENODEV;
+	}
+	ret = its_setup_deviceid(config->msi_dev, config->msi_device_id, NETC_MSIX_ENTRY_NUM);
+	if (ret != 0) {
+		LOG_ERR("Failed to setup device ID for MSI: %d", ret);
+		return ret;
+	}
+	data->tx_intid = its_alloc_intid(config->msi_dev);
+	data->rx_intid = its_alloc_intid(config->msi_dev);
+
+	msg_addr = its_get_msi_addr(config->msi_dev);
+	msix_entry[NETC_TX_MSIX_ENTRY_IDX].control = kNETC_MsixIntrMaskBit;
+	msix_entry[NETC_TX_MSIX_ENTRY_IDX].msgAddr = msg_addr;
+	msix_entry[NETC_TX_MSIX_ENTRY_IDX].msgData = NETC_TX_MSIX_ENTRY_IDX;
+	ret = its_map_intid(config->msi_dev, config->msi_device_id, NETC_TX_MSIX_ENTRY_IDX,
+			    data->tx_intid);
+	if (ret != 0) {
+		LOG_ERR("Failed to map TX MSI interrupt: %d", ret);
+		return ret;
+	}
+
+	msix_entry[NETC_RX_MSIX_ENTRY_IDX].control = kNETC_MsixIntrMaskBit;
+	msix_entry[NETC_RX_MSIX_ENTRY_IDX].msgAddr = msg_addr;
+	msix_entry[NETC_RX_MSIX_ENTRY_IDX].msgData = NETC_RX_MSIX_ENTRY_IDX;
+	ret = its_map_intid(config->msi_dev, config->msi_device_id, NETC_RX_MSIX_ENTRY_IDX,
+			    data->rx_intid);
+	if (ret != 0) {
+		LOG_ERR("Failed to map RX MSI interrupt: %d", ret);
+		return ret;
+	}
+
+	if (!irq_is_enabled(data->tx_intid)) {
+		irq_connect_dynamic(data->tx_intid, 0, netc_tx_isr_handler, dev, 0);
+		irq_enable(data->tx_intid);
+	}
+	if (!irq_is_enabled(data->rx_intid)) {
+		irq_connect_dynamic(data->rx_intid, 0, netc_rx_isr_handler, dev, 0);
+		irq_enable(data->rx_intid);
+	}
+#else
 	msg_addr = MSGINTR_GetIntrSelectAddr(NETC_MSGINTR, NETC_MSGINTR_CHANNEL);
 	msix_entry[NETC_TX_MSIX_ENTRY_IDX].control = kNETC_MsixIntrMaskBit;
 	msix_entry[NETC_TX_MSIX_ENTRY_IDX].msgAddr = msg_addr;
@@ -235,12 +312,14 @@ int netc_eth_init_common(const struct device *dev)
 		IRQ_CONNECT(NETC_MSGINTR_IRQ, 0, msgintr_isr, 0, 0);
 		irq_enable(NETC_MSGINTR_IRQ);
 	}
+#endif
 
 	/* Endpoint configuration. */
 	EP_GetDefaultConfig(&ep_config);
 	ep_config.si = config->si_idx;
 	ep_config.siConfig.txRingUse = 1;
 	ep_config.siConfig.rxRingUse = 1;
+	ep_config.siConfig.vlanCtrl = kNETC_ENETC_StanCVlan | kNETC_ENETC_StanSVlan;
 	ep_config.userData = data;
 	ep_config.reclaimCallback = NULL;
 	ep_config.msixEntry = &msix_entry[0];
@@ -294,7 +373,6 @@ int netc_eth_init_common(const struct device *dev)
 
 int netc_eth_tx(const struct device *dev, struct net_pkt *pkt)
 {
-	const struct netc_eth_config *cfg = dev->config;
 	struct netc_eth_data *data = dev->data;
 	netc_buffer_struct_t buff = {.buffer = data->tx_buff, .length = sizeof(data->tx_buff)};
 	netc_frame_struct_t frame = {.buffArray = &buff, .length = 1};
@@ -303,6 +381,9 @@ int netc_eth_tx(const struct device *dev, struct net_pkt *pkt)
 	size_t pkt_len = net_pkt_get_len(pkt);
 #if defined(NETC_HAS_NO_SWITCH_TAG_SUPPORT)
 	struct ethernet_context *eth_ctx = net_if_l2_data(data->iface);
+#endif
+#if defined(NETC_HAS_NO_SWITCH_TAG_SUPPORT) || defined(CONFIG_PTP_CLOCK_NXP_NETC)
+	const struct netc_eth_config *cfg = dev->config;
 #endif
 	status_t result;
 	int ret;
@@ -314,24 +395,23 @@ int netc_eth_tx(const struct device *dev, struct net_pkt *pkt)
 
 	iface_dst = data->iface;
 
-	if (cfg->pseudo_mac) {
 #if defined(NETC_HAS_NO_SWITCH_TAG_SUPPORT)
+	if (cfg->pseudo_mac) {
 		/* DSA conduit port not used */
 		if (eth_ctx->dsa_port != DSA_CONDUIT_PORT) {
 			return -ENOSYS;
 		}
 		/* DSA driver redirects the iface */
 		iface_dst = pkt->iface;
-#else
-		return -ENOSYS;
-#endif
 	}
+#endif
 
 	k_mutex_lock(&data->tx_mutex, K_FOREVER);
 
 #ifdef CONFIG_PTP_CLOCK_NXP_NETC
 	pkt_is_gptp = ntohs(NET_ETH_HDR(pkt)->type) == NET_ETH_PTYPE_PTP;
-	if (pkt_is_gptp || net_pkt_is_tx_timestamping(pkt)) {
+	if ((pkt_is_gptp || net_pkt_is_tx_timestamping(pkt)) &&
+	    (netc_eth_get_ptp_clock(dev) != NULL)) {
 		opt.flags |= kEP_TX_OPT_REQ_TS;
 	}
 #endif
@@ -414,14 +494,16 @@ enum ethernet_hw_caps netc_eth_get_capabilities(const struct device *dev)
 #if defined(CONFIG_NET_VLAN)
 		| ETHERNET_HW_VLAN
 #endif
-#if defined(CONFIG_PTP_CLOCK_NXP_NETC)
-		| ETHERNET_PTP
-#endif
 #if defined(CONFIG_NET_PROMISCUOUS_MODE)
 		| ETHERNET_PROMISC_MODE
 #endif
 	);
 
+#if defined(CONFIG_PTP_CLOCK_NXP_NETC)
+	if (netc_eth_get_ptp_clock(dev) != NULL) {
+		caps |= ETHERNET_PTP;
+	}
+#endif
 	return caps;
 }
 
@@ -449,6 +531,15 @@ int netc_eth_set_config(const struct device *dev, enum ethernet_config_type type
 			data->mac_addr[0], data->mac_addr[1], data->mac_addr[2], data->mac_addr[3],
 			data->mac_addr[4], data->mac_addr[5]);
 		break;
+#if defined(CONFIG_NET_PROMISCUOUS_MODE)
+	case ETHERNET_CONFIG_TYPE_PROMISC_MODE:
+		if (config->promisc_mode) {
+			NETC_EnetcEnablePromiscuous(data->handle.hw.base, 0, true, true);
+		} else {
+			NETC_EnetcEnablePromiscuous(data->handle.hw.base, 0, false, false);
+		}
+		break;
+#endif
 	default:
 		ret = -ENOTSUP;
 		break;

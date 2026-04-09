@@ -23,7 +23,6 @@
 #include <zephyr/linker/devicetree_regions.h>
 #include <zephyr/irq.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/drivers/clock_control/nrf_clock_control.h>
 
 LOG_MODULE_REGISTER(uart_nrfx_uarte, CONFIG_UART_LOG_LEVEL);
 
@@ -116,26 +115,6 @@ LOG_MODULE_REGISTER(uart_nrfx_uarte, CONFIG_UART_LOG_LEVEL);
 
 #if UARTE_FOR_EACH_INSTANCE(IS_LOW_POWER, (||), (0))
 #define UARTE_ANY_LOW_POWER 1
-#endif
-
-#ifdef CONFIG_SOC_NRF54H20_GPD
-#include <nrf/gpd.h>
-
-/* Macro must resolve to literal 0 or 1 */
-#define INSTANCE_IS_FAST_PD(unused, prefix, idx, _)						\
-	COND_CODE_1(DT_NODE_HAS_STATUS_OKAY(UARTE(idx)),					\
-		    (COND_CODE_1(DT_NODE_HAS_PROP(UARTE(idx), power_domains),			\
-			(IS_EQ(DT_PHA(UARTE(idx), power_domains, id), NRF_GPD_FAST_ACTIVE1)),	\
-			(0))), (0))
-
-#if UARTE_FOR_EACH_INSTANCE(INSTANCE_IS_FAST_PD, (||), (0))
-/* Instance in fast power domain (PD) requires special PM treatment and clock control, so
- * device runtime PM and clock control must be enabled.
- */
-BUILD_ASSERT(IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME));
-BUILD_ASSERT(IS_ENABLED(CONFIG_CLOCK_CONTROL));
-#define UARTE_ANY_FAST_PD 1
-#endif
 #endif
 
 #define INSTANCE_IS_HIGH_SPEED(unused, prefix, idx, _) \
@@ -324,20 +303,6 @@ struct uarte_nrfx_data {
 	 !IS_ENABLED(CONFIG_PM_DEVICE) && \
 	 (_config->flags & UARTE_CFG_FLAG_LOW_POWER))
 
-/** @brief Check if device has PM that works in ISR safe mode.
- *
- * Only fast UARTE instance does not work in that mode so check PM configuration
- * flags only if there is any fast instance present.
- *
- * @retval true if device PM is ISR safe.
- * @retval false if device PM is not ISR safe.
- */
-#define IS_PM_ISR_SAFE(dev) \
-	(!IS_ENABLED(UARTE_ANY_FAST_PD) ||\
-	 COND_CODE_1(CONFIG_PM_DEVICE,\
-			((dev->pm_base->flags & BIT(PM_DEVICE_FLAG_ISR_SAFE))), \
-			(0)))
-
 /**
  * @brief Structure for UARTE configuration.
  */
@@ -348,10 +313,6 @@ struct uarte_nrfx_config {
 	const struct pinctrl_dev_config *pcfg;
 #ifdef CONFIG_HAS_NORDIC_DMM
 	void *mem_reg;
-#endif
-#ifdef UARTE_ANY_FAST_PD
-	const struct device *clk_dev;
-	struct nrf_clock_spec clk_spec;
 #endif
 #ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
 	/* None-zero in case of high speed instances. Baudrate is adjusted by that ratio. */
@@ -419,6 +380,7 @@ static void endtx_isr(const struct device *dev)
 static void uarte_disable_locked(const struct device *dev, uint32_t dis_mask)
 {
 	struct uarte_nrfx_data *data = dev->data;
+	const struct uarte_nrfx_config *config = dev->config;
 
 	data->flags &= ~dis_mask;
 	if (data->flags & UARTE_FLAG_LOW_POWER) {
@@ -426,8 +388,6 @@ static void uarte_disable_locked(const struct device *dev, uint32_t dis_mask)
 	}
 
 #if defined(UARTE_ANY_ASYNC) && !defined(CONFIG_UART_NRFX_UARTE_ENHANCED_RX)
-	const struct uarte_nrfx_config *config = dev->config;
-
 	if (data->async && HW_RX_COUNTING_ENABLED(config)) {
 		nrfx_timer_disable(&config->timer);
 		/* Timer/counter value is reset when disabled. */
@@ -436,12 +396,8 @@ static void uarte_disable_locked(const struct device *dev, uint32_t dis_mask)
 	}
 #endif
 
-#ifdef CONFIG_SOC_NRF54H20_GPD
-	const struct uarte_nrfx_config *cfg = dev->config;
-
-	nrf_gpd_retain_pins_set(cfg->pcfg, true);
-#endif
 	nrf_uarte_disable(get_uarte_instance(dev));
+	(void)pinctrl_apply_state(config->pcfg, PINCTRL_STATE_SLEEP);
 }
 
 #if defined(UARTE_ANY_NONE_ASYNC) && !defined(CONFIG_UART_NRFX_UARTE_NO_IRQ)
@@ -713,20 +669,10 @@ static void uarte_periph_enable(const struct device *dev)
 	struct uarte_nrfx_data *data = dev->data;
 
 	(void)data;
-#ifdef UARTE_ANY_FAST_PD
-	if (config->clk_dev) {
-		int err;
 
-		err = nrf_clock_control_request_sync(config->clk_dev, &config->clk_spec, K_FOREVER);
-		(void)err;
-		__ASSERT_NO_MSG(err >= 0);
-	}
-#endif
-
+	(void)pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 	nrf_uarte_enable(uarte);
-#ifdef CONFIG_SOC_NRF54H20_GPD
-	nrf_gpd_retain_pins_set(config->pcfg, false);
-#endif
+
 #if UARTE_BAUDRATE_RETENTION_WORKAROUND
 	nrf_uarte_baudrate_set(uarte,
 		COND_CODE_1(CONFIG_UART_USE_RUNTIME_CONFIGURE,
@@ -966,20 +912,6 @@ static int uarte_nrfx_tx(const struct device *dev, const uint8_t *buf,
 	}
 
 	if (IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME)) {
-		if (!IS_PM_ISR_SAFE(dev) && k_is_in_isr()) {
-			/* If instance does not support PM from ISR device shall
-			 * already be turned on.
-			 */
-			enum pm_device_state state;
-			int err;
-
-			err = pm_device_state_get(dev, &state);
-			(void)err;
-			__ASSERT_NO_MSG(err == 0);
-			if (state != PM_DEVICE_STATE_ACTIVE) {
-				return -ENOTSUP;
-			}
-		}
 		pm_device_runtime_get(dev);
 	}
 
@@ -1127,20 +1059,6 @@ static int uarte_nrfx_rx_enable(const struct device *dev, uint8_t *buf,
 	async_rx->next_buf_len = 0;
 
 	if (IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME)) {
-		if (!IS_PM_ISR_SAFE(dev) && k_is_in_isr()) {
-			/* If instance does not support PM from ISR device shall
-			 * already be turned on.
-			 */
-			enum pm_device_state state;
-			int err;
-
-			err = pm_device_state_get(dev, &state);
-			(void)err;
-			__ASSERT_NO_MSG(err == 0);
-			if (state != PM_DEVICE_STATE_ACTIVE) {
-				return -ENOTSUP;
-			}
-		}
 		pm_device_runtime_get(dev);
 	}
 
@@ -1192,7 +1110,7 @@ static int uarte_nrfx_rx_enable(const struct device *dev, uint8_t *buf,
 
 	nrf_uarte_rx_buffer_set(uarte, buf, len);
 
-	if (IS_ENABLED(UARTE_ANY_FAST_PD) && (cfg->flags & UARTE_CFG_FLAG_CACHEABLE)) {
+	if (IS_ENABLED(CONFIG_HAS_HW_NRF_UARTE120) && (cfg->flags & UARTE_CFG_FLAG_CACHEABLE)) {
 		/* Spurious RXTO event was seen on fast instance (UARTE120) thus
 		 * RXTO interrupt is kept enabled only when RX is active.
 		 */
@@ -1713,7 +1631,7 @@ static void rxto_isr(const struct device *dev)
 
 #ifdef CONFIG_UART_NRFX_UARTE_ENHANCED_RX
 	NRF_UARTE_Type *uarte = get_uarte_instance(dev);
-	if (IS_ENABLED(UARTE_ANY_FAST_PD) && (config->flags & UARTE_CFG_FLAG_CACHEABLE)) {
+	if (IS_ENABLED(CONFIG_HAS_HW_NRF_UARTE120) && (config->flags & UARTE_CFG_FLAG_CACHEABLE)) {
 		/* Spurious RXTO event was seen on fast instance (UARTE120) thus
 		 * RXTO interrupt is kept enabled only when RX is active.
 		 */
@@ -2004,22 +1922,6 @@ static void uarte_nrfx_poll_out(const struct device *dev, unsigned char c)
 	}
 
 	if (IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME)) {
-		if (!IS_PM_ISR_SAFE(dev) && k_is_in_isr()) {
-			/* If instance does not support PM from ISR device shall
-			 * already be turned on.
-			 */
-			enum pm_device_state state;
-			int err;
-
-			err = pm_device_state_get(dev, &state);
-			(void)err;
-			__ASSERT_NO_MSG(err == 0);
-			if (state != PM_DEVICE_STATE_ACTIVE) {
-				irq_unlock(key);
-				return;
-			}
-		}
-
 		if (!(data->flags & UARTE_FLAG_POLL_OUT)) {
 			data->flags |= UARTE_FLAG_POLL_OUT;
 			pm_device_runtime_get(dev);
@@ -2332,8 +2234,6 @@ static void uarte_pm_resume(const struct device *dev)
 {
 	const struct uarte_nrfx_config *cfg = dev->config;
 
-	(void)pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
-
 	if (IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME) || !LOW_POWER_ENABLED(cfg)) {
 		uarte_periph_enable(dev);
 	}
@@ -2346,15 +2246,6 @@ static void uarte_pm_suspend(const struct device *dev)
 	struct uarte_nrfx_data *data = dev->data;
 
 	(void)data;
-#ifdef UARTE_ANY_FAST_PD
-	if (cfg->clk_dev) {
-		int err;
-
-		err = nrf_clock_control_release(cfg->clk_dev, &cfg->clk_spec);
-		(void)err;
-		__ASSERT_NO_MSG(err >= 0);
-	}
-#endif
 
 #ifdef UARTE_ANY_ASYNC
 	if (data->async) {
@@ -2408,13 +2299,8 @@ static void uarte_pm_suspend(const struct device *dev)
 		wait_for_tx_stopped(dev);
 	}
 
-#ifdef CONFIG_SOC_NRF54H20_GPD
-	nrf_gpd_retain_pins_set(cfg->pcfg, true);
-#endif
-
-	nrf_uarte_disable(uarte);
-
 	(void)pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_SLEEP);
+	nrf_uarte_disable(uarte);
 }
 
 static int uarte_nrfx_pm_action(const struct device *dev, enum pm_device_action action)
@@ -2490,6 +2376,11 @@ static int uarte_instance_init(const struct device *dev,
 		((struct pinctrl_dev_config *)cfg->pcfg)->reg = (uintptr_t)cfg->uarte_regs;
 	}
 
+	/* Apply sleep state by default.
+	 * If PM is disabled, the default state will be applied in pm_device_driver_init.
+	 */
+	(void)pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_SLEEP);
+
 #ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
 	err = uarte_nrfx_configure(dev, &((struct uarte_nrfx_data *)dev->data)->uart_config);
 	if (err) {
@@ -2519,6 +2410,11 @@ static int uarte_instance_init(const struct device *dev,
 	}
 
 	return pm_device_driver_init(dev, uarte_nrfx_pm_action);
+}
+
+static int uarte_instance_deinit(const struct device *dev)
+{
+	return pm_device_driver_deinit(dev, uarte_nrfx_pm_action);
 }
 
 #define UARTE_GET_ISR(idx) \
@@ -2577,20 +2473,6 @@ static int uarte_instance_init(const struct device *dev,
 #define UARTE_GET_BAUDRATE(idx) \
 	UARTE_GET_BAUDRATE2(NRF_PERIPH_GET_FREQUENCY(UARTE(idx)), UARTE_PROP(idx, current_speed))
 
-/* Get initialization level of an instance. Instances that requires clock control
- * which is using nrfs (IPC) are initialized later.
- */
-#define UARTE_INIT_LEVEL(idx) \
-	COND_CODE_1(INSTANCE_IS_FAST_PD(_, /*empty*/, idx, _), (POST_KERNEL), (PRE_KERNEL_1))
-
-/* Get initialization priority of an instance. Instances that requires clock control
- * which is using nrfs (IPC) are initialized later.
- */
-#define UARTE_INIT_PRIO(idx)								\
-	COND_CODE_1(INSTANCE_IS_FAST_PD(_, /*empty*/, idx, _),				\
-		    (UTIL_INC(CONFIG_CLOCK_CONTROL_NRF_HSFLL_GLOBAL_INIT_PRIORITY)),	\
-		    (CONFIG_SERIAL_INIT_PRIORITY))
-
 /* Macro for setting nRF specific configuration structures. */
 #define UARTE_NRF_CONFIG(idx) {							\
 		.hwfc = (UARTE_PROP(idx, hw_flow_control) ==			\
@@ -2618,20 +2500,28 @@ static int uarte_instance_init(const struct device *dev,
 			     : UART_CFG_FLOW_CTRL_NONE,			       \
 	}
 
-/* Macro determines if PM actions are interrupt safe. They are in case of
- * asynchronous API (except for instance in fast power domain) and non-asynchronous
- * API if RX is disabled. Macro must resolve to a literal 1 or 0.
+/* Macro determines if PM actions are interrupt safe.
+ *
+ * Non-asynchronous API if RX is disabled is not ISR safe.
+ *
+ * Macro must resolve to a literal 1 or 0.
  */
 #define UARTE_PM_ISR_SAFE(idx)						       \
-	COND_CODE_1(INSTANCE_IS_FAST_PD(_, /*empty*/, idx, _),		       \
-		    (0),						       \
-		    (COND_CODE_1(CONFIG_UART_##idx##_ASYNC,		       \
-				 (PM_DEVICE_ISR_SAFE),			       \
-				 (COND_CODE_1(UARTE_PROP(idx, disable_rx),     \
-					      (PM_DEVICE_ISR_SAFE), (0))))))   \
+	COND_CODE_1(							       \
+		CONFIG_UART_##idx##_ASYNC,				       \
+		(PM_DEVICE_ISR_SAFE),					       \
+		(							       \
+			COND_CODE_1(					       \
+				UARTE_PROP(idx, disable_rx),		       \
+				(PM_DEVICE_ISR_SAFE),			       \
+				(0)					       \
+			)						       \
+		)							       \
+	)
 
 #define UART_NRF_UARTE_DEVICE(idx)					       \
 	NRF_DT_CHECK_NODE_HAS_PINCTRL_SLEEP(UARTE(idx));		       \
+	NRF_DT_CHECK_NODE_HAS_REQUIRED_MEMORY_REGIONS(UARTE(idx));	       \
 	UARTE_INT_DRIVEN(idx);						       \
 	PINCTRL_DT_DEFINE(UARTE(idx));					       \
 	IF_ENABLED(CONFIG_UART_##idx##_ASYNC, (				       \
@@ -2686,13 +2576,6 @@ static int uarte_instance_init(const struct device *dev,
 		IF_ENABLED(CONFIG_UART_##idx##_NRF_HW_ASYNC,		       \
 			(.timer = NRFX_TIMER_INSTANCE(			       \
 				CONFIG_UART_##idx##_NRF_HW_ASYNC_TIMER),))     \
-		IF_ENABLED(INSTANCE_IS_FAST_PD(_, /*empty*/, idx, _),	       \
-			(.clk_dev = DEVICE_DT_GET(DT_CLOCKS_CTLR(UARTE(idx))), \
-			 .clk_spec = {					       \
-				.frequency = NRF_PERIPH_GET_FREQUENCY(UARTE(idx)),\
-				.accuracy = 0,				       \
-				.precision = NRF_CLOCK_CONTROL_PRECISION_DEFAULT,\
-				},))					       \
 	};								       \
 	UARTE_DIRECT_ISR_DECLARE(idx)					       \
 	static int uarte_##idx##_init(const struct device *dev)		       \
@@ -2706,13 +2589,14 @@ static int uarte_instance_init(const struct device *dev,
 	PM_DEVICE_DT_DEFINE(UARTE(idx), uarte_nrfx_pm_action,		       \
 			    UARTE_PM_ISR_SAFE(idx));			       \
 									       \
-	DEVICE_DT_DEFINE(UARTE(idx),					       \
+	DEVICE_DT_DEINIT_DEFINE(UARTE(idx),				       \
 		      uarte_##idx##_init,				       \
+		      uarte_instance_deinit,				       \
 		      PM_DEVICE_DT_GET(UARTE(idx)),			       \
 		      &uarte_##idx##_data,				       \
 		      &uarte_##idx##z_config,				       \
-		      UARTE_INIT_LEVEL(idx),				       \
-		      UARTE_INIT_PRIO(idx),				       \
+		      PRE_KERNEL_1,					       \
+		      CONFIG_SERIAL_INIT_PRIORITY,			       \
 		      &uart_nrfx_uarte_driver_api)
 
 #define UARTE_INT_DRIVEN(idx)						       \

@@ -156,7 +156,11 @@ int http_server_init(struct http_server_ctx *ctx)
 			proto = IPPROTO_TCP;
 		}
 
-		fd = zsock_socket(af, SOCK_STREAM, proto);
+		if (svc->config != NULL && svc->config->socket_create != NULL) {
+			fd = svc->config->socket_create(svc, af, proto);
+		} else {
+			fd = zsock_socket(af, SOCK_STREAM, proto);
+		}
 		if (fd < 0) {
 			LOG_ERR("socket: %d", errno);
 			failed++;
@@ -272,8 +276,9 @@ static int accept_new_client(int server_fd)
 		return new_socket;
 	}
 
-	LOG_DBG("New client from %s:%d",
-		net_sprint_addr(sa.ss_family, &net_sin((struct sockaddr *)&sa)->sin_addr),
+	const char * const addrstr =
+		net_sprint_addr(sa.ss_family, &net_sin((struct sockaddr *)&sa)->sin_addr);
+	LOG_DBG("New client from %s:%d", addrstr != NULL ? addrstr : "<unknown>",
 		ntohs(net_sin((struct sockaddr *)&sa)->sin_port));
 
 	return new_socket;
@@ -378,9 +383,11 @@ static void close_client_connection(struct http_client_ctx *client)
 {
 	int fd = client->fd;
 
-	http_server_release_client(client);
+	if (fd >= 0) {
+		http_server_release_client(client);
 
-	(void)zsock_close(fd);
+		(void)zsock_close(fd);
+	}
 }
 
 static void client_timeout(struct k_work *work)

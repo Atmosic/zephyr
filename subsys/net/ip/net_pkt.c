@@ -142,8 +142,11 @@ NET_BUF_POOL_FIXED_DEFINE(tx_bufs, CONFIG_NET_BUF_TX_COUNT, CONFIG_NET_BUF_DATA_
 
 NET_BUF_POOL_VAR_DEFINE(rx_bufs, CONFIG_NET_BUF_RX_COUNT, CONFIG_NET_PKT_BUF_RX_DATA_POOL_SIZE,
 			CONFIG_NET_PKT_BUF_USER_DATA_SIZE, NULL);
-NET_BUF_POOL_VAR_DEFINE(tx_bufs, CONFIG_NET_BUF_TX_COUNT, CONFIG_NET_PKT_BUF_TX_DATA_POOL_SIZE,
-			CONFIG_NET_PKT_BUF_USER_DATA_SIZE, NULL);
+
+NET_BUF_POOL_VAR_ALIGN_DEFINE(tx_bufs, CONFIG_NET_BUF_TX_COUNT,
+			      CONFIG_NET_PKT_BUF_TX_DATA_POOL_SIZE,
+			      CONFIG_NET_PKT_BUF_USER_DATA_SIZE, NULL,
+			      CONFIG_NET_PKT_BUF_TX_DATA_ALLOC_ALIGN_LEN);
 
 #endif /* CONFIG_NET_BUF_FIXED_DATA_SIZE */
 
@@ -2013,7 +2016,7 @@ int net_pkt_copy(struct net_pkt *pkt_dst,
 	return 0;
 }
 
-#if defined(NET_PKT_HAS_CONTROL_BLOCK)
+#if defined(CONFIG_NET_PKT_CONTROL_BLOCK)
 static inline void clone_pkt_cb(struct net_pkt *pkt, struct net_pkt *clone_pkt)
 {
 	memcpy(net_pkt_cb(clone_pkt), net_pkt_cb(pkt), sizeof(clone_pkt->cb));
@@ -2047,6 +2050,7 @@ static void clone_pkt_attributes(struct net_pkt *pkt, struct net_pkt *clone_pkt)
 	net_pkt_set_rx_timestamping(clone_pkt, net_pkt_is_rx_timestamping(pkt));
 	net_pkt_set_forwarding(clone_pkt, net_pkt_forwarding(pkt));
 	net_pkt_set_chksum_done(clone_pkt, net_pkt_is_chksum_done(pkt));
+	net_pkt_set_loopback(pkt, net_pkt_is_loopback(pkt));
 	net_pkt_set_ip_reassembled(pkt, net_pkt_is_ip_reassembled(pkt));
 	net_pkt_set_cooked_mode(clone_pkt, net_pkt_is_cooked_mode(pkt));
 	net_pkt_set_ipv4_pmtu(clone_pkt, net_pkt_ipv4_pmtu(pkt));
@@ -2352,6 +2356,19 @@ int net_pkt_set_data(struct net_pkt *pkt,
 	}
 
 	return net_pkt_write(pkt, access->data, access->size);
+}
+
+void net_pkt_tx_init(struct net_pkt *pkt)
+{
+	memset(pkt, 0, sizeof(struct net_pkt));
+
+	pkt->atomic_ref = ATOMIC_INIT(1);
+	pkt->slab = &tx_pkts;
+
+	net_pkt_set_ipv6_next_hdr(pkt, 255);
+	net_pkt_set_priority(pkt, TX_DEFAULT_PRIORITY);
+	net_pkt_set_vlan_tag(pkt, NET_VLAN_TAG_UNSPEC);
+	net_pkt_cursor_init(pkt);
 }
 
 void net_pkt_init(void)

@@ -353,7 +353,11 @@ struct ppp_my_option_data {
 	uint32_t flags;
 };
 
+#if defined(CONFIG_NET_L2_PPP_OPTION_DNS_USE)
 #define IPCP_NUM_MY_OPTIONS	3
+#else
+#define IPCP_NUM_MY_OPTIONS	1
+#endif
 #define IPV6CP_NUM_MY_OPTIONS	1
 
 enum ppp_flags {
@@ -592,6 +596,15 @@ enum net_event_ppp_cmd {
 struct net_if;
 
 /** @endcond */
+
+/**
+ * @brief Retrieve the PPP peers Asynchronous Control Character Map
+ *
+ * @param iface PPP network interface.
+ *
+ * @return uint32_t Current bitmask for the Asynchronous Control Character Map
+ */
+uint32_t ppp_peer_async_control_character_map(struct net_if *iface);
 
 /** Event emitted when PPP carrier is on */
 #define NET_EVENT_PPP_CARRIER_ON					\

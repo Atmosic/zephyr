@@ -42,7 +42,7 @@ static bool littleendian;
 
 static int memory_dump(const struct shell *sh, mem_addr_t phys_addr, size_t size, uint8_t width)
 {
-	uint32_t value;
+	uint64_t value;
 	size_t data_offset;
 	mm_reg_t addr;
 	const size_t vsize = width / BITS_PER_BYTE;
@@ -82,6 +82,26 @@ static int memory_dump(const struct shell *sh, mem_addr_t phys_addr, size_t size
 				value >>= 8;
 				hex_data[data_offset + 3] = (uint8_t)value;
 				break;
+#ifdef CONFIG_64BIT
+			case 64:
+				value = sys_le64_to_cpu(sys_read64(addr + data_offset));
+				hex_data[data_offset] = (uint8_t)value;
+				value >>= 8;
+				hex_data[data_offset + 1] = (uint8_t)value;
+				value >>= 8;
+				hex_data[data_offset + 2] = (uint8_t)value;
+				value >>= 8;
+				hex_data[data_offset + 3] = (uint8_t)value;
+				value >>= 8;
+				hex_data[data_offset + 4] = (uint8_t)value;
+				value >>= 8;
+				hex_data[data_offset + 5] = (uint8_t)value;
+				value >>= 8;
+				hex_data[data_offset + 6] = (uint8_t)value;
+				value >>= 8;
+				hex_data[data_offset + 7] = (uint8_t)value;
+				break;
+#endif /* CONFIG_64BIT */
 			default:
 				shell_fprintf(sh, SHELL_NORMAL, "Incorrect data width\n");
 				return -EINVAL;
@@ -175,14 +195,25 @@ static void bypass_cb(const struct shell *sh, uint8_t *recv, size_t len)
 	static uint8_t tail;
 	uint8_t byte;
 
-	if (tail == CHAR_CAN && recv[0] == CHAR_DC1) {
-		escape = true;
-	} else {
-		for (int i = 0; i < (len - 1); i++) {
-			if (recv[i] == CHAR_CAN && recv[i + 1] == CHAR_DC1) {
-				escape = true;
-				break;
-			}
+	for (size_t i = 0; i < len; i++) {
+		if (tail == CHAR_CAN && recv[i] == CHAR_DC1) {
+			escape = true;
+			tail = 0;
+			break;
+		}
+		tail = recv[i];
+
+		if (is_ascii(recv[i])) {
+			chunk[chunk_element] = recv[i];
+			chunk_element++;
+		}
+
+		if (chunk_element == 2) {
+			byte = (uint8_t)strtoul(chunk, NULL, 16);
+			*bytes = byte;
+			bytes++;
+			sum++;
+			chunk_element = 0;
 		}
 	}
 
@@ -205,21 +236,6 @@ static void bypass_cb(const struct shell *sh, uint8_t *recv, size_t len)
 			}
 		}
 		return;
-	}
-
-	tail = recv[len - 1];
-
-	if (is_ascii(*recv)) {
-		chunk[chunk_element] = *recv;
-		chunk_element++;
-	}
-
-	if (chunk_element == 2) {
-		byte = (uint8_t)strtoul(chunk, NULL, 16);
-		*bytes = byte;
-		bytes++;
-		sum++;
-		chunk_element = 0;
 	}
 }
 
@@ -257,7 +273,7 @@ static int cmd_load(const struct shell *sh, size_t argc, char **argv)
 
 static int memory_read(const struct shell *sh, mem_addr_t addr, uint8_t width)
 {
-	uint32_t value;
+	uint64_t value;
 	int err = 0;
 
 	switch (width) {
@@ -270,6 +286,11 @@ static int memory_read(const struct shell *sh, mem_addr_t addr, uint8_t width)
 	case 32:
 		value = sys_read32(addr);
 		break;
+#ifdef CONFIG_64BIT
+	case 64:
+		value = sys_read64(addr);
+		break;
+#endif /* CONFIG_64BIT */
 	default:
 		shell_fprintf(sh, SHELL_NORMAL, "Incorrect data width\n");
 		err = -EINVAL;
@@ -277,7 +298,7 @@ static int memory_read(const struct shell *sh, mem_addr_t addr, uint8_t width)
 	}
 
 	if (err == 0) {
-		shell_fprintf(sh, SHELL_NORMAL, "Read value 0x%x\n", value);
+		shell_fprintf(sh, SHELL_NORMAL, "Read value 0x%llx\n", value);
 	}
 
 	return err;
@@ -297,6 +318,11 @@ static int memory_write(const struct shell *sh, mem_addr_t addr, uint8_t width, 
 	case 32:
 		sys_write32(value, addr);
 		break;
+#ifdef CONFIG_64BIT
+	case 64:
+		sys_write64(value, addr);
+		break;
+#endif /* CONFIG_64BIT */
 	default:
 		shell_fprintf(sh, SHELL_NORMAL, "Incorrect data width\n");
 		err = -EINVAL;
@@ -310,7 +336,7 @@ static int memory_write(const struct shell *sh, mem_addr_t addr, uint8_t width, 
 static int cmd_devmem(const struct shell *sh, size_t argc, char **argv)
 {
 	mem_addr_t phys_addr, addr;
-	uint32_t value = 0;
+	uint64_t value = 0;
 	uint8_t width;
 
 	phys_addr = strtoul(argv[1], NULL, 16);
@@ -339,9 +365,9 @@ static int cmd_devmem(const struct shell *sh, size_t argc, char **argv)
 	 * this value at the address provided
 	 */
 
-	value = strtoul(argv[3], NULL, 16);
+	value = (uint64_t)strtoull(argv[3], NULL, 16);
 
-	shell_fprintf(sh, SHELL_NORMAL, "Writing value 0x%x\n", value);
+	shell_fprintf(sh, SHELL_NORMAL, "Writing value 0x%llx\n", value);
 
 	return memory_write(sh, addr, width, value);
 }

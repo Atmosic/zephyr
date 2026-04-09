@@ -9,7 +9,7 @@ config CPU_CORTEX_A
 	select HAS_FLASH_LOAD_OFFSET
 	select SCHED_IPI_SUPPORTED if SMP
 	select CPU_HAS_FPU
-	select ARCH_HAS_SINGLE_THREAD_SUPPORT
+	select ARCH_HAS_SINGLE_THREAD_SUPPORT if !SMP
 	select CPU_HAS_DCACHE
 	select CPU_HAS_ICACHE
 	imply FPU
@@ -71,6 +71,13 @@ config CPU_CORTEX_A76_A55
 	select ARMV8_A
 	help
 	  This option signifies the use of a Cortex-A76 and A55 big little CPU cluster
+
+config CPU_CORTEX_A78
+	bool
+	select CPU_CORTEX_A
+	select ARMV8_A
+	help
+	  This option signifies the use of a Cortex-A78 CPU
 
 config CPU_CORTEX_R82
 	bool
