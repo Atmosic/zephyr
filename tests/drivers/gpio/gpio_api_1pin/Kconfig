@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+
+source "Kconfig.zephyr"
+
+config TEST_GPIO_MAX_SINGLE_ENDED_RISE_FALL_TIME_MS
+	int "Maximum rise/fall time for single-ended GPIO signals in milliseconds"
+	default 100
+	help
+	  Maximum time in milliseconds to wait for a single-ended GPIO signal
+	  to rise or fall. This is used in timing-sensitive tests.
+
+config TEST_GPIO_PIN_TOGGLE_VISUAL_DELAY_MS
+	int "Delay between LED toggles in visual test in milliseconds"
+	default 2000
+	help
+	  Delay in milliseconds between LED toggles in the visual pin toggle test.
+	  This controls how long the LED stays in each state during the test.
+
