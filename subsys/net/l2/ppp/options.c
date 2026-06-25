@@ -8,6 +8,7 @@
 LOG_MODULE_DECLARE(net_l2_ppp, CONFIG_NET_L2_PPP_LOG_LEVEL);
 
 #include <zephyr/net/net_core.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/net_pkt.h>
 
 #include <zephyr/net/ppp.h>
@@ -250,7 +251,7 @@ struct net_pkt *ppp_my_options_add(struct ppp_fsm *fsm, size_t packet_len)
 	int err;
 
 	pkt = net_pkt_alloc_with_buffer(ppp_fsm_iface(fsm), packet_len,
-					AF_UNSPEC, 0, PPP_BUF_ALLOC_TIMEOUT);
+					NET_AF_UNSPEC, 0, PPP_BUF_ALLOC_TIMEOUT);
 	if (!pkt) {
 		return NULL;
 	}

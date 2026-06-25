@@ -51,12 +51,19 @@ struct net_icmp_ping_params;
  * @param ip_hdr IP header of the packet.
  * @param icmp_hdr ICMP header of the packet.
  * @param user_data A valid pointer to user data or NULL
+ *
+ * @retval NET_OK The packet was handled successfully and no further
+ *         handlers will be called.
+ * @retval NET_CONTINUE The packet was not handled by this handler
+ *         and should be passed to the next one.
+ * @retval NET_DROP The packet should be dropped and no further handlers
+ *         will be called.
  */
-typedef int (*net_icmp_handler_t)(struct net_icmp_ctx *ctx,
-				  struct net_pkt *pkt,
-				  struct net_icmp_ip_hdr *ip_hdr,
-				  struct net_icmp_hdr *icmp_hdr,
-				  void *user_data);
+typedef enum net_verdict (*net_icmp_handler_t)(struct net_icmp_ctx *ctx,
+					       struct net_pkt *pkt,
+					       struct net_icmp_ip_hdr *ip_hdr,
+					       struct net_icmp_hdr *icmp_hdr,
+					       void *user_data);
 
 /**
  * @typedef net_icmp_offload_ping_handler_t
@@ -76,7 +83,7 @@ typedef int (*net_icmp_handler_t)(struct net_icmp_ctx *ctx,
  */
 typedef int (*net_icmp_offload_ping_handler_t)(struct net_icmp_ctx *ctx,
 					       struct net_if *iface,
-					       struct sockaddr *dst,
+					       struct net_sockaddr *dst,
 					       struct net_icmp_ping_params *params,
 					       void *user_data);
 
@@ -118,8 +125,8 @@ struct net_icmp_ip_hdr {
 		struct net_ipv6_hdr *ipv6;
 	};
 
-	/** Is the header IPv4 or IPv6 one. Value of either AF_INET or AF_INET6 */
-	sa_family_t family;
+	/** Is the header IPv4 or IPv6 one. Value of either NET_AF_INET or NET_AF_INET6 */
+	net_sa_family_t family;
 };
 
 /**
@@ -194,7 +201,7 @@ int net_icmp_cleanup_ctx(struct net_icmp_ctx *ctx);
  */
 int net_icmp_send_echo_request(struct net_icmp_ctx *ctx,
 			       struct net_if *iface,
-			       struct sockaddr *dst,
+			       struct net_sockaddr *dst,
 			       struct net_icmp_ping_params *params,
 			       void *user_data);
 
@@ -218,7 +225,7 @@ int net_icmp_send_echo_request(struct net_icmp_ctx *ctx,
  */
 int net_icmp_send_echo_request_no_wait(struct net_icmp_ctx *ctx,
 				       struct net_if *iface,
-				       struct sockaddr *dst,
+				       struct net_sockaddr *dst,
 				       struct net_icmp_ping_params *params,
 				       void *user_data);
 

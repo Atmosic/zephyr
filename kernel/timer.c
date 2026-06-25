@@ -19,6 +19,50 @@ static struct k_spinlock lock;
 static struct k_obj_type obj_type_timer;
 #endif /* CONFIG_OBJ_CORE_TIMER */
 
+#if defined(CONFIG_TIMER_OBSERVER)
+static inline void z_timer_observer_on_init(struct k_timer *timer)
+{
+	STRUCT_SECTION_FOREACH(k_timer_observer, obs) {
+		if (obs->on_init != NULL) {
+			obs->on_init(timer);
+		}
+	}
+}
+
+static inline void z_timer_observer_on_start(struct k_timer *timer, k_timeout_t duration,
+					     k_timeout_t period)
+{
+	STRUCT_SECTION_FOREACH(k_timer_observer, obs) {
+		if (obs->on_start != NULL) {
+			obs->on_start(timer, duration, period);
+		}
+	}
+}
+
+static inline void z_timer_observer_on_stop(struct k_timer *timer)
+{
+	STRUCT_SECTION_FOREACH(k_timer_observer, obs) {
+		if (obs->on_stop != NULL) {
+			obs->on_stop(timer);
+		}
+	}
+}
+
+static inline void z_timer_observer_on_expiry(struct k_timer *timer)
+{
+	STRUCT_SECTION_FOREACH(k_timer_observer, obs) {
+		if (obs->on_expiry != NULL) {
+			obs->on_expiry(timer);
+		}
+	}
+}
+#else
+#define z_timer_observer_on_init(timer) (void)0
+#define z_timer_observer_on_start(timer, duration, period) (void)0
+#define z_timer_observer_on_stop(timer) (void)0
+#define z_timer_observer_on_expiry(timer) (void)0
+#endif /* CONFIG_TIMER_OBSERVER */
+
 /**
  * @brief Handle expiration of a kernel timer object.
  *
@@ -30,20 +74,7 @@ void z_timer_expiration_handler(struct _timeout *t)
 	struct k_thread *thread;
 	k_spinlock_key_t key = k_spin_lock(&lock);
 
-	/* In sys_clock_announce(), when a timeout expires, it is first removed
-	 * from the timeout list, then its expiration handler is called (with
-	 * unlocked interrupts). For kernel timers, the expiration handler is
-	 * this function. Usually, the timeout structure related to the timer
-	 * that is handled here will not be linked to the timeout list at this
-	 * point. But it may happen that before this function is executed and
-	 * interrupts are locked again, a given timer gets restarted from an
-	 * interrupt context that has a priority higher than the system timer
-	 * interrupt. Then, the timeout structure for this timer will turn out
-	 * to be linked to the timeout list. And in such case, since the timer
-	 * was restarted, its expiration handler should not be executed then,
-	 * so the function exits immediately.
-	 */
-	if (sys_dnode_is_linked(&t->node)) {
+	if (z_is_timeout_handler_canceled(t)) {
 		k_spin_unlock(&lock, key);
 		return;
 	}
@@ -80,11 +111,21 @@ void z_timer_expiration_handler(struct _timeout *t)
 	/* update timer's status */
 	timer->status += 1U;
 
+	z_timer_observer_on_expiry(timer);
+
 	/* invoke timer expiry function */
 	if (timer->expiry_fn != NULL) {
+		k_timer_expiry_t expiry_fn = timer->expiry_fn;
+
 		/* Unlock for user handler. */
 		k_spin_unlock(&lock, key);
-		timer->expiry_fn(timer);
+
+		SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_timer, expiry, timer);
+
+		expiry_fn(timer);
+
+		SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_timer, expiry, timer);
+
 		key = k_spin_lock(&lock);
 	}
 
@@ -133,6 +174,8 @@ void k_timer_init(struct k_timer *timer,
 #ifdef CONFIG_OBJ_CORE_TIMER
 	k_obj_core_init_and_link(K_OBJ_CORE(timer), &obj_type_timer);
 #endif /* CONFIG_OBJ_CORE_TIMER */
+
+	z_timer_observer_on_init(timer);
 }
 
 
@@ -182,6 +225,8 @@ void z_impl_k_timer_start(struct k_timer *timer, k_timeout_t duration,
 	z_add_timeout(&timer->timeout, z_timer_expiration_handler,
 		     duration);
 
+	z_timer_observer_on_start(timer, duration, period);
+
 	k_spin_unlock(&lock, key);
 }
 
@@ -200,23 +245,41 @@ void z_impl_k_timer_stop(struct k_timer *timer)
 {
 	SYS_PORT_TRACING_OBJ_FUNC(k_timer, stop, timer);
 
+	k_spinlock_key_t key = k_spin_lock(&lock);
+
 	bool inactive = (z_abort_timeout(&timer->timeout) != 0);
 
 	if (inactive) {
+		k_spin_unlock(&lock, key);
 		return;
 	}
 
+	z_timer_observer_on_stop(timer);
+
 	if (timer->stop_fn != NULL) {
+		SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_timer, stop_fn_expiry, timer);
+		k_spin_unlock(&lock, key);
+
 		timer->stop_fn(timer);
+
+		key = k_spin_lock(&lock);
+
+		SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_timer, stop_fn_expiry, timer);
 	}
 
-	if (IS_ENABLED(CONFIG_MULTITHREADING)) {
-		struct k_thread *pending_thread = z_unpend1_no_timeout(&timer->wait_q);
+	if (!IS_ENABLED(CONFIG_MULTITHREADING)) {
+		k_spin_unlock(&lock, key);
+		return;
 
-		if (pending_thread != NULL) {
-			z_ready_thread(pending_thread);
-			z_reschedule_unlocked();
-		}
+	}
+
+	struct k_thread *pending_thread = z_unpend1_no_timeout(&timer->wait_q);
+
+	if (pending_thread != NULL) {
+		z_ready_thread(pending_thread);
+		z_reschedule(&lock, key);
+	} else {
+		k_spin_unlock(&lock, key);
 	}
 }
 
@@ -258,18 +321,20 @@ uint32_t z_impl_k_timer_status_sync(struct k_timer *timer)
 		uint32_t result;
 
 		do {
-			k_spinlock_key_t key = k_spin_lock(&lock);
+			unsigned int key = irq_lock();
 
 			if (!z_is_inactive_timeout(&timer->timeout)) {
 				result = *(volatile uint32_t *)&timer->status;
 				timer->status = 0U;
-				k_spin_unlock(&lock, key);
 				if (result > 0) {
+					irq_unlock(key);
 					break;
+				} else {
+					k_cpu_atomic_idle(key);
 				}
 			} else {
 				result = timer->status;
-				k_spin_unlock(&lock, key);
+				irq_unlock(key);
 				break;
 			}
 		} while (true);

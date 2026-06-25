@@ -352,6 +352,16 @@ struct btp_gap_pair_v2_cmd {
 #define BTP_GAP_BIG_CREATE_SYNC_ENC_DISABLE	0x00
 #define BTP_GAP_BIG_CREATE_SYNC_ENC_ENABLE	0x01
 
+#define BTP_GAP_SEND_SUBRATE_REQUEST	0x2b
+struct btp_gap_send_subrate_request_cmd {
+	bt_addr_le_t address;
+	uint16_t subrate_min;
+	uint16_t subrate_max;
+	uint16_t max_latency;
+	uint16_t continuation_number;
+	uint16_t supervision_timeout;
+} __packed;
+
 #define BTP_GAP_BIG_CREATE_SYNC			0x2c
 struct btp_gap_big_create_sync_cmd {
 	bt_addr_le_t address;
@@ -619,7 +629,12 @@ struct btp_gap_periodic_biginfo_ev {
 	uint8_t encryption;
 } __packed;
 
-#if defined(CONFIG_BT_EXT_ADV)
+#define BTP_GAP_EV_PEER_CAR_RECEIVED 0x98
+struct btp_gap_peer_car_status_ev {
+	bt_addr_le_t address;
+	uint8_t car;
+} __packed;
+
 struct bt_le_per_adv_param;
 struct bt_le_per_adv_sync_param;
 struct bt_le_adv_param;
@@ -640,4 +655,3 @@ int tester_gap_padv_start(struct bt_le_ext_adv *ext_adv);
 int tester_gap_padv_stop(struct bt_le_ext_adv *ext_adv);
 int tester_gap_padv_create_sync(struct bt_le_per_adv_sync_param *create_params);
 int tester_gap_padv_stop_sync(void);
-#endif /* defined(CONFIG_BT_EXT_ADV) */

@@ -73,12 +73,6 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #define OUTPUT_CONTEXT_IN_USE_MARK (enum coap_block_size)(-1)
 
-#ifdef CONFIG_ZTEST
-#define STATIC
-#else
-#define STATIC static
-#endif
-
 /* Resources */
 
 /* Shared set of in-flight LwM2M messages */
@@ -103,8 +97,8 @@ sys_slist_t *lwm2m_engine_obj_inst_list(void);
 
 static int handle_request(struct coap_packet *request, struct lwm2m_message *msg);
 #if defined(CONFIG_LWM2M_COAP_BLOCK_TRANSFER)
-STATIC int build_msg_block_for_send(struct lwm2m_message *msg, uint16_t block_num,
-				    enum coap_block_size block_size);
+ZTESTABLE_STATIC int build_msg_block_for_send(struct lwm2m_message *msg, uint16_t block_num,
+					      enum coap_block_size block_size);
 struct coap_block_context *lwm2m_output_block_context(void);
 #endif
 
@@ -213,7 +207,7 @@ static void free_block_ctx(struct lwm2m_block_context *ctx)
 }
 
 #if defined(CONFIG_LWM2M_COAP_BLOCK_TRANSFER)
-STATIC int request_output_block_ctx(struct coap_block_context **ctx)
+ZTESTABLE_STATIC int request_output_block_ctx(struct coap_block_context **ctx)
 {
 	int ret = -ENOMEM;
 	int i;
@@ -234,7 +228,7 @@ STATIC int request_output_block_ctx(struct coap_block_context **ctx)
 	return ret;
 }
 
-STATIC void release_output_block_ctx(struct coap_block_context **ctx)
+ZTESTABLE_STATIC void release_output_block_ctx(struct coap_block_context **ctx)
 {
 	int i;
 
@@ -280,8 +274,8 @@ static inline void release_body_encode_buffer(uint8_t **buffer)
 	}
 }
 
-STATIC int build_msg_block_for_send(struct lwm2m_message *msg, uint16_t block_num,
-				    enum coap_block_size block_size)
+ZTESTABLE_STATIC int build_msg_block_for_send(struct lwm2m_message *msg, uint16_t block_num,
+					      enum coap_block_size block_size)
 {
 	int ret;
 	uint16_t payload_size;
@@ -390,7 +384,7 @@ STATIC int build_msg_block_for_send(struct lwm2m_message *msg, uint16_t block_nu
 	return 0;
 }
 
-STATIC int prepare_msg_for_send(struct lwm2m_message *msg)
+ZTESTABLE_STATIC int prepare_msg_for_send(struct lwm2m_message *msg)
 {
 	int ret;
 	/* save the big buffer for later use (splitting blocks) */
@@ -2740,7 +2734,7 @@ static void handle_ongoing_block2_tx(struct lwm2m_message *msg, struct coap_pack
 }
 
 void lwm2m_udp_receive(struct lwm2m_ctx *client_ctx, uint8_t *buf, uint16_t buf_len,
-		       struct sockaddr *from_addr)
+		       struct net_sockaddr *from_addr)
 {
 	struct lwm2m_message *msg = NULL;
 	struct coap_pending *pending;
@@ -3007,7 +3001,7 @@ static void notify_cached_pending_data_trig(struct observe_node *obs)
 }
 
 static int notify_message_reply_cb(const struct coap_packet *response, struct coap_reply *reply,
-				   const struct sockaddr *from)
+				   const struct net_sockaddr *from)
 {
 	int ret = 0;
 	uint8_t type, code;
@@ -3386,28 +3380,28 @@ int lwm2m_parse_peerinfo(char *url, struct lwm2m_ctx *client_ctx, bool is_firmwa
 	(void)memset(&client_ctx->remote_addr, 0, sizeof(client_ctx->remote_addr));
 
 	/* try and set IP address directly */
-	client_ctx->remote_addr.sa_family = AF_INET6;
-	ret = net_addr_pton(AF_INET6, url + off,
-			    &((struct sockaddr_in6 *)&client_ctx->remote_addr)->sin6_addr);
-	/* Try to parse again using AF_INET */
+	client_ctx->remote_addr.sa_family = NET_AF_INET6;
+	ret = net_addr_pton(NET_AF_INET6, url + off,
+			    &((struct net_sockaddr_in6 *)&client_ctx->remote_addr)->sin6_addr);
+	/* Try to parse again using NET_AF_INET */
 	if (ret < 0) {
-		client_ctx->remote_addr.sa_family = AF_INET;
-		ret = net_addr_pton(AF_INET, url + off,
-				    &((struct sockaddr_in *)&client_ctx->remote_addr)->sin_addr);
+		client_ctx->remote_addr.sa_family = NET_AF_INET;
+		ret = net_addr_pton(NET_AF_INET, url + off,
+				&((struct net_sockaddr_in *)&client_ctx->remote_addr)->sin_addr);
 	}
 
 	if (ret < 0) {
 #if defined(CONFIG_LWM2M_DNS_SUPPORT)
 #if defined(CONFIG_NET_IPV6) && defined(CONFIG_NET_IPV4)
-		hints.ai_family = AF_UNSPEC;
+		hints.ai_family = NET_AF_UNSPEC;
 #elif defined(CONFIG_NET_IPV6)
-		hints.ai_family = AF_INET6;
+		hints.ai_family = NET_AF_INET6;
 #elif defined(CONFIG_NET_IPV4)
-		hints.ai_family = AF_INET;
+		hints.ai_family = NET_AF_INET;
 #else
-		hints.ai_family = AF_UNSPEC;
+		hints.ai_family = NET_AF_UNSPEC;
 #endif /* defined(CONFIG_NET_IPV6) && defined(CONFIG_NET_IPV4) */
-		hints.ai_socktype = SOCK_DGRAM;
+		hints.ai_socktype = NET_SOCK_DGRAM;
 		ret = zsock_getaddrinfo(url + off, NULL, &hints, &res);
 		if (ret != 0) {
 			LOG_ERR("Unable to resolve address");
@@ -3431,10 +3425,10 @@ int lwm2m_parse_peerinfo(char *url, struct lwm2m_ctx *client_ctx, bool is_firmwa
 	}
 
 	/* set port */
-	if (client_ctx->remote_addr.sa_family == AF_INET6) {
-		net_sin6(&client_ctx->remote_addr)->sin6_port = htons(parser.port);
-	} else if (client_ctx->remote_addr.sa_family == AF_INET) {
-		net_sin(&client_ctx->remote_addr)->sin_port = htons(parser.port);
+	if (client_ctx->remote_addr.sa_family == NET_AF_INET6) {
+		net_sin6(&client_ctx->remote_addr)->sin6_port = net_htons(parser.port);
+	} else if (client_ctx->remote_addr.sa_family == NET_AF_INET) {
+		net_sin(&client_ctx->remote_addr)->sin_port = net_htons(parser.port);
 	} else {
 		ret = -EPROTONOSUPPORT;
 	}
@@ -3478,7 +3472,7 @@ int do_composite_read_op_for_parsed_list(struct lwm2m_message *msg, uint16_t con
 
 #if defined(CONFIG_LWM2M_VERSION_1_1)
 static int do_send_reply_cb(const struct coap_packet *response, struct coap_reply *reply,
-			    const struct sockaddr *from)
+			    const struct net_sockaddr *from)
 {
 	uint8_t code;
 	struct lwm2m_message *msg = (struct lwm2m_message *)reply->user_data;

@@ -2,6 +2,7 @@
  * Copyright (c) 2018-2021 mcumgr authors
  *
  * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 Atmosic
  */
 
 #include <zephyr/kernel.h>
@@ -32,6 +33,16 @@ LOG_MODULE_DECLARE(mcumgr_img_grp, CONFIG_MCUMGR_GRP_IMG_LOG_LEVEL);
 #define SLOT3_PARTITION		slot3_partition
 #define SLOT4_PARTITION		slot4_partition
 #define SLOT5_PARTITION		slot5_partition
+#define SLOT6_PARTITION		slot6_partition
+#define SLOT7_PARTITION		slot7_partition
+#define SLOT8_PARTITION		slot8_partition
+#define SLOT9_PARTITION		slot9_partition
+#define SLOT10_PARTITION	slot10_partition
+#define SLOT11_PARTITION	slot11_partition
+#define SLOT12_PARTITION	slot12_partition
+#define SLOT13_PARTITION	slot13_partition
+#define SLOT14_PARTITION	slot14_partition
+#define SLOT15_PARTITION	slot15_partition
 
 /* SLOT0_PARTITION and SLOT1_PARTITION are not checked because
  * there is not conditional code that depends on them. If they do
@@ -40,14 +51,44 @@ LOG_MODULE_DECLARE(mcumgr_img_grp, CONFIG_MCUMGR_GRP_IMG_LOG_LEVEL);
  * properly.
  */
 #if CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER >= 2
-BUILD_ASSERT(FIXED_PARTITION_EXISTS(SLOT2_PARTITION) &&
-	     FIXED_PARTITION_EXISTS(SLOT3_PARTITION),
+BUILD_ASSERT(PARTITION_EXISTS(SLOT2_PARTITION) &&
+	     PARTITION_EXISTS(SLOT3_PARTITION),
 	     "Missing partitions?");
 #endif
 
-#if CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER == 3
-BUILD_ASSERT(FIXED_PARTITION_EXISTS(SLOT4_PARTITION) &&
-	     FIXED_PARTITION_EXISTS(SLOT5_PARTITION),
+#if CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER >= 3
+BUILD_ASSERT(PARTITION_EXISTS(SLOT4_PARTITION) &&
+	     PARTITION_EXISTS(SLOT5_PARTITION),
+	     "Missing partitions?");
+#endif
+
+#if CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER >= 4
+BUILD_ASSERT(PARTITION_EXISTS(SLOT6_PARTITION) &&
+	     PARTITION_EXISTS(SLOT7_PARTITION),
+	     "Missing partitions?");
+#endif
+
+#if CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER >= 5
+BUILD_ASSERT(PARTITION_EXISTS(SLOT8_PARTITION) &&
+	     PARTITION_EXISTS(SLOT9_PARTITION),
+	     "Missing partitions?");
+#endif
+
+#if CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER >= 6
+BUILD_ASSERT(PARTITION_EXISTS(SLOT10_PARTITION) &&
+	     PARTITION_EXISTS(SLOT11_PARTITION),
+	     "Missing partitions?");
+#endif
+
+#if CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER >= 7
+BUILD_ASSERT(PARTITION_EXISTS(SLOT12_PARTITION) &&
+	     PARTITION_EXISTS(SLOT13_PARTITION),
+	     "Missing partitions?");
+#endif
+
+#if CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER >= 8
+BUILD_ASSERT(PARTITION_EXISTS(SLOT14_PARTITION) &&
+	     PARTITION_EXISTS(SLOT15_PARTITION),
 	     "Missing partitions?");
 #endif
 
@@ -137,37 +178,98 @@ img_mgmt_flash_area_id(int slot)
 
 	switch (slot) {
 	case 0:
-		fa_id = FIXED_PARTITION_ID(SLOT0_PARTITION);
+		fa_id = PARTITION_ID(SLOT0_PARTITION);
 		break;
 
 	case 1:
-		fa_id = FIXED_PARTITION_ID(SLOT1_PARTITION);
+		fa_id = PARTITION_ID(SLOT1_PARTITION);
 		break;
 
 #if !defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_FIRMWARE_UPDATER)
-#if FIXED_PARTITION_EXISTS(SLOT2_PARTITION)
+#if PARTITION_EXISTS(SLOT2_PARTITION)
 	case 2:
-		fa_id = FIXED_PARTITION_ID(SLOT2_PARTITION);
+		fa_id = PARTITION_ID(SLOT2_PARTITION);
 		break;
 #endif
 
-#if FIXED_PARTITION_EXISTS(SLOT3_PARTITION)
+#if PARTITION_EXISTS(SLOT3_PARTITION)
 	case 3:
-		fa_id = FIXED_PARTITION_ID(SLOT3_PARTITION);
+		fa_id = PARTITION_ID(SLOT3_PARTITION);
 		break;
 #endif
 
-#if FIXED_PARTITION_EXISTS(SLOT4_PARTITION)
+#if PARTITION_EXISTS(SLOT4_PARTITION)
 	case 4:
-		fa_id = FIXED_PARTITION_ID(SLOT4_PARTITION);
+		fa_id = PARTITION_ID(SLOT4_PARTITION);
 		break;
 #endif
 
-#if FIXED_PARTITION_EXISTS(SLOT5_PARTITION)
+#if PARTITION_EXISTS(SLOT5_PARTITION)
 	case 5:
-		fa_id = FIXED_PARTITION_ID(SLOT5_PARTITION);
+		fa_id = PARTITION_ID(SLOT5_PARTITION);
 		break;
 #endif
+
+#if PARTITION_EXISTS(SLOT6_PARTITION)
+	case 6:
+		fa_id = PARTITION_ID(SLOT6_PARTITION);
+		break;
+#endif
+
+#if PARTITION_EXISTS(SLOT7_PARTITION)
+	case 7:
+		fa_id = PARTITION_ID(SLOT7_PARTITION);
+		break;
+#endif
+
+#if PARTITION_EXISTS(SLOT8_PARTITION)
+	case 8:
+		fa_id = PARTITION_ID(SLOT8_PARTITION);
+		break;
+#endif
+
+#if PARTITION_EXISTS(SLOT9_PARTITION)
+	case 9:
+		fa_id = PARTITION_ID(SLOT9_PARTITION);
+		break;
+#endif
+
+#if PARTITION_EXISTS(SLOT10_PARTITION)
+	case 10:
+		fa_id = PARTITION_ID(SLOT10_PARTITION);
+		break;
+#endif
+
+#if PARTITION_EXISTS(SLOT11_PARTITION)
+	case 11:
+		fa_id = PARTITION_ID(SLOT11_PARTITION);
+		break;
+#endif
+
+#if PARTITION_EXISTS(SLOT12_PARTITION)
+	case 12:
+		fa_id = PARTITION_ID(SLOT12_PARTITION);
+		break;
+#endif
+
+#if PARTITION_EXISTS(SLOT13_PARTITION)
+	case 13:
+		fa_id = PARTITION_ID(SLOT13_PARTITION);
+		break;
+#endif
+
+#if PARTITION_EXISTS(SLOT14_PARTITION)
+	case 14:
+		fa_id = PARTITION_ID(SLOT14_PARTITION);
+		break;
+#endif
+
+#if PARTITION_EXISTS(SLOT15_PARTITION)
+	case 15:
+		fa_id = PARTITION_ID(SLOT15_PARTITION);
+		break;
+#endif
+
 #endif /* !defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_FIRMWARE_UPDATER) */
 
 	default:
@@ -468,6 +570,38 @@ int img_mgmt_erase_image_data(unsigned int off, unsigned int num_bytes)
 		goto end_fa;
 	}
 
+#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_USING_OFFSET)
+	/* In SWAP_USING_OFFSET mode the image is always uploaded starting at sector 1
+	 * of the secondary slot (sector 0 is reserved for a secondary header).
+	 * We must use sector_1_size as the erase start offset regardless of what
+	 * boot_get_image_start_offset() returns (it may return 0 when an old swapped
+	 * image occupies sector 0, which would produce the wrong erase range).
+	 * Adjust page_offset accordingly so erase_size covers the full upload region.
+	 */
+	{
+		uint32_t num_sectors = SWAP_USING_OFFSET_SECTOR_UPDATE_BEGIN;
+		struct flash_sector sector_data = {0};
+		size_t sector1_off = 0;
+		int sector_rc;
+
+		sector_rc = flash_area_sectors(fa, &num_sectors, &sector_data);
+		if ((sector_rc == 0 || sector_rc == -ENOMEM) &&
+		    num_sectors == SWAP_USING_OFFSET_SECTOR_UPDATE_BEGIN) {
+			sector1_off = sector_data.fs_size;
+		}
+
+		page_offset = fa->fa_off + sector1_off + num_bytes - 1;
+		rc = flash_get_page_info_by_offs(dev, page_offset, &page);
+		if (rc != 0) {
+			LOG_ERR("bad offset (0x%lx)", (long)page_offset);
+			rc = IMG_MGMT_ERR_INVALID_PAGE_OFFSET;
+			goto end_fa;
+		}
+
+		erase_size = page.start_offset + page.size - fa->fa_off - sector1_off;
+		rc = flash_area_flatten(fa, sector1_off, erase_size);
+	}
+#else
 	page_offset = fa->fa_off + num_bytes - 1;
 	rc = flash_get_page_info_by_offs(dev, page_offset, &page);
 	if (rc != 0) {
@@ -479,6 +613,7 @@ int img_mgmt_erase_image_data(unsigned int off, unsigned int num_bytes)
 	erase_size = page.start_offset + page.size - fa->fa_off;
 	rc = flash_area_flatten(fa, boot_get_image_start_offset(g_img_mgmt_state.area_id),
 				erase_size);
+#endif
 
 	if (rc != 0) {
 		LOG_ERR("image slot erase of 0x%zx bytes failed (err %d)", erase_size,

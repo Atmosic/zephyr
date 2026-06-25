@@ -95,12 +95,6 @@
 			clocks = <&lfosc>;
 		};
 
-		hsclk: hsclk {
-			#clock-cells = <1>;
-			compatible = "ti,mspm0-clk";
-			clocks = <&sysosc>;
-		};
-
 		ulpclk: ulpclk {
 			#clock-cells = <1>;
 			compatible = "ti,mspm0-clk";
@@ -119,6 +113,12 @@
 			compatible = "ti,mspm0-clk";
 			clock-frequency = <DT_FREQ_M(4)>;
 			clocks = <&sysosc>;
+			status = "disabled";
+		};
+
+		canclk: canclk {
+			#clock-cells = <1>;
+			compatible = "ti,mspm0-clk";
 			status = "disabled";
 		};
 	};

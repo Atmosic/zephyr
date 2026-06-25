@@ -59,17 +59,21 @@ Please refer to `kit_pse84_eval User Manual Website`_ for more details.
 Programming and Debugging
 *************************
 
+.. NOTE::
+   `BOOT SW` on the board **MUST** be set to `ON` for any sample applications to work. On some
+   boards this switch may be under the attached LCD screen.
+
 .. zephyr:board-supported-runners::
 
 The KIT-PSE84-EVAL includes an onboard programmer/debugger (`KitProg3`_) to provide debugging,
 flash programming, and serial communication over USB. Flash and debug commands use OpenOCD and
 require a custom Infineon OpenOCD version, that supports KitProg3, to be installed.
 
-Please refer to the `ModusToolbox™ software installation guide`_ to install the
-Infineon OpenOCD and Edge Protect Security Suite (edgeprotecttools).
+Please refer to the `ModusToolbox™ software installation guide`_ to install Infineon OpenOCD.
 
 Flashing
 ========
+
 Applications for the ``kit_pse84_eval/pse846gps2dbzc4a/m33`` board target can be
 built, flashed, and debugged in the usual way. See
 :ref:`build_an_application` and :ref:`application_run` for more details on
@@ -80,9 +84,13 @@ board target need to be built using sysbuild to include the required application
 
 Enter the following command to compile ``hello_world`` for the CM55 core:
 
-.. code-block:: console
+.. zephyr-app-commands::
+   :app: samples/hello_world
+   :board: kit_pse84_eval/pse846gps2dbzc4a/m55
+   :goals: build flash
+   :west-args: --sysbuild
+   :gen-args: -DOPENOCD=path/to/infineon/openocd/bin/openocd
 
-   west build -p -b kit_pse84_eval/pse846gps2dbzc4a/m55 .\samples\hello_world --sysbuild
 
 Debugging
 =========
@@ -98,11 +106,6 @@ to set the CMake variable ``OPENOCD``.
             # Run west config once to set permanent CMake argument
             west config build.cmake-args -- -DOPENOCD=path/to/infineon/openocd/bin/openocd.exe
 
-            # Do a pristine build once after setting CMake argument
-            west build -b kit_pse84_eval/pse846gps2dbzc4a/m33 -p always samples/basic/blinky
-            west flash
-            west debug
-
       .. group-tab:: Linux
 
          .. code-block:: shell
@@ -110,11 +113,10 @@ to set the CMake variable ``OPENOCD``.
             # Run west config once to set permanent CMake argument
             west config build.cmake-args -- -DOPENOCD=path/to/infineon/openocd/bin/openocd
 
-            # Do a pristine build once after setting CMake argument
-            west build -b kit_pse84_eval/pse846gps2dbzc4a/m33 -p always samples/basic/blinky
-
-            west flash
-            west debug
+.. zephyr-app-commands::
+   :app: samples/basic/blinky
+   :board: kit_pse84_eval/pse846gps2dbzc4a/m33
+   :goals: debug
 
 Once the gdb console starts after executing the west debug command, you may now set breakpoints and
 perform other standard GDB debugging on the PSOC E84 CM33 core.

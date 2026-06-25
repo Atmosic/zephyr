@@ -12,4 +12,7 @@ supported:
   - pwm
   - i2s
   - crypto
+  - retained_mem
+  - netif:wifi
+  - netif:eth
 vendor: espressif

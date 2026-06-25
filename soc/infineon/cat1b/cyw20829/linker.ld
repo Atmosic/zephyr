@@ -120,10 +120,7 @@ SECTIONS
 	{
 
 #include <zephyr/linker/rel-sections.ld>
-
-#ifdef CONFIG_LLEXT
 #include <zephyr/linker/llext-sections.ld>
-#endif
 
 	/*
 	 * .plt and .iplt are here according to 'arm-zephyr-elf-ld --verbose',
@@ -392,6 +389,12 @@ SECTIONS
 		*(.noinit)
 		*(".noinit.*")
 	*(".kernel_noinit.*")
+
+#ifdef CONFIG_LLEXT
+	*(.llext_heap)
+	*(.llext_ext_heap)
+	*(.llext_metadata_heap)
+#endif /* CONFIG_LLEXT */
 
 /* Located in generated directory. This file is populated by the
  * zephyr_linker_sources() Cmake function.

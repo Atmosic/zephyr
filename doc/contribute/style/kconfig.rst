@@ -64,7 +64,13 @@ Naming Conventions
      because one can filter by a scope keyword.
 
 * When the enabling symbol is dependent on a devicetree node, consider
-  depending on the automatically created ``DT_HAS_<node>_ENABLED`` symbol.
+  depending on the :ref:`automatically created <auto-dts-kconfig>`
+  ``DT_HAS_<node>_ENABLED`` symbol.
+
+* When building complex expressions based on devicetree node compatibles,
+  use the :ref:`automatically defined <auto-dts-kconfig>`
+  :samp:`DT_COMPAT_{VND_DEVICE}` instead of defining a variable equal to
+  :samp:`{vnd,device}` manually.
 
 The specific formats by subtree:
 
@@ -77,6 +83,20 @@ The specific formats by subtree:
 * **Architecture (/arch)**: Many symbols are shared across architectures. Before
   creating new symbols, check if similar ones already exist in other
   architectures.
+
+* **Samples (/samples)**: Use ``SAMPLE_`` for symbols, this is to prevent conflicts with external
+  modules.
+
+* **Tests (/tests)**: Use ``TEST_`` for symbols, this is to prevent conflicts with external
+  modules.
+
+* **Boards (/boards)**: Use ``BOARD_`` for symbols.
+
+* **SoCs (/soc)**: Use the most appropriate base for symbols: ``SOC_FAMILY_{SoC family}_`` if it
+  relates to a whole SoC family, ``SOC_SERIES_{SoC series}_`` if it relates to a whole SoC series,
+  or ``SOC_{SoC}_`` if it relates to a specific SoC - see :ref:`soc_porting_guide` for details on
+  these terms and where they must originate from. This is to prevent conflicts with other vendors
+  and external modules.
 
 Examples
 ========
@@ -94,6 +114,24 @@ Examples
 **Sensor Examples:**
 
 .. literalinclude:: kconfig_example_sensor.txt
+   :language: kconfig
+   :start-after: start-after-here
+
+**Sample examples:**
+
+.. literalinclude:: kconfig_example_sample.txt
+   :language: kconfig
+   :start-after: start-after-here
+
+**Test examples:**
+
+.. literalinclude:: kconfig_example_test.txt
+   :language: kconfig
+   :start-after: start-after-here
+
+**SoC examples:**
+
+.. literalinclude:: kconfig_example_soc.txt
    :language: kconfig
    :start-after: start-after-here
 

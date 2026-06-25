@@ -10,10 +10,12 @@ supported:
   - gpio
   - uart
   - watchdog
+  - dma
   - entropy
   - adc
   - octospi
   - can
   - canfd
   - netif:eth
+  - rtc
 vendor: st

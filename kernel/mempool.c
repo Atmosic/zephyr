@@ -8,6 +8,7 @@
 #include <string.h>
 #include <zephyr/sys/math_extras.h>
 #include <zephyr/sys/util.h>
+#include <kernel_internal.h>
 
 typedef void * (sys_heap_allocator_t)(struct sys_heap *heap, size_t align, size_t bytes);
 
@@ -72,9 +73,23 @@ void k_free(void *ptr)
 	}
 }
 
+/* See k_heap_free_sched_locked() */
+void k_free_sched_locked(void *ptr)
+{
+	struct k_heap **heap_ref;
+
+	if (ptr != NULL) {
+		heap_ref = ptr;
+		--heap_ref;
+		ptr = heap_ref;
+
+		k_heap_free_sched_locked(*heap_ref, ptr);
+	}
+}
+
 #if (K_HEAP_MEM_POOL_SIZE > 0)
 
-K_HEAP_DEFINE(_system_heap, K_HEAP_MEM_POOL_SIZE);
+K_HEAP_DEFINE(_system_heap, Z_HEAP_MIN_SIZE_FOR(K_HEAP_MEM_POOL_SIZE));
 #define _SYSTEM_HEAP (&_system_heap)
 
 void *k_aligned_alloc(size_t align, size_t size)

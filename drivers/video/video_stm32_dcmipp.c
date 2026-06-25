@@ -30,8 +30,10 @@
 #define HAL_DCMIPP_PARALLEL_SetConfig HAL_DCMIPP_SetParallelConfig
 #endif
 
-#if DT_HAS_COMPAT_STATUS_OKAY(st_stm32n6_dcmipp)
+#if defined(DCMIPP_SERIAL_MODE)
 #define STM32_DCMIPP_HAS_CSI
+#endif
+#if defined(DCMIPP_PIPE1) && defined(DCMIPP_PIPE2)
 #define STM32_DCMIPP_HAS_PIXEL_PIPES
 #endif
 
@@ -135,18 +137,9 @@ struct stm32_dcmipp_config {
 #define STM32_DCMIPP_WIDTH_MAX	4094
 #define STM32_DCMIPP_HEIGHT_MAX	4094
 
-#define VIDEO_FMT_IS_SEMI_PLANAR(fmt)			\
-	(((fmt)->pixelformat == VIDEO_PIX_FMT_NV12 ||	\
-	  (fmt)->pixelformat == VIDEO_PIX_FMT_NV21 ||	\
-	  (fmt)->pixelformat == VIDEO_PIX_FMT_NV16 ||	\
-	  (fmt)->pixelformat == VIDEO_PIX_FMT_NV61) ? true : false)
-
-#define VIDEO_FMT_IS_PLANAR(fmt)			\
-	(((fmt)->pixelformat == VIDEO_PIX_FMT_YUV420 ||	\
-	  (fmt)->pixelformat == VIDEO_PIX_FMT_YVU420) ? true : false)
-
 #define VIDEO_Y_PLANE_PITCH(fmt)						\
-	((VIDEO_FMT_IS_PLANAR(fmt) || VIDEO_FMT_IS_SEMI_PLANAR(fmt)) ?		\
+	((VIDEO_FMT_IS_FULL_PLANAR(fmt->pixelformat) ||				\
+	  VIDEO_FMT_IS_SEMI_PLANAR(fmt->pixelformat)) ?				\
 	 (fmt)->width : (fmt)->pitch)
 
 #define VIDEO_FMT_PLANAR_Y_PLANE_SIZE(fmt)	((fmt)->width * (fmt)->height)
@@ -175,13 +168,14 @@ static void stm32_dcmipp_set_next_buffer_addr(struct stm32_dcmipp_pipe_data *pip
 		return;
 	}
 
-	if (VIDEO_FMT_IS_SEMI_PLANAR(fmt) || VIDEO_FMT_IS_PLANAR(fmt)) {
+	if (VIDEO_FMT_IS_SEMI_PLANAR(fmt->pixelformat) ||
+	    VIDEO_FMT_IS_FULL_PLANAR(fmt->pixelformat)) {
 		/* Y plane has 8 bit per pixel, next plane is located at off + width * height */
 		plane += VIDEO_FMT_PLANAR_Y_PLANE_SIZE(fmt);
 
 		stm32_reg_write(&dcmipp->hdcmipp.Instance->P1PPM1AR1, (uint32_t)plane);
 
-		if (VIDEO_FMT_IS_PLANAR(fmt)) {
+		if (VIDEO_FMT_IS_FULL_PLANAR(fmt->pixelformat)) {
 			/* In case of YUV420 / YVU420, U plane has half width / half height */
 			plane += VIDEO_FMT_PLANAR_Y_PLANE_SIZE(fmt) / 4;
 
@@ -354,6 +348,10 @@ static int stm32_dcmipp_conf_parallel(const struct device *dev,
 	parallel_cfg.ExtendedDataMode = DCMIPP_INTERFACE_8BITS;
 	parallel_cfg.SynchroMode      = DCMIPP_SYNCHRO_HARDWARE;
 
+	/* There may be the case when HAL_DCMIPP_PARALLEL_SetConfig called second time
+	 * so reset state so it doesn't fail
+	 */
+	dcmipp->hdcmipp.State = HAL_DCMIPP_STATE_INIT;
 	hal_ret = HAL_DCMIPP_PARALLEL_SetConfig(&dcmipp->hdcmipp, &parallel_cfg);
 	if (hal_ret != HAL_OK) {
 		LOG_ERR("Failed to configure DCMIPP Parallel interface");
@@ -507,9 +505,9 @@ static const struct stm32_dcmipp_mapping {
 	PIXEL_PIPE_FMT(RGB24, RGB888_YUV444_1, 1, (BIT(1) | BIT(2))),
 	PIXEL_PIPE_FMT(BGR24, RGB888_YUV444_1, 0, (BIT(1) | BIT(2))),
 	PIXEL_PIPE_FMT(ARGB32, RGBA888, 1, (BIT(1) | BIT(2))),
-	PIXEL_PIPE_FMT(ABGR32, ARGB8888, 0, (BIT(1) | BIT(2))),
+	PIXEL_PIPE_FMT(ABGR32, RGBA888, 0, (BIT(1) | BIT(2))),
 	PIXEL_PIPE_FMT(RGBA32, ARGB8888, 1, (BIT(1) | BIT(2))),
-	PIXEL_PIPE_FMT(BGRA32, RGBA888, 0, (BIT(1) | BIT(2))),
+	PIXEL_PIPE_FMT(BGRA32, ARGB8888, 0, (BIT(1) | BIT(2))),
 	/* Multi-planes are only available on Pipe main (1) */
 	PIXEL_PIPE_FMT(NV12, YUV420_2, 0, BIT(1)),
 	PIXEL_PIPE_FMT(NV21, YUV420_2, 1, BIT(1)),
@@ -519,30 +517,6 @@ static const struct stm32_dcmipp_mapping {
 	PIXEL_PIPE_FMT(YVU420, YUV420_3, 1, BIT(1)),
 #endif
 };
-
-/*
- * FIXME: Helper to know colorspace of a format
- * This below to the video_common part and should be moved there
- */
-#define VIDEO_COLORSPACE_RAW	0
-#define VIDEO_COLORSPACE_RGB	1
-#define VIDEO_COLORSPACE_YUV	2
-#define VIDEO_COLORSPACE(fmt)							\
-	(((fmt) == VIDEO_PIX_FMT_RGB565X || (fmt) == VIDEO_PIX_FMT_RGB565 ||	\
-	  (fmt) == VIDEO_PIX_FMT_BGR24 || (fmt) == VIDEO_PIX_FMT_RGB24 ||	\
-	  (fmt) == VIDEO_PIX_FMT_ARGB32 || (fmt) == VIDEO_PIX_FMT_ABGR32 ||	\
-	  (fmt) == VIDEO_PIX_FMT_RGBA32 || (fmt) == VIDEO_PIX_FMT_BGRA32 ||	\
-	  (fmt) == VIDEO_PIX_FMT_XRGB32) ? VIDEO_COLORSPACE_RGB :		\
-										\
-	 ((fmt) == VIDEO_PIX_FMT_GREY ||					\
-	  (fmt) == VIDEO_PIX_FMT_YUYV || (fmt) == VIDEO_PIX_FMT_YVYU ||		\
-	  (fmt) == VIDEO_PIX_FMT_VYUY || (fmt) == VIDEO_PIX_FMT_UYVY ||		\
-	  (fmt) == VIDEO_PIX_FMT_NV12 || (fmt) == VIDEO_PIX_FMT_NV21 ||		\
-	  (fmt) == VIDEO_PIX_FMT_NV16 || (fmt) == VIDEO_PIX_FMT_NV61 ||		\
-	  (fmt) == VIDEO_PIX_FMT_YUV420 || (fmt) == VIDEO_PIX_FMT_YVU420 ||	\
-	  (fmt) == VIDEO_PIX_FMT_XYUV32) ? VIDEO_COLORSPACE_YUV :		\
-										\
-	  VIDEO_COLORSPACE_RAW)
 
 static const struct stm32_dcmipp_mapping *stm32_dcmipp_get_mapping(uint32_t pixelformat,
 								   uint32_t pipe)
@@ -853,8 +827,8 @@ const DCMIPP_ColorConversionConfTypeDef stm32_dcmipp_yuv_to_rgb = {
 };
 
 static int stm32_dcmipp_set_yuv_conversion(struct stm32_dcmipp_pipe_data *pipe,
-					   uint32_t source_colorspace,
-					   uint32_t output_colorspace)
+					   uint32_t source_pixelformat,
+					   uint32_t output_pixelformat)
 {
 	struct stm32_dcmipp_data *dcmipp = pipe->dcmipp;
 	const DCMIPP_ColorConversionConfTypeDef *cfg = NULL;
@@ -866,13 +840,11 @@ static int stm32_dcmipp_set_yuv_conversion(struct stm32_dcmipp_pipe_data *pipe,
 	}
 
 	/* Perform YUV conversion if necessary and possible */
-	if ((source_colorspace == VIDEO_COLORSPACE_RAW ||
-	     source_colorspace == VIDEO_COLORSPACE_RGB) &&
-	     output_colorspace == VIDEO_COLORSPACE_YUV) {
+	if ((VIDEO_FMT_IS_BAYER(source_pixelformat) || VIDEO_FMT_IS_RGB(source_pixelformat)) &&
+	    VIDEO_FMT_IS_YUV(output_pixelformat)) {
 		/* Need to perform RGB to YUV conversion */
 		cfg = &stm32_dcmipp_rgb_to_yuv;
-	} else if (source_colorspace == VIDEO_COLORSPACE_YUV &&
-		   output_colorspace == VIDEO_COLORSPACE_RGB) {
+	} else if (VIDEO_FMT_IS_YUV(source_pixelformat) && VIDEO_FMT_IS_RGB(output_pixelformat)) {
 		/* Need to perform YUV to RGB conversion */
 		cfg = &stm32_dcmipp_yuv_to_rgb;
 	} else {
@@ -912,7 +884,7 @@ static int stm32_dcmipp_start_pipeline(const struct device *dev,
 	HAL_StatusTypeDef hal_ret;
 
 #if defined(STM32_DCMIPP_HAS_PIXEL_PIPES)
-	if (VIDEO_FMT_IS_PLANAR(fmt)) {
+	if (VIDEO_FMT_IS_FULL_PLANAR(fmt->pixelformat)) {
 		uint8_t *u_addr = pipe->next->buffer + VIDEO_FMT_PLANAR_Y_PLANE_SIZE(fmt);
 		uint8_t *v_addr = u_addr + (VIDEO_FMT_PLANAR_Y_PLANE_SIZE(fmt) / 4);
 		DCMIPP_FullPlanarDstAddressTypeDef planar_addr = {
@@ -938,7 +910,7 @@ static int stm32_dcmipp_start_pipeline(const struct device *dev,
 			LOG_ERR("Invalid bus_type");
 			hal_ret = HAL_ERROR;
 		}
-	} else if (VIDEO_FMT_IS_SEMI_PLANAR(fmt)) {
+	} else if (VIDEO_FMT_IS_SEMI_PLANAR(fmt->pixelformat)) {
 		uint8_t *uv_addr = pipe->next->buffer + VIDEO_FMT_PLANAR_Y_PLANE_SIZE(fmt);
 		DCMIPP_SemiPlanarDstAddressTypeDef semiplanar_addr = {
 			.YAddress = (uint32_t)pipe->next->buffer,
@@ -1109,9 +1081,6 @@ static int stm32_dcmipp_stream_enable(const struct device *dev)
 	}
 #if defined(STM32_DCMIPP_HAS_PIXEL_PIPES)
 	else if (pipe->id == DCMIPP_PIPE1 || pipe->id == DCMIPP_PIPE2) {
-		uint32_t source_colorspace = VIDEO_COLORSPACE(dcmipp->source_fmt.pixelformat);
-		uint32_t output_colorspace = VIDEO_COLORSPACE(fmt->pixelformat);
-
 		/* Enable / disable SWAPRB if necessary */
 		if (mapping->pixels.swap_uv) {
 			hal_ret = HAL_DCMIPP_PIPE_EnableRedBlueSwap(&dcmipp->hdcmipp, pipe->id);
@@ -1129,7 +1098,7 @@ static int stm32_dcmipp_stream_enable(const struct device *dev)
 			}
 		}
 
-		if (source_colorspace == VIDEO_COLORSPACE_RAW) {
+		if (VIDEO_FMT_IS_BAYER(dcmipp->source_fmt.pixelformat)) {
 			/* Enable demosaicing if input format is Bayer */
 			hal_ret = HAL_DCMIPP_PIPE_EnableISPRawBayer2RGB(&dcmipp->hdcmipp,
 									DCMIPP_PIPE1);
@@ -1162,9 +1131,22 @@ static int stm32_dcmipp_stream_enable(const struct device *dev)
 		}
 
 		/* Configure YUV conversion */
-		ret = stm32_dcmipp_set_yuv_conversion(pipe, source_colorspace, output_colorspace);
+		ret = stm32_dcmipp_set_yuv_conversion(pipe,
+						      dcmipp->source_fmt.pixelformat,
+						      fmt->pixelformat);
 		if (ret < 0) {
 			goto out;
+		}
+
+		/* Limit the amount of hardware handshake interrupts received by slave IP */
+		if (pipe->id == DCMIPP_PIPE1) {
+			stm32_reg_modify_bits(&dcmipp->hdcmipp.Instance->P1PPCR,
+					      DCMIPP_P1PPCR_LINEMULT_Msk,
+					      DCMIPP_MULTILINE_128_LINES);
+		} else {
+			stm32_reg_modify_bits(&dcmipp->hdcmipp.Instance->P2PPCR,
+					      DCMIPP_P1PPCR_LINEMULT_Msk,
+					      DCMIPP_MULTILINE_128_LINES);
 		}
 	}
 #endif
@@ -1227,6 +1209,7 @@ static int stm32_dcmipp_stream_disable(const struct device *dev)
 	struct stm32_dcmipp_pipe_data *pipe = dev->data;
 	struct stm32_dcmipp_data *dcmipp = pipe->dcmipp;
 	const struct stm32_dcmipp_config *config = dev->config;
+	struct video_buffer *vbuf;
 	int ret;
 
 	k_mutex_lock(&pipe->lock, K_FOREVER);
@@ -1285,6 +1268,12 @@ static int stm32_dcmipp_stream_disable(const struct device *dev)
 	}
 	if (pipe->active != NULL) {
 		k_fifo_put(&pipe->fifo_in, pipe->active);
+	}
+
+	/* Forward all buffers in fifo_in to fifo_out */
+	while ((vbuf = k_fifo_get(&pipe->fifo_in, K_NO_WAIT)) != NULL) {
+		vbuf->bytesused = 0;
+		k_fifo_put(&pipe->fifo_out, vbuf);
 	}
 
 	pipe->state = STM32_DCMIPP_STOPPED;
@@ -1444,6 +1433,7 @@ static int stm32_dcmipp_get_caps(const struct device *dev, struct video_caps *ca
 	}
 
 	caps->min_vbuf_count = 1;
+	caps->buf_align = 16;
 
 	return 0;
 }
@@ -1656,11 +1646,6 @@ static int stm32_dcmipp_enable_clock(const struct device *dev)
 	const struct device *cc_node = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 	int err;
 
-	if (!device_is_ready(cc_node)) {
-		LOG_ERR("clock control device not ready");
-		return -ENODEV;
-	}
-
 	/* Turn on DCMIPP peripheral clock */
 	err = clock_control_configure(cc_node, (clock_control_subsys_t)&config->dcmipp_pclken_ker,
 				      NULL);
@@ -1693,10 +1678,6 @@ static int stm32_dcmipp_init(const struct device *dev)
 	struct stm32_dcmipp_data *dcmipp = dev->data;
 
 	int err;
-
-#if defined(CONFIG_SOC_SERIES_STM32N6X)
-	RIMC_MasterConfig_t rimc = {0};
-#endif
 
 	dcmipp->enabled_pipe = 0;
 
@@ -1735,14 +1716,6 @@ static int stm32_dcmipp_init(const struct device *dev)
 
 	/* Run IRQ init */
 	cfg->irq_config(dev);
-
-#if defined(CONFIG_SOC_SERIES_STM32N6X)
-	rimc.MasterCID = RIF_CID_1;
-	rimc.SecPriv = RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV;
-	HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_DCMIPP, &rimc);
-	HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_DCMIPP,
-					      RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-#endif
 
 	/* Initialize DCMI peripheral */
 	err = HAL_DCMIPP_Init(&dcmipp->hdcmipp);
@@ -1816,6 +1789,15 @@ static void stm32_dcmipp_isr(const struct device *dev)
 	HAL_DCMIPP_IRQHandler(&dcmipp->hdcmipp);
 }
 
+#if defined(STM32_DCMIPP_HAS_CSI) && defined(CONFIG_VIDEO_STM32_DCMIPP_CSI_ENABLE_IRQ)
+static void stm32_dcmipp_csi_isr(const struct device *dev)
+{
+	struct stm32_dcmipp_data *dcmipp = dev->data;
+
+	HAL_DCMIPP_CSI_IRQHandler(&dcmipp->hdcmipp);
+}
+#endif
+
 #define SOURCE_DEV(inst) DEVICE_DT_GET(DT_NODE_REMOTE_DEVICE(DT_INST_ENDPOINT_BY_ID(inst, 0, 0)))
 
 #define DCMIPP_PIPE_INIT_DEFINE(node_id, inst)						\
@@ -1834,9 +1816,7 @@ static void stm32_dcmipp_isr(const struct device *dev)
 
 #if defined(STM32_DCMIPP_HAS_CSI)
 #define STM32_DCMIPP_CSI_DT_PARAMS(inst)							\
-		.csi_pclken =									\
-			{.bus = DT_CLOCKS_CELL_BY_NAME(DT_DRV_INST(inst), csi, bus),		\
-			 .enr = DT_CLOCKS_CELL_BY_NAME(DT_DRV_INST(inst), csi, bits)},		\
+		.csi_pclken = STM32_DT_INST_CLOCK_INFO_BY_NAME(inst, csi),			\
 		.reset_csi = RESET_DT_SPEC_INST_GET_BY_IDX(inst, 1),				\
 		.csi.nb_lanes = DT_PROP_LEN(DT_INST_ENDPOINT_BY_ID(inst, 0, 0), data_lanes),	\
 		.csi.lanes[0] = DT_PROP_BY_IDX(DT_INST_ENDPOINT_BY_ID(inst, 0, 0),		\
@@ -1846,8 +1826,20 @@ static void stm32_dcmipp_isr(const struct device *dev)
 					    (0),						\
 					    (DT_PROP_BY_IDX(DT_INST_ENDPOINT_BY_ID(inst, 0, 0),	\
 							    data_lanes, 1))),
+
+#if defined(CONFIG_VIDEO_STM32_DCMIPP_CSI_ENABLE_IRQ)
+#define STM32_DCMIPP_CSI_IRQ_INIT(inst)								\
+		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(inst, dcmipp_csi, irq),				\
+			    DT_INST_IRQ_BY_NAME(inst, dcmipp_csi, priority),			\
+			    stm32_dcmipp_csi_isr, DEVICE_DT_INST_GET(inst), 0);			\
+		irq_enable(DT_INST_IRQ_BY_NAME(inst, dcmipp_csi, irq));
+#else
+#define STM32_DCMIPP_CSI_IRQ_INIT(inst)
+#endif
+
 #else
 #define STM32_DCMIPP_CSI_DT_PARAMS(inst)
+#define STM32_DCMIPP_CSI_IRQ_INIT(inst)
 #endif
 
 #if defined(STM32_DCMIPP_HAS_PIXEL_PIPES)
@@ -1861,9 +1853,11 @@ static void stm32_dcmipp_isr(const struct device *dev)
 #define STM32_DCMIPP_INIT(inst)									\
 	static void stm32_dcmipp_irq_config_##inst(const struct device *dev)			\
 	{											\
-		IRQ_CONNECT(DT_INST_IRQN(inst), DT_INST_IRQ(inst, priority),			\
+		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(inst, dcmipp, irq),				\
+			    DT_INST_IRQ_BY_NAME(inst, dcmipp, priority),			\
 			    stm32_dcmipp_isr, DEVICE_DT_INST_GET(inst), 0);			\
-		irq_enable(DT_INST_IRQN(inst));							\
+		irq_enable(DT_INST_IRQ_BY_NAME(inst, dcmipp, irq));				\
+		STM32_DCMIPP_CSI_IRQ_INIT(inst)							\
 	}											\
 												\
 	static struct stm32_dcmipp_data stm32_dcmipp_data_##inst = {				\
@@ -1882,12 +1876,8 @@ static void stm32_dcmipp_isr(const struct device *dev)
 	PINCTRL_DT_INST_DEFINE(inst);								\
 												\
 	static const struct stm32_dcmipp_config stm32_dcmipp_config_##inst = {			\
-		.dcmipp_pclken =								\
-			{.bus = DT_CLOCKS_CELL_BY_NAME(DT_DRV_INST(inst), dcmipp, bus),		\
-			 .enr = DT_CLOCKS_CELL_BY_NAME(DT_DRV_INST(inst), dcmipp, bits)},	\
-		.dcmipp_pclken_ker =								\
-			{.bus = DT_CLOCKS_CELL_BY_NAME(DT_DRV_INST(inst), dcmipp_ker, bus),	\
-			 .enr = DT_CLOCKS_CELL_BY_NAME(DT_DRV_INST(inst), dcmipp_ker, bits)},	\
+		.dcmipp_pclken = STM32_DT_INST_CLOCK_INFO_BY_NAME(inst, dcmipp),		\
+		.dcmipp_pclken_ker = STM32_DT_INST_CLOCK_INFO_BY_NAME(inst, dcmipp_ker),	\
 		.irq_config = stm32_dcmipp_irq_config_##inst,					\
 		.pctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),					\
 		.source_dev = SOURCE_DEV(inst),							\

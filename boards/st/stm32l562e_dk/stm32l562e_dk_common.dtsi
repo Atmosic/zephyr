@@ -45,12 +45,6 @@
 	chosen {
 		zephyr,bt-hci = &hci_spi;
 	};
-
-	lvgl_pointer {
-		compatible = "zephyr,lvgl-pointer-input";
-		input = <&ft5336>;
-		invert-y;
-	};
 };
 
 &fmc {
@@ -104,7 +98,7 @@
 					height = <240>;
 					x-offset = <0>;
 					y-offset = <0>;
-					vcom = <0x1F>;
+					vcom = <0x1f>;
 					gctrl = <0x35>;
 					vdvs = <0x20>;
 					mdac = <0x00>;
@@ -114,9 +108,9 @@
 					porch-param = [0c 0c 00 33 33];
 					cmd2en-param = [5a 69 02 00];
 					pwctrl1-param = [a4 a1];
-					pvgam-param = [D0 08 11 08 0C 15 39 33 50 36 13 14 29 2D];
-					nvgam-param = [D0 08 10 08 06 06 39 44 51 0B 16 14 2F 31];
-					ram-param = [00 F0];
+					pvgam-param = [d0 08 11 08 0c 15 39 33 50 36 13 14 29 2d];
+					nvgam-param = [d0 08 10 08 06 06 39 44 51 0b 16 14 2f 31];
+					ram-param = [00 f0];
 					rgb-param = [40 02 14];
 				};
 			};
@@ -193,11 +187,10 @@ stm32_lp_tick_source: &lptim1 {
 		reg = <0x38>;
 		int-gpios = <&gpiof 1 GPIO_ACTIVE_LOW>;
 		reset-gpios = <&gpiof 15 GPIO_ACTIVE_LOW>;
+		inverted-y;
+		screen-width = <240>;
+		screen-height = <240>;
 	};
-};
-
-&rng {
-	status = "okay";
 };
 
 &spi1 {
@@ -232,8 +225,13 @@ stm32_lp_tick_source: &lptim1 {
 		reg = <0>;
 		size = <DT_SIZE_M(512)>; /* 512 Megabits */
 		ospi-max-frequency = <DT_FREQ_M(50)>;
-		spi-bus-width = <OSPI_OPI_MODE>;
-		data-rate = <OSPI_DTR_TRANSFER>;
+		/* Using OSPI_OPI_MODE with OSPI_STR_TRANSFER or
+		 * OSPI_DTR_TRANSFER isn't working. Please refer to
+		 * the Errata Sheet for possible causes. Alternatively
+		 * this mode can be tested with MSPI-NOR configuration.
+		 */
+		spi-bus-width = <OSPI_SPI_MODE>;
+		data-rate = <OSPI_STR_TRANSFER>;
 		four-byte-opcodes;
 		status = "okay";
 		sfdp-bfp = [53 46 44 50 06 01 02 ff
@@ -316,7 +314,7 @@ zephyr_udc0: &usb {
 		     &sdmmc1_cmd_pd2>;
 
 	pinctrl-names = "default";
-
+	idma;
 	cd-gpios = <&gpiof 2 GPIO_ACTIVE_LOW>;
 };
 

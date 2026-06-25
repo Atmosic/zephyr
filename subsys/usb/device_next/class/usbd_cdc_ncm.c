@@ -571,7 +571,7 @@ static int cdc_ncm_acl_out_cb(struct usbd_class_data *const c_data,
 			break;
 		}
 
-		pkt = net_pkt_rx_alloc_with_buffer(data->iface, len, AF_UNSPEC, 0, K_FOREVER);
+		pkt = net_pkt_rx_alloc_with_buffer(data->iface, len, NET_AF_UNSPEC, 0, K_FOREVER);
 		if (!pkt) {
 			LOG_ERR("No memory for net_pkt");
 			goto unref_packet;
@@ -1099,21 +1099,24 @@ static int cdc_ncm_set_config(const struct device *dev,
 {
 	struct cdc_ncm_eth_data *data = dev->data;
 
-	if (type == ETHERNET_CONFIG_TYPE_MAC_ADDRESS) {
+	switch (type) {
+	case ETHERNET_CONFIG_TYPE_MAC_ADDRESS:
 		memcpy(data->mac_addr, config->mac_address.addr,
 		       sizeof(data->mac_addr));
-
 		return 0;
+	case ETHERNET_CONFIG_TYPE_PROMISC_MODE:
+		/* nothing to do */
+		return 0;
+	default:
+		return -ENOTSUP;
 	}
-
-	return -ENOTSUP;
 }
 
 static enum ethernet_hw_caps cdc_ncm_get_capabilities(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 
-	return ETHERNET_LINK_10BASE;
+	return ETHERNET_LINK_10BASE | ETHERNET_PROMISC_MODE;
 }
 
 static int cdc_ncm_iface_start(const struct device *dev)

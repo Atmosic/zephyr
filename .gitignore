@@ -17,6 +17,7 @@
 build*/
 !doc/build/
 !scripts/build
+!share/sysbuild/build
 !tests/drivers/build_all
 !scripts/pylib/build_helpers
 cscope.*
@@ -89,11 +90,14 @@ tags
 .idea
 
 # from check_compliance.py
-# zephyr-keep-sorted-start
+# zephyr-keep-sorted-start ignorecase
 BinaryFiles.txt
 BoardYml.txt
 Checkpatch.txt
 ClangFormat.txt
+CMakeStyle.txt
+DeviceAPI.txt
+DeviceMmioCheck.txt
 DevicetreeBindings.txt
 DevicetreeLinting.txt
 GitDiffCheck.txt

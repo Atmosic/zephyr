@@ -171,11 +171,6 @@ static int stm32_digi_temp_init(const struct device *dev)
 	/* enable clock for subsystem */
 	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 
-	if (!device_is_ready(clk)) {
-		LOG_ERR("Clock control device not ready");
-		return -ENODEV;
-	}
-
 	if (clock_control_on(clk, (clock_control_subsys_t) &cfg->pclken) != 0) {
 		LOG_ERR("Could not enable DTS clock");
 		return -EIO;
@@ -263,33 +258,30 @@ static DEVICE_API(sensor, stm32_digi_temp_driver_api) = {
 	.channel_get = stm32_digi_temp_channel_get,
 };
 
-#define STM32_DIGI_TEMP_INIT(index)							\
-static void stm32_digi_temp_irq_config_func_##index(const struct device *dev)		\
-{											\
-	IRQ_CONNECT(DT_INST_IRQN(index),						\
-		    DT_INST_IRQ(index, priority),					\
-		    stm32_digi_temp_isr, DEVICE_DT_INST_GET(index), 0);			\
-	irq_enable(DT_INST_IRQN(index));						\
-}											\
-											\
-static struct stm32_digi_temp_data stm32_digi_temp_dev_data_##index;			\
-											\
-static const struct stm32_digi_temp_config stm32_digi_temp_dev_config_##index = {	\
-	.base = (DTS_TypeDef *)DT_INST_REG_ADDR(index),					\
-	.pclken = {									\
-		.enr = DT_INST_CLOCKS_CELL(index, bits),				\
-		.bus = DT_INST_CLOCKS_CELL(index, bus)					\
-	},										\
-	.irq_config = stm32_digi_temp_irq_config_func_##index,				\
-};											\
-											\
-PM_DEVICE_DT_INST_DEFINE(index, stm32_digi_temp_pm_action);				\
-											\
-SENSOR_DEVICE_DT_INST_DEFINE(index, stm32_digi_temp_init,				\
-			     PM_DEVICE_DT_INST_GET(index),				\
-			     &stm32_digi_temp_dev_data_##index,				\
-			     &stm32_digi_temp_dev_config_##index,			\
-			     POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,			\
-			     &stm32_digi_temp_driver_api);				\
+#define STM32_DIGI_TEMP_INIT(index)								\
+	static void stm32_digi_temp_irq_config_func_##index(const struct device *dev)		\
+	{											\
+		IRQ_CONNECT(DT_INST_IRQN(index),						\
+			    DT_INST_IRQ(index, priority),					\
+			    stm32_digi_temp_isr, DEVICE_DT_INST_GET(index), 0);			\
+		irq_enable(DT_INST_IRQN(index));						\
+	}											\
+												\
+	static struct stm32_digi_temp_data stm32_digi_temp_dev_data_##index;			\
+												\
+	static const struct stm32_digi_temp_config stm32_digi_temp_dev_config_##index = {	\
+		.base = (DTS_TypeDef *)DT_INST_REG_ADDR(index),					\
+		.pclken = STM32_DT_INST_CLOCK_INFO(index),					\
+		.irq_config = stm32_digi_temp_irq_config_func_##index,				\
+	};											\
+												\
+	PM_DEVICE_DT_INST_DEFINE(index, stm32_digi_temp_pm_action);				\
+												\
+	SENSOR_DEVICE_DT_INST_DEFINE(index, stm32_digi_temp_init,				\
+				     PM_DEVICE_DT_INST_GET(index),				\
+				     &stm32_digi_temp_dev_data_##index,				\
+				     &stm32_digi_temp_dev_config_##index,			\
+				     POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,			\
+				     &stm32_digi_temp_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(STM32_DIGI_TEMP_INIT)

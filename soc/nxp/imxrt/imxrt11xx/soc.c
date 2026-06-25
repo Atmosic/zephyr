@@ -157,7 +157,6 @@ __weak void clock_init(void)
 
 	/* Init OSC RC 400M */
 	CLOCK_OSC_EnableOscRc400M();
-	CLOCK_OSC_GateOscRc400M(true);
 
 	/* Init OSC RC 48M */
 	CLOCK_OSC_EnableOsc48M(true);
@@ -493,9 +492,23 @@ __weak void clock_init(void)
 	 * calculate LCDIF clock.
 	 */
 	rootCfg.div = ((SYS_PLL2_FREQ /
-			DT_PROP(DT_CHILD(DT_NODELABEL(lcdif), display_timings), clock_frequency)) +
-		       1);
+		DT_PROP(
+			DT_CHILD(DT_INST(0, nxp_imx_elcdif), display_timings),
+			clock_frequency)) + 1);
 	CLOCK_SetRootClock(kCLOCK_Root_Lcdif, &rootCfg);
+#endif
+
+#ifdef CONFIG_DISPLAY_MCUX_LCDIFV2
+	rootCfg.mux = kCLOCK_LCDIF_ClockRoot_MuxSysPll2Out;
+	/*
+	 * PLL2 is fixed at 528MHz. Use desired panel clock clock to
+	 * calculate LCDIF clock.
+	 */
+	rootCfg.div = ((SYS_PLL2_FREQ /
+		DT_PROP(
+			DT_CHILD(DT_INST(0, nxp_imx_lcdifv2), display_timings),
+			clock_frequency)) + 1);
+	CLOCK_SetRootClock(kCLOCK_Root_Lcdifv2, &rootCfg);
 #endif
 
 #ifdef CONFIG_COUNTER_MCUX_GPT
@@ -542,7 +555,7 @@ __weak void clock_init(void)
 #endif
 #endif
 
-#if !(DT_NODE_HAS_COMPAT(DT_PARENT(DT_CHOSEN(zephyr_flash)), nxp_imx_flexspi)) &&  \
+#if !(DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_flash_controller), nxp_imx_flexspi_nor)) &&  \
 	defined(CONFIG_MEMC_MCUX_FLEXSPI) && DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexspi))
 	/* Configure FLEXSPI1 using OSC_RC_48M_DIV2 */
 	rootCfg.mux = kCLOCK_FLEXSPI1_ClockRoot_MuxOscRc48MDiv2;
@@ -550,7 +563,7 @@ __weak void clock_init(void)
 	CLOCK_SetRootClock(kCLOCK_Root_Flexspi1, &rootCfg);
 #endif
 
-#if !(DT_NODE_HAS_COMPAT(DT_PARENT(DT_CHOSEN(zephyr_flash)), nxp_imx_flexspi)) &&  \
+#if !(DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_flash_controller), nxp_imx_flexspi_nor)) &&  \
 	defined(CONFIG_MEMC_MCUX_FLEXSPI) && DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexspi2))
 	/* Configure FLEXSPI2 using OSC_RC_48M_DIV2 */
 	rootCfg.mux = kCLOCK_FLEXSPI2_ClockRoot_MuxOscRc48MDiv2;
@@ -610,7 +623,11 @@ void imxrt_pre_init_display_interface(void)
 {
 	/* elcdif output to MIPI DSI */
 	CLOCK_EnableClock(kCLOCK_Video_Mux);
+#if CONFIG_DISPLAY_MCUX_ELCDIF
 	VIDEO_MUX->VID_MUX_CTRL.CLR = VIDEO_MUX_VID_MUX_CTRL_MIPI_DSI_SEL_MASK;
+#elif CONFIG_DISPLAY_MCUX_LCDIFV2
+	VIDEO_MUX->VID_MUX_CTRL.SET = VIDEO_MUX_VID_MUX_CTRL_MIPI_DSI_SEL_MASK;
+#endif
 
 	/* Power on and isolation off. */
 	PGMC_BPC4->BPC_POWER_CTRL |= (PGMC_BPC_BPC_POWER_CTRL_PSW_ON_SOFT_MASK |
@@ -780,12 +797,12 @@ __asm__ (
 
 void __used _soc_reset_hook(void)
 {
-	SystemInit();
-
 #if defined(FLEXRAM_RUNTIME_BANKS_USED)
 	/* Configure flexram if not running from RAM */
 	flexram_dt_partition();
 #endif
+
+	SystemInit();
 }
 #endif
 

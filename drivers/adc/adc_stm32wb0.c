@@ -159,16 +159,6 @@ struct adc_stm32wb0_config {
  * Driver private utility functions
  */
 
-/**
- * In STM32CubeWB0 v1.0.0, the LL_GetPackageType is buggy and returns wrong values.
- * This bug is reported in the ST internal bugtracker under reference 185295.
- * For now, implement the function ourselves.
- */
-static inline uint32_t ll_get_package_type(void)
-{
-	return sys_read32(PACKAGE_BASE);
-}
-
 static inline struct adc_stm32wb0_data *drv_data_from_adc_ctx(struct adc_context *adc_ctx)
 {
 	return CONTAINER_OF(adc_ctx, struct adc_stm32wb0_data, ctx);
@@ -546,7 +536,7 @@ static int adc_exit_idle_mode(ADC_TypeDef *adc, const struct stm32_pclken *ana_c
 	 * Using an equality check with supported package types ensures that
 	 * we never accidentally set the bit on an unsupported MCU.
 	 */
-	const uint32_t package_type = ll_get_package_type();
+	const uint32_t package_type = LL_GetPackageType();
 
 	if (package_type == LL_UTILS_PACKAGETYPE_QFN48
 		|| package_type == LL_UTILS_PACKAGETYPE_CSP49) {
@@ -1074,11 +1064,6 @@ int adc_stm32wb0_init(const struct device *dev)
 	ADC_TypeDef *adc = config->reg;
 	int err;
 
-	if (!device_is_ready(clk)) {
-		LOG_ERR("clock control device not ready");
-		return -ENODEV;
-	}
-
 	/* Turn on ADC digital clock (always on) */
 	err = clock_control_on(clk,
 		(clock_control_subsys_t)&config->dig_clk);
@@ -1230,8 +1215,11 @@ static struct adc_stm32wb0_data adc_data = {
 			STM32_DMA_CHANNEL_CONFIG_BY_IDX(ADC_INSTANCE, 0)),
 		.dest_data_size = STM32_DMA_CONFIG_MEMORY_DATA_SIZE(
 			STM32_DMA_CHANNEL_CONFIG_BY_IDX(ADC_INSTANCE, 0)),
-		.source_burst_length = 1,	/* SINGLE transfer */
-		.dest_burst_length = 1,		/* SINGLE transfer */
+		/* single transfers (burst length = data size) */
+		.source_burst_length = STM32_DMA_CONFIG_PERIPHERAL_DATA_SIZE(
+			STM32_DMA_CHANNEL_CONFIG_BY_IDX(ADC_INSTANCE, 0)),
+		.dest_burst_length = STM32_DMA_CONFIG_MEMORY_DATA_SIZE(
+			STM32_DMA_CHANNEL_CONFIG_BY_IDX(ADC_INSTANCE, 0)),
 		.block_count = 1,
 		.dma_callback = adc_stm32wb0_dma_callback,
 		/* head_block and user_data are initialized at runtime */

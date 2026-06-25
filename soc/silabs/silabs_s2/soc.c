@@ -17,6 +17,7 @@
 #include <sl_clock_manager_init.h>
 #include <sl_hfxo_manager.h>
 #include <sl_power_manager.h>
+#include <sl_sleeptimer.h>
 
 #include <soc_radio.h>
 
@@ -48,6 +49,10 @@ void soc_early_init_hook(void)
 	}
 	sl_clock_manager_init();
 
+	if (IS_ENABLED(CONFIG_SILABS_SISDK_SLEEPTIMER)) {
+		sl_sleeptimer_init();
+	}
+
 	if (IS_ENABLED(CONFIG_SILABS_SISDK_HFXO_MANAGER)) {
 		sl_hfxo_manager_init_hardware();
 		sl_hfxo_manager_init();
@@ -56,7 +61,7 @@ void soc_early_init_hook(void)
 		sl_power_manager_init();
 	}
 	if (IS_ENABLED(CONFIG_SOC_GECKO_USE_RAIL)) {
-		rail_isr_installer();
+		soc_radio_init();
 	}
 }
 

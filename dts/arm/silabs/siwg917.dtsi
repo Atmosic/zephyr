@@ -64,7 +64,7 @@
 		 * Less memory is allocated to Zephyr, more memory is allocated
 		 * to NWP, better are the WiFi and BLE performances.
 		 */
-		reg = <0x00000400 DT_SIZE_K(255)>;
+		reg = <0x00000400 DT_SIZE_K(319)>;
 	};
 
 	sram_dma1: memory-dma@24061c00 {
@@ -76,11 +76,15 @@
 
 	nwp: nwp {
 		compatible = "silabs,siwx91x-nwp";
-		power-profile = "deep-sleep-with-ram-retention";
 		stack-size = <10240>;
 		interrupt-parent = <&nvic>;
 		interrupts = <30 0>, <74 0>;
 		interrupt-names = "nwp_stack", "nwp_irq";
+		antenna-selection = "ext-gpios";
+		support-1p8v;
+		enable-xtal-correction;
+		qspi-80mhz-clk;
+		clock-frequency = <120000000>;
 		status = "okay";
 
 		bt_hci0: bt_hci {
@@ -120,6 +124,8 @@
 				compatible = "soc-nv-flash";
 				write-block-size = <1>;
 				erase-block-size = <4096>;
+				#address-cells = <1>;
+				#size-cells = <1>;
 			};
 		};
 
@@ -134,6 +140,7 @@
 		siwx91x_soc_pd: siwx91x-soc-pd {
 			compatible = "silabs,siwx91x-power-domain";
 			#power-domain-cells = <0>;
+			zephyr,disabling-power-states = <&pstate_ps4_sleep>;
 			zephyr,pm-device-runtime-auto;
 			status = "okay";
 		};
@@ -177,6 +184,7 @@
 		rng0: rng@45090000 {
 			compatible = "silabs,siwx91x-rng";
 			reg = <0x45090000 0x8>;
+			clocks = <&clock0 SIWX91X_CLK_RNG>;
 		};
 
 		egpio0: egpio@46130000 {
@@ -200,6 +208,7 @@
 				ngpios = <16>;
 				gpio-reserved-ranges = <0 6>;
 				silabs,pads = [ff ff ff ff ff ff 01 02 03 04 05 06 07 ff ff 08];
+				zephyr,pm-device-runtime-auto;
 				status = "okay";
 			};
 
@@ -210,6 +219,7 @@
 				#gpio-cells = <2>;
 				ngpios = <16>;
 				silabs,pads = [ff ff ff ff ff ff ff ff ff 00 00 00 00 00 00 09];
+				zephyr,pm-device-runtime-auto;
 				status = "okay";
 			};
 
@@ -220,6 +230,7 @@
 				#gpio-cells = <2>;
 				ngpios = <16>;
 				silabs,pads = [09 09 09 ff ff ff ff ff ff ff ff ff ff ff 0a 0b];
+				zephyr,pm-device-runtime-auto;
 				status = "okay";
 			};
 
@@ -230,13 +241,14 @@
 				#gpio-cells = <2>;
 				ngpios = <10>;
 				silabs,pads = [0c 0d 0e 0f 10 11 12 13 14 15 ff ff ff ff ff ff];
+				zephyr,pm-device-runtime-auto;
 				status = "okay";
 			};
 		};
 
 		egpio1: egpio@2404c000 {
 			compatible = "silabs,siwx91x-gpio";
-			reg = <0x2404C000 0x1260>;
+			reg = <0x2404c000 0x1260>;
 			interrupts = <18 0>;
 			interrupt-names = "ULP";
 			silabs,ulp;
@@ -254,6 +266,7 @@
 				ngpios = <12>;
 				gpio-reserved-ranges = <3 1>;
 				silabs,pads = [16 17 18 19 1a 1b 1c 1d 1e 1f 20 21 ff ff ff ff];
+				zephyr,pm-device-runtime-auto;
 				status = "okay";
 			};
 		};
@@ -308,7 +321,7 @@
 			compatible = "silabs,siwx91x-dma";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x24078000 0x82C>;
+			reg = <0x24078000 0x82c>;
 			interrupts = <10 0>;
 			interrupt-names = "ulpdma";
 			clocks = <&clock0 SIWX91X_CLK_ULP_DMA>;
@@ -324,7 +337,7 @@
 			compatible = "silabs,siwx91x-dma";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x44030000 0x82C>;
+			reg = <0x44030000 0x82c>;
 			interrupts = <33 0>;
 			interrupt-names = "dma0";
 			clocks = <&clock0 SIWX91X_CLK_DMA0>;
@@ -355,7 +368,7 @@
 			compatible = "silabs,siwx91x-pwm";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x47070000 0x14C>;
+			reg = <0x47070000 0x14c>;
 			interrupts = <48 0>;
 			interrupt-names = "pwm";
 			clocks = <&clock0 SIWX91X_CLK_PWM>;
@@ -379,7 +392,7 @@
 			compatible = "silabs,siwx91x-wdt";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x24048300 0x1C>;
+			reg = <0x24048300 0x1c>;
 			interrupts = <20 0>;
 			interrupt-names = "watchdog";
 			clocks = <&clock0 SIWX91X_CLK_WATCHDOG>;
@@ -400,7 +413,7 @@
 			compatible = "silabs,gspi";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x45030000 0xBC>;
+			reg = <0x45030000 0xbc>;
 			interrupts = <46 0>;
 			interrupt-names = "gspi";
 			clocks = <&clock0 SIWX91X_CLK_GSPI>;

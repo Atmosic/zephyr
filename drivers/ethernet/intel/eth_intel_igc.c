@@ -486,8 +486,6 @@ static int eth_intel_igc_set_config(const struct device *dev, enum ethernet_conf
 
 	if (type == ETHERNET_CONFIG_TYPE_MAC_ADDRESS) {
 		memcpy(data->mac_addr, eth_cfg->mac_address.addr, sizeof(eth_cfg->mac_address));
-		net_if_set_link_addr(data->iface, data->mac_addr, sizeof(data->mac_addr),
-				     NET_LINK_ETHERNET);
 		eth_intel_igc_set_mac_filter(dev, DEST_ADDR, data->mac_addr, 0, 0);
 		return 0;
 	}
@@ -650,20 +648,20 @@ static int eth_intel_igc_tx_data(const struct device *dev, struct net_pkt *pkt)
 /**
  * @brief Identify the address family of received packets as per header type.
  */
-static sa_family_t eth_intel_igc_get_sa_family(uint8_t *rx_buf)
+static net_sa_family_t eth_intel_igc_get_sa_family(uint8_t *rx_buf)
 {
 	struct net_eth_hdr *eth_hdr = (struct net_eth_hdr *)rx_buf;
 
-	switch (ntohs(eth_hdr->type)) {
+	switch (net_ntohs(eth_hdr->type)) {
 	case NET_ETH_PTYPE_IP:
-		return AF_INET;
+		return NET_AF_INET;
 	case NET_ETH_PTYPE_IPV6:
-		return AF_INET6;
+		return NET_AF_INET6;
 	default:
 		break;
 	}
 
-	return AF_UNSPEC;
+	return NET_AF_UNSPEC;
 }
 
 /**

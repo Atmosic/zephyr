@@ -10,12 +10,12 @@ Protocols
    coap
    coap_client
    coap_server
+   ftp_client
    http_client
    http_server
    lwm2m
    mqtt
    mqtt_sn
    ocpp
-   ptp
    tftp
    latmon

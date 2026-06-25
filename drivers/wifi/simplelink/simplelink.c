@@ -192,7 +192,7 @@ static int simplelink_mgmt_disconnect(const struct device *dev)
 	return ret ? -EIO : ret;
 }
 
-static int simplelink_dummy_get(sa_family_t family,
+static int simplelink_dummy_get(net_sa_family_t family,
 				enum net_sock_type type,
 				enum net_ip_protocol ip_proto,
 				struct net_context **context)
@@ -229,7 +229,7 @@ static void simplelink_iface_init(struct net_if *iface)
 		SIMPLELINK_IPV6 : 0;
 
 	/* Direct socket offload used instead of net offload: */
-	iface->if_dev->offload = &simplelink_offload;
+	net_if_offload_set(iface, &simplelink_offload);
 
 	/* Initialize and configure NWP to defaults: */
 	ret = z_simplelink_init(simplelink_wifi_cb);

@@ -12,6 +12,7 @@
 
 #include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/assigned_numbers.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/pbp.h>
@@ -179,6 +180,14 @@ static int pbp_broadcast_source_adv_setup(void)
 	struct btp_bap_broadcast_local_source *source;
 
 	source = btp_bap_broadcast_local_source_from_src_id_get(0);
+	if (source == NULL) {
+		/* use dummy broadcast ID, it is updated later on anyway */
+		source = btp_bap_broadcast_local_source_allocate(0);
+		if (source == NULL) {
+			LOG_DBG("Could not allocate source");
+			return -ENOMEM;
+		}
+	}
 
 	if (source->ext_adv == NULL) {
 		err = tester_gap_create_adv_instance(&param, BTP_GAP_ADDR_TYPE_IDENTITY, ext_ad,
@@ -198,7 +207,6 @@ static int pbp_broadcast_source_adv_setup(void)
 	}
 
 	source->broadcast_id = broadcast_id;
-	source->allocated = true;
 
 	return 0;
 }

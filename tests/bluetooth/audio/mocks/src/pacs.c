@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include <zephyr/bluetooth/assigned_numbers.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/lc3.h>
 #include <zephyr/bluetooth/audio/pacs.h>
@@ -14,8 +15,9 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/types.h>
 
+#include "audio/pacs_internal.h"
+
 #include "pacs.h"
-#include "pacs_internal.h"
 
 /* List of fakes used by this unit tester */
 #define PACS_FFF_FAKES_LIST(FAKE) \

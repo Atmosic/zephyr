@@ -18,7 +18,6 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/iso.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/sys/check.h>
 
 #include "ascs_internal.h"
 #include "bap_iso.h"
@@ -53,7 +52,7 @@ int bt_bap_unicast_server_register_cb(const struct bt_bap_unicast_server_cb *cb)
 {
 	int err;
 
-	CHECKIF(cb == NULL) {
+	if (cb == NULL) {
 		LOG_DBG("cb is NULL");
 		return -EINVAL;
 	}
@@ -218,12 +217,17 @@ int bt_bap_unicast_server_config_ase(struct bt_conn *conn, struct bt_bap_stream 
 	return bt_ascs_config_ase(conn, stream, codec_cfg, qos_pref);
 }
 
-void bt_bap_unicast_server_foreach_ep(struct bt_conn *conn, bt_bap_ep_func_t func, void *user_data)
+int bt_bap_unicast_server_foreach_ep(struct bt_conn *conn, bt_bap_ep_func_t func, void *user_data)
 {
-	bt_ascs_foreach_ep(conn, func, user_data);
+	return bt_ascs_foreach_ep(conn, func, user_data);
 }
 
 bool bt_bap_unicast_server_has_ep(const struct bt_bap_ep *ep)
 {
 	return bt_ascs_has_ep(ep);
+}
+
+struct bt_conn *bt_bap_unicast_server_ep_get_conn(const struct bt_bap_ep *ep)
+{
+	return bt_ascs_ep_get_conn(ep);
 }

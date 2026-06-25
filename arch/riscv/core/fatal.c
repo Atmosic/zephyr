@@ -77,7 +77,7 @@ const char *z_riscv_mcause_str(unsigned long cause)
 	return mcause_str[MIN(cause, ARRAY_SIZE(mcause_str) - 1)];
 }
 
-FUNC_NORETURN void z_riscv_fatal_error(unsigned int reason,
+void z_riscv_fatal_error(unsigned int reason,
 				       const struct arch_esf *esf)
 {
 	__maybe_unused _callee_saved_t *csf = NULL;
@@ -142,7 +142,6 @@ FUNC_NORETURN void z_riscv_fatal_error(unsigned int reason,
 #endif /* CONFIG_EXCEPTION_STACK_TRACE */
 
 	z_fatal_error(reason, esf);
-	CODE_UNREACHABLE;
 }
 
 static bool bad_stack_pointer(struct arch_esf *esf)
@@ -186,6 +185,12 @@ static bool bad_stack_pointer(struct arch_esf *esf)
 #endif /* CONFIG_MULTITHREADING */
 #endif /* CONFIG_PMP_STACK_GUARD */
 
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	if (z_riscv_custom_stack_guard_is_fault(esf)) {
+		return true;
+	}
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
+
 #ifdef CONFIG_USERSPACE
 	if ((esf->mstatus & MSTATUS_MPP) == 0 &&
 	    (esf->sp < _current->stack_info.start ||
@@ -221,17 +226,18 @@ void z_riscv_fault(struct arch_esf *esf)
 	unsigned int reason = K_ERR_CPU_EXCEPTION;
 
 	if (bad_stack_pointer(esf)) {
-#ifdef CONFIG_PMP_STACK_GUARD
+#if defined(CONFIG_PMP_STACK_GUARD) && defined(CONFIG_MULTITHREADING)
 		/*
 		 * Remove the thread's PMP setting to prevent triggering a stack
 		 * overflow error again due to the previous configuration.
 		 */
-		z_riscv_pmp_stackguard_disable();
+		z_riscv_pmp_kernelmode_disable();
 #endif /* CONFIG_PMP_STACK_GUARD */
 		reason = K_ERR_STACK_CHK_FAIL;
 	}
 
 	z_riscv_fatal_error(reason, esf);
+	CODE_UNREACHABLE;
 }
 
 #ifdef CONFIG_USERSPACE
@@ -257,6 +263,7 @@ void z_impl_user_fault(unsigned int reason)
 		reason = K_ERR_KERNEL_OOPS;
 	}
 	z_riscv_fatal_error(reason, oops_esf);
+	CODE_UNREACHABLE;
 }
 
 static void z_vrfy_user_fault(unsigned int reason)

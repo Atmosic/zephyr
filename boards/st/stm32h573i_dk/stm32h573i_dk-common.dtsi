@@ -23,6 +23,7 @@
 		zephyr,sram = &sram1;
 		zephyr,canbus = &fdcan1;
 		zephyr,display = &st7789v;
+		zephyr,touch = &ft3267;
 	};
 
 	leds {
@@ -74,21 +75,6 @@
 		die-temp1 = &digi_die_temp;
 		volt-sensor0 = &vref;
 		volt-sensor1 = &vbat;
-	};
-
-	ext_flash_mem: memory@90000000 {
-		compatible = "zephyr,memory-region";
-		reg = <0x90000000 DT_SIZE_M(64)>;
-		zephyr,memory-region = "EXT_FLASH";
-		/* DT_MEM_ARM_MPU_EXTMEM and DT_MEM_ARM_MPU_FLASH cause MPU issues */
-		zephyr,memory-attr = <DT_MEM_ARM_MPU_IO>;
-	};
-
-	lvgl_pointer {
-		compatible = "zephyr,lvgl-pointer-input";
-		input = <&ft3267>;
-		display = <&st7789v>;
-		invert-y;
 	};
 };
 
@@ -143,7 +129,7 @@
 					height = <240>;
 					x-offset = <0>;
 					y-offset = <0>;
-					vcom = <0x1F>;
+					vcom = <0x1f>;
 					gctrl = <0x35>;
 					vdvs = <0x20>;
 					mdac = <0x00>;
@@ -153,9 +139,9 @@
 					porch-param = [0c 0c 00 33 33];
 					cmd2en-param = [5a 69 02 00];
 					pwctrl1-param = [a4 a1];
-					pvgam-param = [D0 08 11 08 0C 15 39 33 50 36 13 14 29 2D];
-					nvgam-param = [D0 08 10 08 06 06 39 44 51 0B 16 14 2F 31];
-					ram-param = [00 F0];
+					pvgam-param = [d0 08 11 08 0c 15 39 33 50 36 13 14 29 2d];
+					nvgam-param = [d0 08 10 08 06 06 39 44 51 0b 16 14 2f 31];
+					ram-param = [00 f0];
 					rgb-param = [40 02 14];
 				};
 			};
@@ -221,6 +207,9 @@
 		reg = <0x38>;
 		int-gpios = <&gpiog 7 GPIO_ACTIVE_LOW>;
 		reset-gpios = <&gpiog 3 GPIO_ACTIVE_LOW>;
+		inverted-y;
+		screen-width = <240>;
+		screen-height = <240>;
 	};
 };
 
@@ -261,10 +250,6 @@
 };
 
 &aes {
-	status = "okay";
-};
-
-&rng {
 	status = "okay";
 };
 

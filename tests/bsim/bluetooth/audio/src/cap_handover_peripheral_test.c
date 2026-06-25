@@ -12,6 +12,7 @@
 
 #include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/assigned_numbers.h>
 #include <zephyr/bluetooth/audio/aics.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
@@ -769,10 +770,15 @@ static void create_and_sync_sink(void)
 
 static void wait_for_data(void)
 {
-	UNSET_FLAG(flag_audio_received);
-
 	LOG_DBG("Waiting for data");
-	WAIT_FOR_FLAG(flag_audio_received);
+
+	ARRAY_FOR_EACH_PTR(streams, test_stream) {
+		if (audio_test_stream_is_streaming(test_stream) &&
+		    bap_stream_rx_can_recv(&test_stream->stream.bap_stream)) {
+			WAIT_FOR_FLAG(test_stream->flag_audio_received);
+		}
+	}
+
 	LOG_DBG("Data received");
 }
 

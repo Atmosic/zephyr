@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <stddef.h>
-#include <stdint.h>
 
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/addr.h>
 #include <zephyr/bluetooth/gap.h>
 #include <zephyr/bluetooth/hci_types.h>
@@ -35,6 +35,7 @@ static void test_vcp_peripheral(void)
 	bsim_btp_core_register(BTP_SERVICE_ID_AICS);
 
 	bsim_btp_gap_set_discoverable(BTP_GAP_GENERAL_DISCOVERABLE);
+	bsim_btp_vcs_register(1U, 0U, 100U);
 	bsim_btp_gap_start_advertising(0U, 0U, NULL, BT_HCI_OWN_ADDR_PUBLIC);
 	bsim_btp_wait_for_gap_device_connected(&remote_addr);
 	bt_addr_le_to_str(&remote_addr, addr_str, sizeof(addr_str));

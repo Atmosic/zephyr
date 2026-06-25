@@ -29,6 +29,15 @@ Supported Features
 
 .. zephyr:board-supported-hw::
 
+Shields for Supported Features
+==============================
+
+Some features in the table above are tested with Zephyr shields. These shields
+are tested on this board:
+
+- :ref:`lcd_par_s035` - supports the Display interface. This board uses the
+  MIPI_DBI interface of the shield, connected to the FlexIO on-chip peripheral.
+
 Connections and IOs
 ===================
 
@@ -57,6 +66,10 @@ controller, refer to the device reference manual.
 | PTE3  | LPUART5_RX  | UART Console              |
 +-------+-------------+---------------------------+
 | PTE14 | LPUART5_TX  | UART Console              |
++-------+-------------+---------------------------+
+| PTA7  | FLEXCAN0    | CAN0 TX                   |
++-------+-------------+---------------------------+
+| PTA6  | FLEXCAN0    | CAN0 RX                   |
 +-------+-------------+---------------------------+
 
 System Clock

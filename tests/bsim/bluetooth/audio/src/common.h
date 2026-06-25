@@ -26,6 +26,7 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/atomic_types.h>
+#include <zephyr/sys/clock.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/util_macro.h>
 #include <zephyr/sys_clock.h>
@@ -140,7 +141,6 @@ extern struct bt_conn *default_conn;
 extern atomic_t flag_connected;
 extern atomic_t flag_disconnected;
 extern atomic_t flag_conn_updated;
-extern atomic_t flag_audio_received;
 extern volatile bt_security_t security_level;
 extern uint8_t csip_rsi[BT_CSIP_RSI_SIZE];
 
@@ -170,6 +170,8 @@ struct audio_test_stream {
 	struct bt_iso_recv_info last_info;
 	size_t rx_cnt;
 	size_t valid_rx_cnt;
+	atomic_t flag_audio_received;
+	bool last_rx_failed;
 };
 
 static inline struct bt_cap_stream *cap_stream_from_bap_stream(struct bt_bap_stream *bap_stream)

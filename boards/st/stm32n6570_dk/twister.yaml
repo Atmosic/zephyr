@@ -1,8 +1,8 @@
 name: STM32N6570 Discovery Kit
 type: mcu
 arch: arm
-ram: 1024
-flash: 1024
+ram: 192
+flash: 512
 vendor: st
 supported:
   - arduino_i2c
@@ -22,6 +22,7 @@ supported:
   - usb_device
   - usbd
   - video
+  - watchdog
 variants:
   stm32n6570_dk/stm32n657xx:
     twister: false

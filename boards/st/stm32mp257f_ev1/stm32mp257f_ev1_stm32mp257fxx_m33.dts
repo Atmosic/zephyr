@@ -18,6 +18,7 @@
 		zephyr,shell-uart = &uart5;
 		zephyr,flash = &ddr_code;
 		zephyr,sram = &ddr_sys;
+		zephyr,canbus = &fdcan1;
 	};
 
 	leds {
@@ -43,6 +44,13 @@
 		led0 = &orange_led_3;
 		sw0 = &button_user2;
 	};
+
+	transceiver0: can-phy0 {
+		compatible = "microchip,mcp2562fd", "can-transceiver-gpio";
+		standby-gpios = <&gpioj 12 GPIO_ACTIVE_HIGH>;
+		max-bitrate = <5000000>;
+		#phy-cells = <0>;
+	};
 };
 
 &clk_hsi {
@@ -58,15 +66,14 @@
 	clock-frequency = <DT_FREQ_M(400)>;
 };
 
-&gpiog {
+&fdcan1 {
+	pinctrl-0 = <&fdcan1_rx_pg12 &fdcan1_tx_pg11>;
+	pinctrl-names = "default";
+	phys = <&transceiver0>;
 	status = "okay";
 };
 
-&gpioj {
-	status = "okay";
-};
-
-&gpioz {
+&mailbox {
 	status = "okay";
 };
 
@@ -93,7 +100,15 @@
 };
 
 &i2c8 {
+	/* Pin conflict with i3c4. Enable only with i3c4 disabled */
 	pinctrl-0 = <&i2c8_scl_pz4 &i2c8_sda_pz3>;
 	pinctrl-names = "default";
 	status = "okay";
+};
+
+&i3c4 {
+	/* Pin conflict with i2c8. Enable only with i2c8 disabled */
+	pinctrl-0 = <&i3c4_scl_pz4 &i3c4_sda_pz3>;
+	pinctrl-names = "default";
+	status = "disabled";
 };

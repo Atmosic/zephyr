@@ -14,7 +14,6 @@
 #include <stdbool.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/sys/check.h>
 #include <zephyr/sys/iterable_sections.h>
 #include <zephyr/sys/math_extras.h>
 #include <zephyr/sys/util.h>
@@ -90,13 +89,13 @@ struct bt_conn *bt_conn_create_br(const bt_addr_t *peer,
 	cp->allow_role_switch = param->allow_role_switch ? 0x01 : 0x00;
 	cp->clock_offset = 0x0000; /* TODO used cached clock offset */
 
+	bt_conn_set_state(conn, BT_CONN_INITIATING);
+	conn->role = BT_CONN_ROLE_CENTRAL;
+
 	if (bt_hci_cmd_send_sync(BT_HCI_OP_CONNECT, buf, NULL) < 0) {
 		bt_conn_unref(conn);
 		return NULL;
 	}
-
-	bt_conn_set_state(conn, BT_CONN_INITIATING);
-	conn->role = BT_CONN_ROLE_CENTRAL;
 
 	return conn;
 }
@@ -181,7 +180,7 @@ int bt_conn_br_switch_role(const struct bt_conn *conn, uint8_t role)
 	struct net_buf *buf;
 	struct bt_hci_cp_switch_role *cp;
 
-	CHECKIF(conn == NULL) {
+	if (conn == NULL) {
 		LOG_DBG("conn is NULL");
 		return -EINVAL;
 	}
@@ -253,7 +252,7 @@ int bt_conn_br_set_role_switch_enable(const struct bt_conn *conn, bool enable)
 	uint16_t link_policy_settings;
 	bool is_enabled;
 
-	CHECKIF(conn == NULL) {
+	if (conn == NULL) {
 		LOG_DBG("conn is NULL");
 		return -EINVAL;
 	}

@@ -17,6 +17,7 @@ LOG_MODULE_REGISTER(net_wifi_mgmt, CONFIG_NET_L2_WIFI_MGMT_LOG_LEVEL);
 #include <zephyr/toolchain.h>
 #include <zephyr/net/net_core.h>
 #include <zephyr/net/net_if.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/wifi_mgmt.h>
 #ifdef CONFIG_WIFI_NM
 #include <zephyr/net/wifi_nm.h>
@@ -93,6 +94,10 @@ const char *wifi_security_txt(enum wifi_security_type security)
 		return "FT-EAP-SHA384";
 	case WIFI_SECURITY_TYPE_SAE_EXT_KEY:
 		return "WPA3-SAE-EXT-KEY";
+	case WIFI_SECURITY_TYPE_WEP_OPEN:
+		return "WEP-OPEN";
+	case WIFI_SECURITY_TYPE_WEP_SHARED:
+		return "WEP-SHARED";
 	case WIFI_SECURITY_TYPE_UNKNOWN:
 	default:
 		return "UNKNOWN";
@@ -407,12 +412,36 @@ static int wifi_connect(uint64_t mgmt_request, struct net_if *iface,
 		return -EINVAL;
 	}
 
+#if defined(CONFIG_WIFI_NM_WPA_SUPPLICANT) && !defined(CONFIG_WIFI_NM_WPA_SUPPLICANT_WEP)
+	if (params->security == WIFI_SECURITY_TYPE_WEP ||
+	    params->security == WIFI_SECURITY_TYPE_WEP_OPEN ||
+	    params->security == WIFI_SECURITY_TYPE_WEP_SHARED) {
+		NET_ERR("WEP not supported: enable CONFIG_WIFI_NM_WPA_SUPPLICANT_WEP");
+		return -ENOTSUP;
+	}
+
 	if (params->psk_length && (params->psk_length < 8 || params->psk_length > 64)) {
 		return -EINVAL;
 	}
+#else
+	if (params->security == WIFI_SECURITY_TYPE_WEP ||
+	    params->security == WIFI_SECURITY_TYPE_WEP_OPEN ||
+	    params->security == WIFI_SECURITY_TYPE_WEP_SHARED) {
+		if (params->psk_length &&
+		    params->psk_length != 5 && params->psk_length != 13 &&
+		    params->psk_length != 10 && params->psk_length != 26) {
+			NET_ERR("Invalid WEP key length %d: valid lengths are "
+				"5/13 (ASCII) or 10/26 (hex)", params->psk_length);
+			return -EINVAL;
+		}
+	} else if (params->psk_length && (params->psk_length < 8 || params->psk_length > 64)) {
+		return -EINVAL;
+	}
+#endif
 
 	if (params->sae_password_length &&
-	    (params->sae_password_length < 8 || params->sae_password_length > 64)) {
+	    (params->sae_password_length < 8 ||
+	     params->sae_password_length > WIFI_SAE_PSWD_MAX_LEN)) {
 		return -EINVAL;
 	}
 
@@ -437,6 +466,15 @@ static int wifi_connect(uint64_t mgmt_request, struct net_if *iface,
 			return -EINVAL;
 		}
 		break;
+#if !defined(CONFIG_WIFI_NM_WPA_SUPPLICANT) || defined(CONFIG_WIFI_NM_WPA_SUPPLICANT_WEP)
+	case WIFI_SECURITY_TYPE_WEP:
+	case WIFI_SECURITY_TYPE_WEP_OPEN:
+	case WIFI_SECURITY_TYPE_WEP_SHARED:
+		if (!params->psk_length || !params->psk) {
+			return -EINVAL;
+		}
+		break;
+#endif
 	default:
 		break;
 	}
@@ -1474,6 +1512,35 @@ static int wifi_set_bgscan(uint64_t mgmt_request, struct net_if *iface, void *da
 
 NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_WIFI_BGSCAN, wifi_set_bgscan);
 #endif
+#ifdef CONFIG_WIFI_NM_WPA_SUPPLICANT_P2P
+static int wifi_p2p_oper(uint64_t mgmt_request, struct net_if *iface,
+		    void *data, size_t len)
+{
+	const struct device *dev = net_if_get_device(iface);
+	const struct wifi_mgmt_ops *const wifi_mgmt_api = get_wifi_api(iface);
+	struct wifi_p2p_params *params = data;
+
+	if (wifi_mgmt_api == NULL || wifi_mgmt_api->p2p_oper == NULL) {
+		return -ENOTSUP;
+	}
+
+	if (data == NULL || len != sizeof(*params)) {
+		return -EINVAL;
+	}
+
+	return wifi_mgmt_api->p2p_oper(dev, params);
+}
+
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_WIFI_P2P_OPER, wifi_p2p_oper);
+
+void wifi_mgmt_raise_p2p_device_found_event(struct net_if *iface,
+					     struct wifi_p2p_device_info *peer_info)
+{
+	net_mgmt_event_notify_with_info(NET_EVENT_WIFI_P2P_DEVICE_FOUND,
+					iface, peer_info,
+					sizeof(*peer_info));
+}
+#endif /* CONFIG_WIFI_NM_WPA_SUPPLICANT_P2P */
 
 #ifdef CONFIG_WIFI_MGMT_RAW_SCAN_RESULTS
 void wifi_mgmt_raise_raw_scan_result_event(struct net_if *iface,
@@ -1551,6 +1618,11 @@ void wifi_mgmt_raise_ap_sta_disconnected_event(struct net_if *iface,
 #if defined(CONFIG_WIFI_CREDENTIALS_STATIC)
 BUILD_ASSERT(sizeof(CONFIG_WIFI_CREDENTIALS_STATIC_SSID) != 1,
 	     "CONFIG_WIFI_CREDENTIALS_STATIC_SSID required");
+BUILD_ASSERT(sizeof(CONFIG_WIFI_CREDENTIALS_STATIC_SSID) - 1 <= WIFI_SSID_MAX_LEN,
+	     "CONFIG_WIFI_CREDENTIALS_STATIC_SSID too long");
+BUILD_ASSERT(sizeof(CONFIG_WIFI_CREDENTIALS_STATIC_PASSWORD) - 1 <=
+		     WIFI_CREDENTIALS_MAX_PASSWORD_LEN,
+	     "CONFIG_WIFI_CREDENTIALS_STATIC_PASSWORD too long");
 #endif /* defined(CONFIG_WIFI_CREDENTIALS_STATIC) */
 
 /**
@@ -1751,7 +1823,7 @@ static int add_static_network_config(struct net_if *iface)
 	       strlen(CONFIG_WIFI_CREDENTIALS_STATIC_PASSWORD));
 
 	LOG_DBG("Adding statically configured WiFi network [%s] to internal list.",
-		creds.header.ssid);
+		CONFIG_WIFI_CREDENTIALS_STATIC_SSID);
 
 	return add_network_from_credentials_struct_personal(&creds, iface);
 #else

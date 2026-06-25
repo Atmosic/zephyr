@@ -4,6 +4,7 @@
 
 /*
  * Copyright (c) 2016 Intel Corporation
+ * Copyright 2024-2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -1353,7 +1354,7 @@ static uint16_t sdp_svc_att_req(struct bt_sdp *sdp, struct net_buf *buf, uint16_
 	}
 
 	if (state.current_svc != record->index) {
-		/* It is a corner case that the remaining free space of the responding is emtpy,
+		/* It is a corner case that the remaining free space of the responding is empty,
 		 * and all attributes are sent, clear state.pkt_full to avoid further processing.
 		 */
 		state.pkt_full = false;
@@ -1673,22 +1674,31 @@ static int bt_sdp_accept(struct bt_conn *conn, struct bt_l2cap_server *server,
 
 void bt_sdp_init(void)
 {
+	__maybe_unused int err;
+
+	static bool initialized;
 	static struct bt_l2cap_server server = {
 		.psm = SDP_PSM,
 		.accept = bt_sdp_accept,
 		.sec_level = BT_SECURITY_L0,
 	};
-	int res;
 
-	res = bt_l2cap_br_server_register(&server);
-	if (res) {
-		LOG_ERR("L2CAP server registration failed with error %d", res);
+	if (initialized) {
+		return;
+	}
+
+	err = bt_l2cap_br_server_register(&server);
+	if ((err != 0) && (err != -EEXIST)) {
+		LOG_ERR("Failed to register SDP L2CAP server (error %d)", err);
+		return;
 	}
 
 	ARRAY_FOR_EACH(bt_sdp_client_pool, i) {
 		/* Locking semaphore initialized to 1 (unlocked) */
 		k_sem_init(&bt_sdp_client_pool[i].sem_lock, 1, 1);
 	}
+
+	initialized = true;
 }
 
 int bt_sdp_register_service(struct bt_sdp_record *service)
@@ -2752,7 +2762,7 @@ void sdp_client_released(struct bt_l2cap_chan *chan)
 		/* put the reqs_next to reqs */
 		SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&session->reqs_next, param, tmp, _node) {
 			sys_slist_append(&session->reqs, &param->_node);
-			/* Remove already proccessed node */
+			/* Remove already processed node */
 			sys_slist_remove(&session->reqs_next, NULL, &param->_node);
 		}
 
@@ -2817,8 +2827,12 @@ static int sdp_client_discovery_start(struct bt_conn *conn,
 {
 	int err;
 	struct bt_sdp_client *session;
+	size_t index;
 
-	session = &bt_sdp_client_pool[bt_conn_index(conn)];
+	index = (size_t)bt_conn_index(conn);
+	__ASSERT(index < ARRAY_SIZE(bt_sdp_client_pool), "ACL CONN index is out of bounds");
+
+	session = &bt_sdp_client_pool[index];
 	k_sem_take(&session->sem_lock, K_FOREVER);
 	if (session->state == SDP_CLIENT_CONNECTING ||
 	    session->state == SDP_CLIENT_CONNECTED) {
@@ -3461,11 +3475,6 @@ static int sdp_attr_parse(struct net_buf_simple *buf,
 	int err;
 	uint8_t type;
 
-	if (nest_level == SDP_DATA_ELEM_NEST_LEVEL_MAX) {
-		LOG_WRN("Maximum nesting level (%u) exceeded", SDP_DATA_ELEM_NEST_LEVEL_MAX);
-		return 0;
-	}
-
 	if (buf->len < sizeof(uint8_t)) {
 		return 0;
 	}
@@ -3475,6 +3484,18 @@ static int sdp_attr_parse(struct net_buf_simple *buf,
 	err = sdp_attr_get_len(type, buf, &len);
 	if (err != 0) {
 		return err;
+	}
+
+	if (len == 0) {
+		LOG_DBG("No valid data found");
+		return 0;
+	}
+
+	if (nest_level == SDP_DATA_ELEM_NEST_LEVEL_MAX) {
+		LOG_WRN("Exceed max nesting level (%u). Ignore ATTR data (len %u)",
+			SDP_DATA_ELEM_NEST_LEVEL_MAX, len);
+		net_buf_simple_pull_mem(buf, len);
+		return 0;
 	}
 
 	/* The following is a data ele sequence, so recursively parse */
@@ -3527,6 +3548,15 @@ static int sdp_attr_parse(struct net_buf_simple *buf,
 out:
 		if (!func(&value, user_data)) {
 			return -ECANCELED;
+		}
+
+		if ((vbuf.len > 0) && sdp_attr_is_seq(vbuf.data[0])) {
+			LOG_DBG("Recursively parse if the following data is a sequence");
+
+			err = sdp_attr_parse(&vbuf, func, user_data, nest_level + 1);
+			if (err != 0) {
+				return err;
+			}
 		}
 
 		if (vbuf.len < sizeof(uint8_t)) {

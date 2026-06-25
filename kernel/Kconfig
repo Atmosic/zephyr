@@ -83,11 +83,14 @@ config PREEMPT_ENABLED
 
 config PRIORITY_CEILING
 	int "Priority inheritance ceiling"
-	default -127
+	default -128
+	range -128 127
 	help
-	  This defines the minimum priority value (i.e. the logically
-	  highest priority) that a thread will acquire as part of
-	  k_mutex priority inheritance.
+	  This defines the minimum priority value (i.e. the logically highest
+	  priority) that a thread will acquire as part of the k_mutex priority
+	  inheritance. Setting this to a priority level at or lower than the
+	  the idle thread's priority level disables the k_mutex priority
+	  inheritance algorithm.
 
 config NUM_METAIRQ_PRIORITIES
 	int "Number of very-high priority 'preemptor' threads"
@@ -157,7 +160,7 @@ config SCHED_CPU_MASK_PIN_ONLY
 config MAIN_STACK_SIZE
 	int "Size of stack for initialization and main thread"
 	default 2048 if COVERAGE_GCOV
-	default 512 if ZTEST && !(RISCV || X86 || ARM || ARC)
+	default 512 if ZTEST && !(RISCV || X86 || ARM || ARC || OPENRISC)
 	default 1024
 	help
 	  When the initialization is complete, the thread executing it then
@@ -297,15 +300,8 @@ endchoice # DYNAMIC_THREAD_PREFER
 
 endif # DYNAMIC_THREADS
 
-config SCHED_DUMB
-	bool "Simple linked-list ready queue"
-	select DEPRECATED
-	help
-	  Deprecated in favour of SCHED_SIMPLE.
-
 choice SCHED_ALGORITHM
 	prompt "Scheduler priority queue algorithm"
-	default SCHED_SIMPLE if SCHED_DUMB
 	default SCHED_SIMPLE
 	help
 	  The kernel can be built with several choices for the
@@ -357,15 +353,8 @@ config SCHED_MULTIQ
 
 endchoice # SCHED_ALGORITHM
 
-config WAITQ_DUMB
-	bool "Simple linked-list wait_q"
-	select DEPRECATED
-	help
-	  Deprecated in favour of WAITQ_SIMPLE.
-
 choice WAITQ_ALGORITHM
 	prompt "Wait queue priority algorithm"
-	default WAITQ_SIMPLE if WAITQ_DUMB
 	default WAITQ_SIMPLE
 	help
 	  The wait_q abstraction used in IPC primitives to pend
@@ -431,6 +420,13 @@ config CURRENT_THREAD_USE_TLS
 	help
 	  Use thread local storage to store the current thread. This avoids a
 	  syscall if userspace is enabled.
+
+config NONZERO_SPINLOCK_SIZE
+	bool "Force spinlock to have non-zero size"
+	help
+	  This option indicates that the spinlock structure must have a
+	  non-zero size (such as if used in an array). It is automatically
+	  selected when using C++.
 
 endmenu
 
@@ -570,6 +566,27 @@ config SCHED_THREAD_USAGE_AUTO_ENABLE
 
 endif # THREAD_RUNTIME_STATS
 
+menuconfig THREAD_RUNTIME_STACK_SAFETY
+	bool "Thread runtime stack safety support"
+	default n
+	help
+	  This option enables support for the thread runtime stack safety check routines.
+	  These routines are used to  detect a thread's unused stack space and invoke a
+	  user-defined handler if it was found to have dropped below a configured threshold.
+
+if THREAD_RUNTIME_STACK_SAFETY
+config THREAD_RUNTIME_STACK_SAFETY_DEFAULT_UNUSED_THRESHOLD_PCT
+	int "Runtime Stack Safety unused stack usage percentage threshold"
+	default 0
+	range 0 99
+	help
+	  This option specifies a thread's default runtime stack safety
+	  threshold as a percentage of the stack size. When the runtime stack
+	  safety routines detect that a thread's unused stack percentage has fallen
+	  _below_ this threshold, a user-defined handler is invoked.
+	  Setting this to 0 disables the check by default for all threads.
+endif
+
 endmenu
 
 rsource "Kconfig.obj_core"
@@ -695,6 +712,12 @@ config TIMESLICE_PER_THREAD
 	  When set, this enables an API for setting timeslice values on
 	  a per-thread basis, with an application callback invoked when
 	  a thread reaches the end of its timeslice.
+
+config TIMER_OBSERVER
+	bool "Support extension points for k_timer lifecycle"
+	help
+	  Adds iterable‑section support for observing k_timer events.
+	  Supports extending timer behavior without kernel changes.
 
 endmenu
 
@@ -1137,6 +1160,19 @@ config BOOTARGS_ARGS_BUFFER_SIZE
 endif # BOOTARGS
 
 endmenu
+
+config KERNEL_NO_LTO
+	bool
+	depends on LTO
+	depends on XIP
+	help
+	  Some SoCs require kernel code to be placed in RAM, which makes link-time
+	  optimization (LTO) unsuitable for these files (-fno-lto). Disabling LTO
+	  allows the affected code to be linked as separate objects and placed in
+	  specific memory regions.
+
+	  Running kernel code from RAM can improve execution performance, especially
+	  for timing-critical routines or context switch paths.
 
 rsource "Kconfig.device"
 rsource "Kconfig.vm"

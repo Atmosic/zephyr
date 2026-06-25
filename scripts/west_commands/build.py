@@ -10,11 +10,12 @@ import shlex
 import sys
 
 import yaml
-from build_helpers import FIND_BUILD_DIR_DESCRIPTION, find_build_dir, is_zephyr_build, load_domains
 from west.commands import Verbosity
 from west.configuration import config
 from west.util import WestNotFound, west_topdir
 from west.version import __version__
+
+from build_helpers import FIND_BUILD_DIR_DESCRIPTION, find_build_dir, is_zephyr_build, load_domains
 from zcmake import DEFAULT_CMAKE_GENERATOR, CMakeCache, run_build, run_cmake
 from zephyr_ext_common import Forceable
 
@@ -26,10 +27,10 @@ SYSBUILD_PROJ_DIR = pathlib.Path(__file__).resolve().parent.parent.parent \
 BUILD_INFO_LOG = 'build_info.yml'
 
 BUILD_USAGE = '''\
-west build [-h] [-b BOARD[@REV]]] [-d BUILD_DIR]
+west build [-h] [-b BOARD[@REV]] [-d BUILD_DIR]
            [-S SNIPPET] [--shield SHIELD]
            [-t TARGET] [-p {auto, always, never}] [-c] [--cmake-only]
-           [-n] [-o BUILD_OPT] [-f]
+           [--cmake-opt CMAKE_OPT] [-n] [-o BUILD_OPT] [-f]
            [--sysbuild | --no-sysbuild] [--domain DOMAIN]
            [--extra-conf FILE.conf]
            [--extra-dtc-overlay FILE.overlay]
@@ -70,9 +71,8 @@ class Build(Forceable):
     def __init__(self):
         super().__init__(
             'build',
-            # Keep this in sync with the string in west-commands.yml.
-            'compile a Zephyr application',
-            BUILD_DESCRIPTION,
+            '',
+            description=BUILD_DESCRIPTION,
             accepts_unknown_args=True)
 
         self.source_dir = None
@@ -100,7 +100,6 @@ class Build(Forceable):
     def do_add_parser(self, parser_adder):
         parser = parser_adder.add_parser(
             self.name,
-            help=self.help,
             formatter_class=argparse.RawDescriptionHelpFormatter,
             description=self.description,
             usage=BUILD_USAGE)
@@ -119,6 +118,14 @@ class Build(Forceable):
         group = parser.add_argument_group('cmake and build tool')
         group.add_argument('-c', '--cmake', action='store_true',
                            help='force a cmake run')
+        group.add_argument('--cmake-opt', action='append',
+                           dest="cmake_opts", default=[],
+                           help='''alternative to the end-of-options marker '--'.
+                           Can be given multiple times and 'argparse' should
+                           preserve the order for CMake. Not mutually exclusive
+                           with '--': options after '--' are given last to
+                           CMake.''',
+        )
         group.add_argument('--cmake-only', action='store_true',
                            help="just run cmake; don't build (implies -c)")
         group.add_argument('--domain', action='append',
@@ -262,7 +269,7 @@ class Build(Forceable):
             else:
                 self.die("test item path does not exist")
 
-        self._run_cmake(board, origin, self.args.cmake_opts)
+        self._run_cmake(board, origin)
         if args.cmake_only:
             return
 
@@ -293,7 +300,7 @@ class Build(Forceable):
 
     def _parse_remainder(self, remainder):
         self.args.source_dir = None
-        self.args.cmake_opts = None
+        self.args.cmake_opts = getattr(self.args, 'cmake_opts', [])
 
         try:
             # Only one source_dir is allowed, as the first positional arg
@@ -305,7 +312,7 @@ class Build(Forceable):
             if remainder[0] == _ARG_SEPARATOR:
                 remainder = remainder[1:]
             if remainder:
-                self.args.cmake_opts = remainder
+                self.args.cmake_opts.extend(remainder)
         except IndexError:
             pass
 
@@ -346,7 +353,7 @@ class Build(Forceable):
                 self.die(f"Test item {test_item} not found in {yf}")
             item = tests.get(test_item)
 
-            sysbuild = False
+            sysbuild = None
             extra_dtc_overlay_files = []
             extra_overlay_confs = []
             extra_conf_files = []
@@ -407,17 +414,15 @@ class Build(Forceable):
                         required_snippets.extend(arg_list)
                         continue
 
-                    if self.args.cmake_opts:
-                        self.args.cmake_opts.extend(args)
-                    else:
-                        self.args.cmake_opts = args
+                    self.args.cmake_opts.extend(args)
 
-            self.args.sysbuild = sysbuild
+            if sysbuild is not None:
+                self.args.sysbuild = sysbuild
 
         if found_test_metadata:
             args = []
             if extra_conf_files:
-                args.append(f"CONF_FILE=\"{';'.join(extra_conf_files)}\"")
+                args.append(f"EXTRA_CONF_FILE=\"{';'.join(extra_conf_files)}\"")
 
             if extra_dtc_overlay_files:
                 args.append(f"DTC_OVERLAY_FILE=\"{';'.join(extra_dtc_overlay_files)}\"")
@@ -431,10 +436,7 @@ class Build(Forceable):
             # Build the final argument list
             args_expanded = ["-D{}".format(a.replace('"', '')) for a in args]
 
-            if self.args.cmake_opts:
-                self.args.cmake_opts.extend(args_expanded)
-            else:
-                self.args.cmake_opts = args_expanded
+            self.args.cmake_opts.extend(args_expanded)
 
         return found_test_metadata
 
@@ -624,7 +626,7 @@ class Build(Forceable):
                 self.source_dir = self._find_source_dir()
                 self._sanity_check_source_dir()
 
-    def _run_cmake(self, board, origin, cmake_opts):
+    def _run_cmake(self, board, origin):
         if board is None and config_getboolean('board_warn', True):
             self.wrn('This looks like a fresh build and BOARD is unknown;',
                     "so it probably won't work. To fix, use",

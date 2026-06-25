@@ -26,7 +26,7 @@
  * @brief Interfaces for MIPI-DBI (Display Bus Interface).
  * @defgroup mipi_dbi_interface MIPI-DBI
  * @since 3.6
- * @version 0.8.0
+ * @version 1.0.0
  * @ingroup display_interface
  * @{
  */
@@ -150,6 +150,11 @@ extern "C" {
 	DT_STRING_UPPER_TOKEN(DT_DRV_INST(inst), edge_prop)
 
 /**
+ * @def_driverbackendgroup{MIPI-DBI,mipi_dbi_interface}
+ * @{
+ */
+
+/**
  * @brief MIPI DBI controller configuration
  *
  * Configuration for MIPI DBI controller write
@@ -157,31 +162,88 @@ extern "C" {
 struct mipi_dbi_config {
 	/** MIPI DBI mode */
 	uint8_t mode;
+	/** MIPI DBI color coding for Type A or Type B(6800/8080) interface. */
+	uint8_t color_coding;
 	/** SPI configuration */
 	struct spi_config config;
 };
 
+/**
+ * @brief Callback API to write a command to the display controller.
+ * See mipi_dbi_command_write() for argument description
+ */
+typedef int (*mipi_dbi_command_write_t)(const struct device *dev,
+					const struct mipi_dbi_config *config, uint8_t cmd,
+					const uint8_t *data, size_t len);
 
-/** MIPI-DBI host driver API */
+/**
+ * @brief Callback API to read a command response from the display controller.
+ * See mipi_dbi_command_read() for argument description
+ */
+typedef int (*mipi_dbi_command_read_t)(const struct device *dev,
+				       const struct mipi_dbi_config *config, uint8_t *cmds,
+				       size_t num_cmds, uint8_t *response, size_t len);
+
+/**
+ * @brief Callback API to write a display buffer to the display controller.
+ * See mipi_dbi_write_display() for argument description
+ */
+typedef int (*mipi_dbi_write_display_t)(const struct device *dev,
+					const struct mipi_dbi_config *config,
+					const uint8_t *framebuf,
+					struct display_buffer_descriptor *desc,
+					enum display_pixel_format pixfmt);
+
+/**
+ * @brief Callback API to reset the attached display controller.
+ * See mipi_dbi_reset() for argument description
+ */
+typedef int (*mipi_dbi_reset_t)(const struct device *dev, k_timeout_t delay);
+
+/**
+ * @brief Callback API to release a locked MIPI DBI device.
+ * See mipi_dbi_release() for argument description
+ */
+typedef int (*mipi_dbi_release_t)(const struct device *dev, const struct mipi_dbi_config *config);
+
+/**
+ * @brief Callback API to configure the MIPI DBI tearing effect signal.
+ * See mipi_dbi_configure_te() for argument description
+ */
+typedef int (*mipi_dbi_configure_te_t)(const struct device *dev, uint8_t edge, k_timeout_t delay);
+
+/**
+ * @driver_ops{MIPI-DBI}
+ */
 __subsystem struct mipi_dbi_driver_api {
-	int (*command_write)(const struct device *dev,
-			     const struct mipi_dbi_config *config, uint8_t cmd,
-			     const uint8_t *data, size_t len);
-	int (*command_read)(const struct device *dev,
-			    const struct mipi_dbi_config *config, uint8_t *cmds,
-			    size_t num_cmds, uint8_t *response, size_t len);
-	int (*write_display)(const struct device *dev,
-			     const struct mipi_dbi_config *config,
-			     const uint8_t *framebuf,
-			     struct display_buffer_descriptor *desc,
-			     enum display_pixel_format pixfmt);
-	int (*reset)(const struct device *dev, k_timeout_t delay);
-	int (*release)(const struct device *dev,
-		       const struct mipi_dbi_config *config);
-	int (*configure_te)(const struct device *dev,
-			    uint8_t edge,
-			    k_timeout_t delay);
+	/**
+	 * @driver_ops_optional @copybrief mipi_dbi_command_write
+	 */
+	mipi_dbi_command_write_t command_write;
+	/**
+	 * @driver_ops_optional @copybrief mipi_dbi_command_read
+	 */
+	mipi_dbi_command_read_t command_read;
+	/**
+	 * @driver_ops_optional @copybrief mipi_dbi_write_display
+	 */
+	mipi_dbi_write_display_t write_display;
+	/**
+	 * @driver_ops_optional @copybrief mipi_dbi_reset
+	 */
+	mipi_dbi_reset_t reset;
+	/**
+	 * @driver_ops_optional @copybrief mipi_dbi_release
+	 */
+	mipi_dbi_release_t release;
+	/**
+	 * @driver_ops_optional @copybrief mipi_dbi_configure_te
+	 */
+	mipi_dbi_configure_te_t configure_te;
 };
+/**
+ * @}
+ */
 
 /**
  * @brief Write a command to the display controller

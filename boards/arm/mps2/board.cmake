@@ -7,7 +7,6 @@ if(CONFIG_BOARD_MPS2_AN385)
   set(QEMU_FLAGS_${ARCH}
     -cpu ${QEMU_CPU_TYPE_${ARCH}}
     -machine mps2-an385
-    -nographic
     -vga none
     )
   set(ARMFVP_BIN_NAME FVP_MPS2_Cortex-M3)
@@ -15,13 +14,19 @@ elseif(CONFIG_BOARD_MPS2_AN383)
   set(SUPPORTED_EMU_PLATFORMS armfvp)
   set(ARMFVP_BIN_NAME FVP_MPS2_Cortex-M0plus)
   set(ARMFVP_FLAGS
-  -C armcortexm0plusct.NUM_MPU_REGION=8
-  -C armcortexm0plusct.USER=1
-  -C armcortexm0plusct.VTOR=1
-  )
+    -C armcortexm0plusct.NUM_MPU_REGION=8
+    -C armcortexm0plusct.USER=1
+    -C armcortexm0plusct.VTOR=1
+    )
 elseif(CONFIG_BOARD_MPS2_AN386)
-  set(SUPPORTED_EMU_PLATFORMS armfvp)
+  set(SUPPORTED_EMU_PLATFORMS qemu armfvp)
   set(ARMFVP_BIN_NAME FVP_MPS2_Cortex-M4)
+  set(QEMU_CPU_TYPE_${ARCH} cortex-m4)
+  set(QEMU_FLAGS_${ARCH}
+    -cpu ${QEMU_CPU_TYPE_${ARCH}}
+    -machine mps2-an386
+    -vga none
+    )
 elseif(CONFIG_BOARD_MPS2_AN500)
   set(SUPPORTED_EMU_PLATFORMS armfvp)
   set(ARMFVP_BIN_NAME FVP_MPS2_Cortex-M7)
@@ -31,7 +36,6 @@ elseif(CONFIG_BOARD_MPS2_AN521_CPU0 OR CONFIG_BOARD_MPS2_AN521_CPU0_NS OR CONFIG
   set(QEMU_FLAGS_${ARCH}
     -cpu ${QEMU_CPU_TYPE_${ARCH}}
     -machine mps2-an521
-    -nographic
     -m 16
     -vga none
     )

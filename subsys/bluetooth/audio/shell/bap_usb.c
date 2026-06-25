@@ -19,7 +19,7 @@
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
-#include <zephyr/drivers/usb/udc_buf.h>
+#include <zephyr/drivers/usb/usb_buf.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net_buf.h>
@@ -738,7 +738,6 @@ int bap_usb_init(void)
 		 */
 		err = nrfx_clock_divider_set(NRF_CLOCK_DOMAIN_HFCLK, NRF_CLOCK_HFCLK_DIV_1);
 
-		err -= NRFX_ERROR_BASE_NUM;
 		if (err != 0) {
 			LOG_WRN("Failed to set 128 MHz: %d", err);
 		}

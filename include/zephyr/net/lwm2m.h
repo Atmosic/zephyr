@@ -29,6 +29,7 @@
 
 #include <time.h>
 #include <zephyr/kernel.h>
+#include <zephyr/types.h>
 #include <zephyr/sys/mutex.h>
 #include <zephyr/net/coap.h>
 #include <zephyr/net/lwm2m_path.h>
@@ -76,6 +77,7 @@ extern "C" {
 #define IPSO_OBJECT_HUMIDITY_SENSOR_ID      3304 /**< IPSO Humidity Sensor object */
 #define IPSO_OBJECT_LIGHT_CONTROL_ID        3311 /**< IPSO Light Control object */
 #define IPSO_OBJECT_ACCELEROMETER_ID        3313 /**< IPSO Accelerometer object */
+#define IPSO_OBJECT_MAGNETOMETER_ID         3314 /**< IPSO Magnetometer object */
 #define IPSO_OBJECT_VOLTAGE_SENSOR_ID       3316 /**< IPSO Voltage Sensor object */
 #define IPSO_OBJECT_CURRENT_SENSOR_ID       3317 /**< IPSO Current Sensor object */
 #define IPSO_OBJECT_PRESSURE_ID             3323 /**< IPSO Pressure Sensor object */
@@ -206,7 +208,7 @@ enum lwm2m_socket_states {
  */
 struct lwm2m_ctx {
 	/** Destination address storage */
-	struct sockaddr remote_addr;
+	struct net_sockaddr remote_addr;
 
 	/** @cond INTERNAL_HIDDEN
 	 * Private CoAP and networking structures + 1 is for RD Client own message
@@ -1618,6 +1620,15 @@ int lwm2m_enable_cache(const struct lwm2m_obj_path *path, struct lwm2m_time_seri
  */
 int lwm2m_set_cache_filter(const struct lwm2m_obj_path *path,
 			   lwm2m_cache_filter_cb_t filter_cb);
+
+/**
+ * @brief Return number of free slots in a cached resource.
+ *
+ * @param path LwM2M path to the cached resource.
+ *
+ * @return Number of free slots, or negative errno code in case of error.
+ */
+int lwm2m_cache_free_slots_get(const struct lwm2m_obj_path *path);
 
 /**
  * @brief Security modes as defined in LwM2M Security object.

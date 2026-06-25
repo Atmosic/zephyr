@@ -7,13 +7,13 @@
 
 /dts-v1/;
 #include <common/freq.h>
-#include <dt-bindings/mfd/mfd_mchp_sam_flexcom.h>
+#include <zephyr/dt-bindings/mfd/mfd_mchp_sam_flexcom.h>
 #include <dt-bindings/sam/sama7g5/sama7g54/sama7g54-pinctrl.h>
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/gpio/microchip-sam-gpio.h>
-#include <dt-bindings/input/input-event-codes.h>
-#include <dt-bindings/pwm/pwm.h>
-#include <microchip/sam/sama7g5.dtsi>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/gpio/microchip-sam-gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/pwm/pwm.h>
+#include <microchip/sam/sama7/sama7g5/sama7g54.dtsi>
 
 / {
 	model = "SAMA7G54-EK board";
@@ -22,6 +22,7 @@
 	aliases {
 		led0 = &led_green;
 		pwm-led0 = &pwm_led_green;
+		rtc = &rtc;
 		sw0 = &button_user;
 		sdhc0 = &sdmmc0;
 		sdhc1 = &sdmmc1;
@@ -29,6 +30,7 @@
 
 	chosen {
 		zephyr,sram = &ddram;
+		zephyr,canbus = &mcan0;
 		zephyr,console = &usart3;
 		zephyr,entropy = &trng;
 		zephyr,shell-uart = &usart3;
@@ -92,6 +94,24 @@
 			pwms = <&pwm 3 PWM_MSEC(20) PWM_POLARITY_INVERTED>;
 		};
 	};
+
+	transceiver0: can-phy0 {
+		compatible = "can-transceiver-gpio";
+		standby-gpios = <&pioc 15 GPIO_ACTIVE_HIGH>;
+		max-bitrate = <DT_FREQ_M(8)>;
+		#phy-cells = <0>;
+	};
+
+	transceiver1: can-phy1 {
+		compatible = "can-transceiver-gpio";
+		standby-gpios = <&pioc 16 GPIO_ACTIVE_HIGH>;
+		max-bitrate = <DT_FREQ_M(8)>;
+		#phy-cells = <0>;
+	};
+};
+
+&aes {
+	status = "okay";
 };
 
 &dma0 {
@@ -135,6 +155,17 @@
 			size = <256>;
 			timeout = <5>;
 			status = "okay";
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				eeprom0_eui48: eui48@fa {
+					reg = <0xfa 6>;
+					#nvmem-cell-cells = <0>;
+				};
+			};
 		};
 
 		eeprom1: eeprom1@53 {
@@ -145,6 +176,17 @@
 			size = <256>;
 			timeout = <5>;
 			status = "okay";
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				eeprom1_eui48: eui48@fa {
+					reg = <0xfa 6>;
+					#nvmem-cell-cells = <0>;
+				};
+			};
 		};
 	};
 };
@@ -155,6 +197,9 @@
 	pinctrl-0 = <&pinctrl_gmac0_default>;
 	phy-connection-type = "gmii";
 	phy-handle = <&gmac0_phy>;
+
+	nvmem-cells = <&eeprom0_eui48>;
+	nvmem-cell-names = "mac_address";
 };
 
 &gmac0_mdio {
@@ -168,6 +213,7 @@
 		status = "okay";
 		reg = <7>;
 		int-gpios = <&pioa 31 GPIO_ACTIVE_LOW>;
+		microchip,rgmii-delay = "id";
 	};
 };
 
@@ -178,6 +224,9 @@
 	phy-connection-type = "mii";
 	phy-handle = <&gmac1_phy>;
 	ref-clk-source = "external";
+
+	nvmem-cells = <&eeprom1_eui48>;
+	nvmem-cell-names = "mac_address";
 };
 
 &gmac1_mdio {
@@ -195,7 +244,37 @@
 	};
 };
 
+&mcan0 {
+	status = "okay";
+	pinctrl-0 = <&pinctrl_can0_default>;
+	pinctrl-names = "default";
+	phys = <&transceiver0>;
+};
+
+&mcan1 {
+	status = "okay";
+	pinctrl-0 = <&pinctrl_can1_default>;
+	pinctrl-names = "default";
+	phys = <&transceiver1>;
+};
+
 &pinctrl {
+	pinctrl_can0_default: can0_default {
+		group1 {
+			pinmux = <PIN_PD12__CANTX0>,
+				 <PIN_PD13__CANRX0>;
+			bias-disable;
+		};
+	};
+
+	pinctrl_can1_default: can1_default {
+		group1 {
+			pinmux = <PIN_PD14__CANTX1>,
+				 <PIN_PD15__CANRX1>;
+			bias-disable;
+		};
+	};
+
 	pinctrl_flx3_default: flx3_default {
 		group1 {
 			pinmux = <PIN_PD16__FLEXCOM3_IO0>,
@@ -322,6 +401,12 @@
 	clock-frequency = <DT_FREQ_M(10)>;
 };
 
+&pit64b1 {
+	top-alarm;
+	prescaler-period = <15>;
+	status = "okay";
+};
+
 &pwm {
 	pinctrl-0 = <&pinctrl_mikrobus_pwm_default>;
 	pinctrl-names = "default";
@@ -358,6 +443,14 @@
 		disk-name = "SD";
 		status = "okay";
 	};
+};
+
+&sha {
+	status = "okay";
+};
+
+&tc0_ch0 {
+	status = "okay";
 };
 
 &trng {

@@ -88,8 +88,8 @@ def shell(dut: DeviceAdapter) -> Shell:
 
 
 @pytest.fixture(scope='session')
-def required_build_dirs(request: pytest.FixtureRequest) -> list[str]:
-    return request.config.getoption('--required-build')
+def required_build_dirs(twister_harness_config: TwisterHarnessConfig) -> list[str]:
+    return twister_harness_config.test_params.required_builds
 
 
 @pytest.fixture()
@@ -97,7 +97,7 @@ def mcumgr(device_object: DeviceAdapter) -> Generator[MCUmgr, None, None]:
     """Fixture to create an MCUmgr instance for serial connection."""
     if not MCUmgr.is_available():
         pytest.skip('mcumgr not available')
-    yield MCUmgr.create_for_serial(device_object.device_config.serial)
+    yield MCUmgr.create_for_serial(device_object.device_config.serial_configs[0].port)
 
 
 @pytest.fixture()

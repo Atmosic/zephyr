@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 NXP
+ * SPDX-FileCopyrightText: Copyright 2025-2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -52,8 +52,8 @@ static int cmd_net_qbv(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "For example:");
 	shell_print(sh, "  1. net qbv enable 1 on");
 	shell_print(sh, "  2. net qbv set_config 1 200 0 0 10000000 0 2");
-	shell_print(sh, "  3. qbv set_gc 1 0 0x1 5000000");
-	shell_print(sh, "  4. qbv set_gc 1 0 0x2 5000000");
+	shell_print(sh, "  3. net qbv set_gc 1 0 0x1 5000000");
+	shell_print(sh, "  4. net qbv set_gc 1 0 0x2 5000000");
 #else
 	shell_print(sh, "Set %s to enable %s support.\n", "CONFIG_NET_QBV", "qbv");
 	shell_print(sh, "Set %s to enable %s support.\n", "CONFIG_NET_L2_ETHERNET_MGMT",
@@ -69,7 +69,7 @@ static int cmd_qbv_enable(const struct shell *sh, size_t argc, char **argv)
 #if defined(CONFIG_NET_QBV) && defined(CONFIG_NET_L2_ETHERNET_MGMT)
 	struct net_if *iface;
 	struct ethernet_req_params params;
-	int ret;
+	int ret = 0;
 	bool enable;
 
 	iface = get_iface_from_shell(sh, argc, argv);
@@ -114,7 +114,7 @@ static int cmd_qbv_set_config(const struct shell *sh, size_t argc, char **argv)
 	struct net_if *iface;
 	struct ethernet_req_params params;
 	uint32_t list_len;
-	int ret;
+	int ret = 0;
 
 	iface = get_iface_from_shell(sh, argc, argv);
 	if (!iface) {
@@ -189,7 +189,7 @@ static int cmd_qbv_set_gc(const struct shell *sh, size_t argc, char **argv)
 	uint32_t row;
 	uint32_t interval;
 	uint32_t gc;
-	int ret;
+	int ret = 0;
 
 	iface = get_iface_from_shell(sh, argc, argv);
 	if (!iface) {
@@ -318,18 +318,22 @@ static int cmd_qbv_get_info(const struct shell *sh, size_t argc, char **argv)
 
 SHELL_STATIC_SUBCMD_SET_CREATE(net_cmd_qbv,
 	SHELL_CMD_ARG(enable, NULL,
-		"Enable: enable <iface_index> <value(off, on)>",
+		      SHELL_HELP("Enable Qbv", "<index> <on, off>"),
 		cmd_qbv_enable, 3, 0),
 	SHELL_CMD_ARG(set_config, NULL,
-		"Set config: set <iface_index> <base_time(s)> <base_time(2*(-16)ns)> <cycle_time(s)> <cycle_time(ns)> <cycle_time_ext(ns)> <list_len>",
+		      SHELL_HELP("Set Qbv configuration",
+				 "<index> <base_time(s)> <base_time(2*(-16)ns)>\n"
+				 "<cycle_time(s)> <cycle_time(ns)> <cycle_time_ext(ns)> "
+				 "<list_len>"),
 		cmd_qbv_set_config, 8, 0),
 	SHELL_CMD_ARG(set_gc, NULL,
-		"Set gate control: set <iface_index> <row> <gate_control> <interval>",
+		      SHELL_HELP("Set gate control",
+				 "<index> <row> <gate_control> <interval>"),
 		cmd_qbv_set_gc, 5, 0),
 	SHELL_CMD_ARG(get_info, NULL,
-		"Get info: get_info <iface_index>",
+		      SHELL_HELP("Get information", "<index>"),
 		cmd_qbv_get_info, 2, 0),
-	SHELL_SUBCMD_SET_END     /* Array terminated. */
+	SHELL_SUBCMD_SET_END
 );
 
 SHELL_SUBCMD_ADD((net), qbv, &net_cmd_qbv,

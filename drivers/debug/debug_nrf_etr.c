@@ -22,6 +22,11 @@
 #include <dmm.h>
 #include <nrfx_tbm.h>
 #include <stdio.h>
+
+#ifdef CONFIG_DEBUG_NRF_ETR_BACKEND_RTT
+#include <SEGGER_RTT.h>
+#endif
+
 LOG_MODULE_REGISTER(cs_etr_tbm);
 
 #define UART_NODE DT_CHOSEN(zephyr_console)
@@ -79,7 +84,7 @@ static uint32_t etr_rd_idx;
 /* Counts number of new messages completed in the current formatter frame decoding. */
 static uint32_t new_msg_cnt;
 
-static bool volatile use_async_uart;
+static bool volatile use_blocking;
 
 static struct k_sem uart_sem;
 static const struct device *uart_dev = DEVICE_DT_GET(UART_NODE);
@@ -100,10 +105,10 @@ static const uint16_t stm_m_id[] = {0x21, 0x22, 0x23, 0x2c, 0x2d, 0x2e, 0x24, 0x
 static uint32_t source_id_buf[ARRAY_SIZE(stm_m_id) * 8];
 static const char *const stm_m_name[] = {"sec", "app", "rad", "sys", "flpr", "ppr", "mod", "hw"};
 static const char *const hw_evts[] = {
-	"CTI211_0",  /* 0 CTI211 triger out 1 */
-	"CTI211_1",  /* 1 CTI211 triger out 1 inverted */
-	"CTI211_2",  /* 2 CTI211 triger out 2 */
-	"CTI211_3",  /* 3 CTI211 triger out 2 inverted*/
+	"CTI211_0",  /* 0 CTI211 trigger out 1 */
+	"CTI211_1",  /* 1 CTI211 trigger out 1 inverted */
+	"CTI211_2",  /* 2 CTI211 trigger out 2 */
+	"CTI211_3",  /* 3 CTI211 trigger out 2 inverted*/
 	"Sec up",    /* 4 Secure Domain up */
 	"Sec down",  /* 5 Secure Domain down */
 	"App up",    /* 6 Application Domain up */
@@ -149,27 +154,101 @@ static shell_transport_handler_t shell_handler;
 static void *shell_context;
 #endif
 
-static int log_output_func(uint8_t *buf, size_t size, void *ctx)
+#ifdef CONFIG_DEBUG_NRF_ETR_BACKEND_RTT
+
+#define RTT_LOCK() \
+	COND_CODE_0(CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_BUFFER, (SEGGER_RTT_LOCK()), ())
+
+#define RTT_UNLOCK() \
+	COND_CODE_0(CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_BUFFER, (SEGGER_RTT_UNLOCK()), ())
+
+static uint8_t rtt_buf[COND_CODE_0(CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_BUFFER, (1),
+				(CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_BUFFER_SIZE))];
+
+static volatile bool rtt_host_present;
+
+static void rtt_on_failed_write(int retry_cnt, bool in_panic)
 {
-	if (use_async_uart) {
-		int err;
-		static uint8_t *tx_buf = (uint8_t *)frame_buf0;
-
-		err = k_sem_take(&uart_sem, K_FOREVER);
-		__ASSERT_NO_MSG(err >= 0);
-
-		memcpy(tx_buf, buf, size);
-
-		err = uart_tx(uart_dev, tx_buf, size, SYS_FOREVER_US);
-		__ASSERT_NO_MSG(err >= 0);
-
-		tx_buf = (tx_buf == (uint8_t *)frame_buf0) ?
-			(uint8_t *)frame_buf1 : (uint8_t *)frame_buf0;
+	if (retry_cnt == 0) {
+		rtt_host_present = false;
+	} else if (in_panic) {
+		k_busy_wait(USEC_PER_MSEC * CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_RETRY_DELAY_MS);
 	} else {
-		for (int i = 0; i < size; i++) {
-			uart_poll_out(uart_dev, buf[i]);
+		k_msleep(CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_RETRY_DELAY_MS);
+	}
+}
+
+static void rtt_on_write(int retry_cnt, bool in_panic)
+{
+	rtt_host_present = true;
+	if (use_blocking) {
+		/* In panic mode block on each write until host reads it. This
+		 * way it is ensured that if system resets all messages are read
+		 * by the host. While pending on data being read by the host we
+		 * must also detect situation where host is disconnected.
+		 */
+		while (SEGGER_RTT_HasDataUp(CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_BUFFER)) {
+			rtt_on_failed_write(retry_cnt--, in_panic);
 		}
 	}
+
+}
+
+static void rtt_write(uint8_t *data, size_t length, bool in_panic)
+{
+	int ret = 0;
+	int retry_cnt = CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_RETRY_CNT;
+
+	do {
+		if (!in_panic) {
+			RTT_LOCK();
+			ret = SEGGER_RTT_WriteSkipNoLock(CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_BUFFER,
+							 data, length);
+			RTT_UNLOCK();
+		} else {
+			ret = SEGGER_RTT_WriteSkipNoLock(CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_BUFFER,
+							 data, length);
+		}
+
+		if (ret) {
+			rtt_on_write(retry_cnt, in_panic);
+		} else if (rtt_host_present) {
+			retry_cnt--;
+			rtt_on_failed_write(retry_cnt, in_panic);
+		} else {
+		}
+	} while ((ret == 0) && rtt_host_present);
+}
+#endif /* CONFIG_DEBUG_NRF_ETR_BACKEND_RTT */
+
+static int log_output_func(uint8_t *buf, size_t size, void *ctx)
+{
+	ARG_UNUSED(ctx);
+
+	if (IS_ENABLED(CONFIG_DEBUG_NRF_ETR_BACKEND_UART)) {
+		if (use_blocking) {
+			for (int i = 0; i < size; i++) {
+				uart_poll_out(uart_dev, buf[i]);
+			}
+		} else {
+			int err;
+			static uint8_t *tx_buf = (uint8_t *)frame_buf0;
+
+			err = k_sem_take(&uart_sem, K_FOREVER);
+			__ASSERT_NO_MSG(err >= 0);
+
+			memcpy(tx_buf, buf, size);
+
+			err = uart_tx(uart_dev, tx_buf, size, SYS_FOREVER_US);
+			__ASSERT_NO_MSG(err >= 0);
+
+			tx_buf = (tx_buf == (uint8_t *)frame_buf0) ?
+				(uint8_t *)frame_buf1 : (uint8_t *)frame_buf0;
+		}
+	}
+#ifdef CONFIG_DEBUG_NRF_ETR_BACKEND_RTT
+	rtt_write(buf, size, use_blocking);
+#endif
 
 	return size;
 }
@@ -192,7 +271,8 @@ static void log_message_process(struct log_frontend_stmesp_demux_log *packet)
 	uint16_t dlen = packet->hdr.total_len - (plen + sname_len);
 	uint8_t *data = dlen ? &packet->data[plen + sname_len] : NULL;
 
-	log_output_process(&log_output, ts, dname, sname, NULL, level, package, data, dlen, flags);
+	log_output_process(&log_output, ts, dname, sname, NULL,
+			   0, level, package, data, dlen, flags);
 }
 
 /** @brief Process a trace point message. */
@@ -220,7 +300,7 @@ static void trace_point_process(struct log_frontend_stmesp_demux_trace_point *pa
 		const char *source =
 			log_frontend_stmesp_demux_sname_get(packet->major, packet->source_id);
 
-		log_output_process(&log_output, packet->timestamp, dname, source, NULL, level,
+		log_output_process(&log_output, packet->timestamp, dname, source, NULL, 0, level,
 				   (const uint8_t *)tp_log, NULL, 0, flags);
 		return;
 	} else if (packet->has_data) {
@@ -229,7 +309,7 @@ static void trace_point_process(struct log_frontend_stmesp_demux_trace_point *pa
 			.desc = {.len = 4 /* hdr + fmt + id + data */}};
 		uint32_t tp_d32_p[] = {(uint32_t)desc.raw, (uint32_t)tp_d32, id, packet->data};
 
-		log_output_process(&log_output, packet->timestamp, dname, sname, NULL, 1,
+		log_output_process(&log_output, packet->timestamp, dname, sname, NULL, 0, 1,
 				   (const uint8_t *)tp_d32_p, NULL, 0, flags);
 		return;
 	}
@@ -237,7 +317,7 @@ static void trace_point_process(struct log_frontend_stmesp_demux_trace_point *pa
 	static const union cbprintf_package_hdr desc = {.desc = {.len = 3 /* hdr + fmt + id */}};
 	uint32_t tp_p[] = {(uint32_t)desc.raw, (uint32_t)tp, packet->id};
 
-	log_output_process(&log_output, packet->timestamp, dname, sname, NULL,
+	log_output_process(&log_output, packet->timestamp, dname, sname, NULL, 0,
 			   1, (const uint8_t *)tp_p, NULL, 0, flags);
 }
 
@@ -252,7 +332,7 @@ static void hw_event_process(struct log_frontend_stmesp_demux_hw_event *packet)
 	static const union cbprintf_package_hdr desc = {.desc = {.len = 3 /* hdr + fmt + id */}};
 	uint32_t tp_p[] = {(uint32_t)desc.raw, (uint32_t)tp, (uint32_t)evt_name};
 
-	log_output_process(&log_output, packet->timestamp, dname, sname, NULL,
+	log_output_process(&log_output, packet->timestamp, dname, sname, NULL, 0,
 			   1, (const uint8_t *)tp_p, NULL, 0, flags);
 }
 
@@ -528,16 +608,16 @@ static void dump_frame(uint8_t *buf)
 {
 	int err;
 
-	if (use_async_uart) {
+	if (use_blocking) {
+		for (int i = 0; i < CORESIGHT_TRACE_FRAME_SIZE; i++) {
+			uart_poll_out(uart_dev, buf[i]);
+		}
+	} else {
 		err = k_sem_take(&uart_sem, K_FOREVER);
 		__ASSERT_NO_MSG(err >= 0);
 
 		err = uart_tx(uart_dev, buf, CORESIGHT_TRACE_FRAME_SIZE, SYS_FOREVER_US);
 		__ASSERT_NO_MSG(err >= 0);
-	} else {
-		for (int i = 0; i < CORESIGHT_TRACE_FRAME_SIZE; i++) {
-			uart_poll_out(uart_dev, buf[i]);
-		}
 	}
 }
 
@@ -593,7 +673,7 @@ static void process(void)
 			}
 		} else {
 			dump_frame((uint8_t *)frame_buf);
-			frame_buf = (use_async_uart && (frame_buf == frame_buf0)) ?
+			frame_buf = (!use_blocking && (frame_buf == frame_buf0)) ?
 						frame_buf1 : frame_buf0;
 		}
 	}
@@ -649,7 +729,7 @@ void debug_nrf_etr_flush(void)
 	/* Set flag which forces uart to use blocking polling out instead of
 	 * asynchronous API.
 	 */
-	use_async_uart = false;
+	use_blocking = true;
 	uint32_t k = irq_lock();
 
 	/* Repeat arbitrary number of times to ensure that all that is flushed. */
@@ -754,17 +834,23 @@ static void tbm_event_handler(nrf_tbm_event_t event)
 
 int etr_process_init(void)
 {
+#ifdef CONFIG_DEBUG_NRF_ETR_BACKEND_RTT
+	if (CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_BUFFER > 0) {
+		SEGGER_RTT_ConfigUpBuffer(CONFIG_DEBUG_NRF_ETR_BACKEND_RTT_BUFFER, "stm_logger",
+					  rtt_buf, sizeof(rtt_buf),
+					  SEGGER_RTT_MODE_NO_BLOCK_SKIP);
+	}
+#endif
 	int err;
 
-	k_sem_init(&uart_sem, 1, 1);
-
-	err = uart_callback_set(uart_dev, uart_event_handler, NULL);
-	use_async_uart = (err == 0);
-
+	if (IS_ENABLED(CONFIG_DEBUG_NRF_ETR_BACKEND_UART)) {
+		err = uart_callback_set(uart_dev, uart_event_handler, NULL);
+		use_blocking = (err != 0);
+		k_sem_init(&uart_sem, 1, 1);
+	}
 	static const nrfx_tbm_config_t config = {.size = wsize_mask};
 
 	nrfx_tbm_init(&config, tbm_event_handler);
-
 	IRQ_CONNECT(DT_IRQN(DT_NODELABEL(tbm)), DT_IRQ(DT_NODELABEL(tbm), priority),
 			    nrfx_isr, nrfx_tbm_irq_handler, 0);
 	irq_enable(DT_IRQN(DT_NODELABEL(tbm)));
@@ -792,7 +878,7 @@ int etr_process_init(void)
 	return 0;
 }
 
-#define NRF_ETR_INIT_PRIORITY UTIL_INC(UTIL_INC(CONFIG_NRF_IRONSIDE_CALL_INIT_PRIORITY))
+#define NRF_ETR_INIT_PRIORITY UTIL_INC(UTIL_INC(CONFIG_IRONSIDE_SE_CALL_INIT_PRIORITY))
 
 SYS_INIT(etr_process_init, POST_KERNEL, NRF_ETR_INIT_PRIORITY);
 

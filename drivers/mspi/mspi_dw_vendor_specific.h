@@ -12,7 +12,7 @@
 
 #if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_exmif)
 
-#include <nrf.h>
+#include <nrfx.h>
 
 static inline void vendor_specific_init(const struct device *dev)
 {
@@ -98,7 +98,13 @@ static inline int vendor_specific_xip_disable(const struct device *dev,
 #endif /* defined(CONFIG_MSPI_XIP) */
 
 #elif DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_qspi_v2)
-#include <nrf.h>
+#include <nrfx.h>
+
+#if defined(MSPI_PRESENT) && !defined(QSPI_PRESENT)
+#define NRF_QSPI_Type		  NRF_MSPI_Type
+#define QSPI_INTENSET_CORE_Pos	  MSPI_INTENSET_CORE_Pos
+#define QSPI_INTENSET_DMADONE_Pos MSPI_INTENSET_CORE_Pos
+#endif
 
 static inline void vendor_specific_init(const struct device *dev)
 {
@@ -138,19 +144,10 @@ static inline void vendor_specific_irq_clear(const struct device *dev)
 	preg->EVENTS_DMA.DONE = 0;
 }
 
+#if defined(CONFIG_MSPI_DMA)
 /* DMA support */
-
-#define EVDMA_ATTR_LEN_Pos (0UL)
-#define EVDMA_ATTR_LEN_Msk (0x00FFFFFFUL)
-
 #define EVDMA_ATTR_ATTR_Pos (24UL)
 #define EVDMA_ATTR_ATTR_Msk (0x3FUL << EVDMA_ATTR_ATTR_Pos)
-
-#define EVDMA_ATTR_32AXI_Pos (30UL)
-#define EVDMA_ATTR_32AXI_Msk (0x1UL << EVDMA_ATTR_32AXI_Pos)
-
-#define EVDMA_ATTR_EVENTS_Pos (31UL)
-#define EVDMA_ATTR_EVENTS_Msk (0x1UL << EVDMA_ATTR_EVENTS_Pos)
 
 typedef enum {
 	EVDMA_BYTE_SWAP = 0,
@@ -159,12 +156,8 @@ typedef enum {
 	EVDMA_FIXED_ATTR = 3,
 	EVDMA_STATIC_ADDR = 4,
 	EVDMA_PLAIN_DATA_BUF_WR = 5,
+	EVDMA_PLAIN_DATA = 0x3f,
 } EVDMA_ATTR_Type;
-
-/* Setup EVDMA attribute with the following configuratrion */
-#define EVDMA_ATTRIBUTE (BIT(EVDMA_BYTE_SWAP)   | BIT(EVDMA_JOBLIST)    | \
-			 BIT(EVDMA_BUFFER_FILL) | BIT(EVDMA_FIXED_ATTR) | \
-			 BIT(EVDMA_STATIC_ADDR) | BIT(EVDMA_PLAIN_DATA_BUF_WR))
 
 typedef struct {
 	uint8_t *addr;
@@ -180,7 +173,7 @@ typedef struct {
 	EVDMA_JOB_Type *rx_job;
 } QSPI_TRANSFER_LIST_Type;
 
-/* Number of jobs needed for transmit trasaction */
+/* Number of jobs needed for transmit transaction */
 #define MAX_NUM_JOBS 5
 
 /* Vendor-specific data structure for Nordic QSPI */
@@ -228,13 +221,14 @@ static inline void vendor_specific_start_dma_xfer(const struct device *dev)
 
 	/*
 	 * The Command and Address will always have a length of 4 from the DMA's
-	 * perspective. QSPI peripheral will use length of data specified in core registers
+	 * perspective. QSPI peripheral will use length of data specified in core registers.
+	 * Since the cmd and address are stored as uint32_t, byte swap is never needed.
 	 */
 	if (dev_data->xfer.cmd_length > 0) {
-		joblist[job_idx++] = EVDMA_JOB(&packet->cmd, 4, EVDMA_ATTRIBUTE);
+		joblist[job_idx++] = EVDMA_JOB(&packet->cmd, 4, EVDMA_PLAIN_DATA);
 	}
 	if (dev_data->xfer.addr_length > 0) {
-		joblist[job_idx++] = EVDMA_JOB(&packet->address, 4, EVDMA_ATTRIBUTE);
+		joblist[job_idx++] = EVDMA_JOB(&packet->address, 4, EVDMA_PLAIN_DATA);
 	}
 
 	if (packet->dir == MSPI_TX) {
@@ -242,7 +236,7 @@ static inline void vendor_specific_start_dma_xfer(const struct device *dev)
 
 		if (packet->num_bytes > 0) {
 			joblist[job_idx++] = EVDMA_JOB(packet->data_buf, packet->num_bytes,
-						EVDMA_ATTRIBUTE);
+						       EVDMA_PLAIN_DATA);
 		}
 
 		/* Always terminate with null job */
@@ -251,9 +245,8 @@ static inline void vendor_specific_start_dma_xfer(const struct device *dev)
 		transfer_list->rx_job = &joblist[job_idx];
 		tmod = QSPI_TMOD_TX_ONLY;
 	} else {
-		preg->CONFIG.RXTRANSFERLENGTH = ((packet->num_bytes + dev_data->xfer.addr_length +
-						dev_data->xfer.cmd_length) >>
-						dev_data->bytes_per_frame_exp) - 1;
+		preg->CONFIG.RXTRANSFERLENGTH = ((packet->num_bytes) >>
+						dev_data->bytes_per_frame_exp);
 
 		/* If sending address or command while being configured as controller */
 		if (job_idx > 0 && config->op_mode == MSPI_OP_MODE_CONTROLLER) {
@@ -263,7 +256,7 @@ static inline void vendor_specific_start_dma_xfer(const struct device *dev)
 			joblist[job_idx++] = EVDMA_NULL_JOB();
 			transfer_list->rx_job = &joblist[job_idx];
 			joblist[job_idx++] = EVDMA_JOB(packet->data_buf, packet->num_bytes,
-						       EVDMA_ATTRIBUTE);
+						       EVDMA_PLAIN_DATA);
 			joblist[job_idx]   = EVDMA_NULL_JOB();
 		} else {
 			/* Sending command or address while configured as target isn't supported */
@@ -271,11 +264,24 @@ static inline void vendor_specific_start_dma_xfer(const struct device *dev)
 
 			transfer_list->rx_job = &joblist[0];
 			joblist[0] = EVDMA_JOB(packet->data_buf, packet->num_bytes,
-					       EVDMA_ATTRIBUTE);
+					       EVDMA_PLAIN_DATA);
 			joblist[1] = EVDMA_NULL_JOB();
 			transfer_list->tx_job = &joblist[1];
 		}
 	}
+
+	/* The wrapper uses formatting registers regardless of whether it is driving a display
+	 * or not in order to format the data when the amount of data is unaligned with 32-bits.
+	 */
+
+	preg->FORMAT.BPP = 8;
+	/* Set to same value as core DFS register + 1 */
+	preg->FORMAT.DFS = FIELD_GET(CTRLR0_DFS_MASK, dev_data->ctrlr0) + 1;
+	/* Number of pixels following the command in units of BPP (which is always 8 for now) */
+	preg->FORMAT.PIXELS = packet->num_bytes;
+	/* Command and address length (in 32-bit words)*/
+	preg->FORMAT.CILEN = CEIL_DIV_32(dev_data->xfer.addr_length) +
+			     CEIL_DIV_32(dev_data->xfer.cmd_length);
 
 	/*
 	 * In slave mode, a tmod register in the wrapper also needs to be set. Currently
@@ -309,6 +315,7 @@ static inline bool vendor_specific_read_dma_irq(const struct device *dev)
 
 	return (bool) preg->EVENTS_DMA.DONE;
 }
+#endif /*defined(CONFIG_MSPI_DMA)*/
 
 #else /* Supply empty vendor specific macros for generic case */
 

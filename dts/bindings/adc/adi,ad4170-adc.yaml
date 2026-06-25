@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 description: |
-  Bindings for the ADI AD4170 Analog-to-Digital Converter.
+  ADI AD4170 ADC Controller.
 
   This device is controlled over SPI and exposes one or more ADC input channels.
   Each child node corresponds to a channel and supports standard ADC properties
@@ -52,7 +52,7 @@ description: |
   For input constants such as `AD4170_ADC_AIN0`, refer to the binding header:
   `include/zephyr/dt-bindings/adc/ad4170-adc.h`
 
-compatible: adi,ad4170-adc
+compatible: "adi,ad4170-adc"
 
 include: [adc-controller.yaml, spi-device.yaml]
 

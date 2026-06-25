@@ -222,6 +222,7 @@ typedef int (*i2c_api_target_register_t)(const struct device *dev,
 					struct i2c_target_config *cfg);
 typedef int (*i2c_api_target_unregister_t)(const struct device *dev,
 					  struct i2c_target_config *cfg);
+
 #ifdef CONFIG_I2C_CALLBACK
 typedef int (*i2c_api_transfer_cb_t)(const struct device *dev,
 				 struct i2c_msg *msgs,
@@ -230,12 +231,8 @@ typedef int (*i2c_api_transfer_cb_t)(const struct device *dev,
 				 i2c_callback_t cb,
 				 void *userdata);
 #endif /* CONFIG_I2C_CALLBACK */
-#if defined(CONFIG_I2C_RTIO) || defined(__DOXYGEN__)
 
-/**
- * @typedef i2c_api_iodev_submit
- * @brief Callback API for submitting work to a I2C device with RTIO
- */
+#ifdef CONFIG_I2C_RTIO
 typedef void (*i2c_api_iodev_submit)(const struct device *dev,
 				     struct rtio_iodev_sqe *iodev_sqe);
 #endif /* CONFIG_I2C_RTIO */
@@ -355,7 +352,7 @@ typedef int (*i2c_target_read_requested_cb_t)(
 typedef int (*i2c_target_read_processed_cb_t)(
 		struct i2c_target_config *config, uint8_t *val);
 
-#ifdef CONFIG_I2C_TARGET_BUFFER_MODE
+#if defined(CONFIG_I2C_TARGET_BUFFER_MODE) || defined(__DOXYGEN__)
 /** @brief Function called when a write to the device is completed.
  *
  * This function is invoked by the controller when it completes
@@ -449,15 +446,29 @@ typedef void (*i2c_target_error_cb_t)(struct i2c_target_config *config,
  * same API at different addresses on the bus.
  */
 struct i2c_target_callbacks {
+	/** @copybrief i2c_target_write_requested_cb_t */
 	i2c_target_write_requested_cb_t write_requested;
+	/** @copybrief i2c_target_read_requested_cb_t */
 	i2c_target_read_requested_cb_t read_requested;
+	/** @copybrief i2c_target_write_received_cb_t */
 	i2c_target_write_received_cb_t write_received;
+	/** @copybrief i2c_target_read_processed_cb_t */
 	i2c_target_read_processed_cb_t read_processed;
-#ifdef CONFIG_I2C_TARGET_BUFFER_MODE
+#if defined(CONFIG_I2C_TARGET_BUFFER_MODE) || defined(__DOXYGEN__)
+	/**
+	 * @kconfig_dep{CONFIG_I2C_TARGET_BUFFER_MODE}
+	 * @copybrief i2c_target_buf_write_received_cb_t
+	 */
 	i2c_target_buf_write_received_cb_t buf_write_received;
+	/**
+	 * @kconfig_dep{CONFIG_I2C_TARGET_BUFFER_MODE}
+	 * @copybrief i2c_target_buf_read_requested_cb_t
+	 */
 	i2c_target_buf_read_requested_cb_t buf_read_requested;
 #endif
+	/** @copybrief i2c_target_stop_cb_t */
 	i2c_target_stop_cb_t stop;
+	/** @copybrief i2c_target_error_cb_t */
 	i2c_target_error_cb_t error;
 };
 
@@ -896,7 +907,7 @@ static inline int z_impl_i2c_transfer(const struct device *dev,
  * to another I2C device asynchronously with a callback completion.
  *
  * @see i2c_transfer()
- * @funcprops \isr_ok
+ * @isr_ok
  *
  * @param dev Pointer to the device structure for an I2C controller
  *            driver configured in controller mode.
@@ -982,7 +993,7 @@ static inline int i2c_transfer_cb_dt(const struct i2c_dt_spec *spec,
  * @param userdata Userdata passed to callback.
  *
  * @retval 0 if successful
- * @retval negative on error.
+ * @retval <0 negative on error.
  */
 static inline int i2c_write_read_cb(const struct device *dev, struct i2c_msg *msgs,
 				 uint8_t num_msgs, uint16_t addr, const void *write_buf,
@@ -1047,7 +1058,7 @@ void z_i2c_transfer_signal_cb(const struct device *dev, int result, void *userda
  * to another I2C device asynchronously with a k_poll_signal completion.
  *
  * @see i2c_transfer_cb()
- * @funcprops \isr_ok
+ * @isr_ok
  *
  * @param dev Pointer to the device structure for an I2C controller
  *            driver configured in controller mode.
@@ -1131,6 +1142,18 @@ extern const struct rtio_iodev_api i2c_iodev_api;
 	const struct i2c_dt_spec _i2c_dt_spec_##name =				\
 		I2C_DT_SPEC_GET(node_id);					\
 	RTIO_IODEV_DEFINE(name, &i2c_iodev_api, (void *)&_i2c_dt_spec_##name)
+
+/**
+ * @brief Define an iodev for a devicetree instance on the bus
+ *
+ * This is equivalent to
+ * <tt>I2C_DT_IODEV_DEFINE(name, DT_DRV_INST(inst))</tt>.
+ *
+ * @param name Symbolic name of the iodev to define
+ * @param inst Devicetree instance number
+ */
+#define I2C_DT_INST_IODEV_DEFINE(name, inst)					\
+	I2C_DT_IODEV_DEFINE(name, DT_DRV_INST(inst))
 
 /**
  * @brief Define an iodev for a given i2c device on a bus

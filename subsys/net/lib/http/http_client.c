@@ -21,6 +21,7 @@ LOG_MODULE_REGISTER(net_http_client, CONFIG_NET_HTTP_LOG_LEVEL);
 #include <stdlib.h>
 
 #include <zephyr/net/net_ip.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/http/client.h>
 #include <zephyr/net/http/status.h>
@@ -310,9 +311,8 @@ static int on_body(struct http_parser *parser, const char *at, size_t length)
 		req->internal.response.body_frag_start = (uint8_t *)at;
 	}
 
-	/* Calculate the length of the body contained in the recv_buf */
-	req->internal.response.body_frag_len = req->internal.response.data_len -
-		(req->internal.response.body_frag_start - req->internal.response.recv_buf);
+	/* Use the parser-decoded length. */
+	req->internal.response.body_frag_len = length;
 
 	return 0;
 }
@@ -509,9 +509,10 @@ static int http_wait_data(int sock, struct http_request *req, const k_timepoint_
 
 		if (fds[0].revents & ZSOCK_POLLERR) {
 			int sock_err;
-			socklen_t optlen = sizeof(sock_err);
+			net_socklen_t optlen = sizeof(sock_err);
 
-			(void)zsock_getsockopt(sock, SOL_SOCKET, SO_ERROR, &sock_err, &optlen);
+			(void)zsock_getsockopt(sock, ZSOCK_SOL_SOCKET, ZSOCK_SO_ERROR,
+					       &sock_err, &optlen);
 			ret = -sock_err;
 			goto error;
 		} else if (fds[0].revents & ZSOCK_POLLNVAL) {

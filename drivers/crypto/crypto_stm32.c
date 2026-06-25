@@ -520,11 +520,6 @@ static int crypto_stm32_init(const struct device *dev)
 	struct crypto_stm32_data *data = CRYPTO_STM32_DATA(dev);
 	const struct crypto_stm32_config *cfg = CRYPTO_STM32_CFG(dev);
 
-	if (!device_is_ready(clk)) {
-		LOG_ERR("clock control device not ready");
-		return -ENODEV;
-	}
-
 	if (clock_control_on(clk, (clock_control_subsys_t)&cfg->pclken) != 0) {
 		LOG_ERR("clock op failed\n");
 		return -EIO;
@@ -556,10 +551,7 @@ static struct crypto_stm32_data crypto_stm32_dev_data = {
 
 static const struct crypto_stm32_config crypto_stm32_dev_config = {
 	.reset = RESET_DT_SPEC_INST_GET(0),
-	.pclken = {
-		.enr = DT_INST_CLOCKS_CELL(0, bits),
-		.bus = DT_INST_CLOCKS_CELL(0, bus)
-	}
+	.pclken = STM32_DT_INST_CLOCK_INFO(0),
 };
 
 DEVICE_DT_INST_DEFINE(0, crypto_stm32_init, NULL,

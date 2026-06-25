@@ -31,7 +31,6 @@
 #include <zephyr/net_buf.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/sys/check.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/util_macro.h>
 #include <zephyr/toolchain.h>
@@ -525,7 +524,7 @@ static void state_transition_work_handler(struct k_work *work)
 		err = ase_state_notify(ase);
 		if (err == -ENOMEM) {
 			struct bt_conn_info info;
-			uint32_t retry_delay_ms;
+			uint32_t retry_delay_us;
 
 			/* Revert back to old state */
 			ase->ep.state = old_state;
@@ -533,14 +532,14 @@ static void state_transition_work_handler(struct k_work *work)
 			err = bt_conn_get_info(ase->conn, &info);
 			__ASSERT_NO_MSG(err == 0);
 
-			retry_delay_ms = BT_CONN_INTERVAL_TO_MS(info.le.interval);
+			retry_delay_us = info.le.interval_us;
 
 			/* Reschedule the state transition */
-			err = k_work_reschedule(d_work, K_MSEC(retry_delay_ms));
+			err = k_work_reschedule(d_work, K_USEC(retry_delay_us));
 			if (err >= 0) {
 				LOG_DBG("Out of buffers for ase state notification. "
-					"Will retry in %dms",
-					retry_delay_ms);
+					"Will retry in %dus",
+					retry_delay_us);
 				return;
 			}
 		}
@@ -1714,7 +1713,7 @@ int bt_ascs_config_ase(struct bt_conn *conn, struct bt_bap_stream *stream,
 	struct bt_bap_ep *ep;
 	int err;
 
-	CHECKIF(conn == NULL || stream == NULL || codec_cfg == NULL || qos_pref == NULL) {
+	if (conn == NULL || stream == NULL || codec_cfg == NULL || qos_pref == NULL) {
 		LOG_DBG("NULL value(s) supplied)");
 		return -EINVAL;
 	}
@@ -1903,15 +1902,29 @@ static ssize_t ascs_config(struct bt_conn *conn, struct net_buf_simple *buf)
 	return buf->size;
 }
 
-void bt_ascs_foreach_ep(struct bt_conn *conn, bt_bap_ep_func_t func, void *user_data)
+int bt_ascs_foreach_ep(struct bt_conn *conn, bt_bap_ep_func_t func, void *user_data)
 {
+	if (conn == NULL) {
+		LOG_DBG("conn is NULL");
+		return -EINVAL;
+	}
+
+	if (func == NULL) {
+		LOG_DBG("func is NULL");
+		return -EINVAL;
+	}
+
 	for (size_t i = 0; i < ARRAY_SIZE(ascs.ase_pool); i++) {
 		struct bt_ascs_ase *ase = &ascs.ase_pool[i];
 
 		if (ase->conn == conn) {
-			func(&ase->ep, user_data);
+			if (!func(&ase->ep, user_data)) {
+				return -ECANCELED;
+			}
 		}
 	}
+
+	return 0;
 }
 
 static void ase_qos(struct bt_ascs_ase *ase, uint8_t cig_id, uint8_t cis_id,
@@ -3109,7 +3122,7 @@ static void configure_ase_char(uint8_t snk_cnt, uint8_t src_cnt)
 	size_t attrs_to_rem;
 
 	/* Remove the Source ASEs. The ones to remove will always be at the very tail of the
-	 * attributes, so we just decrease the count withe the amount of sources we want to remove.
+	 * attributes, so we just decrease the count with the amount of sources we want to remove.
 	 */
 	attrs_to_rem = src_ases_to_rem * ASCS_ASE_CHAR_ATTR_COUNT;
 	ascs_svc.attr_count -= attrs_to_rem;
@@ -3184,7 +3197,6 @@ static int control_point_notify(struct bt_conn *conn, const void *data, uint16_t
 }
 
 static struct bt_iso_server iso_server = {
-	.sec_level = BT_SECURITY_L2,
 	.accept = ascs_iso_accept,
 };
 
@@ -3226,10 +3238,11 @@ void bt_ascs_cleanup(void)
 	}
 }
 
+static const struct bt_gatt_attr ascs_attrs_backup[] = BT_ASCS_SERVICE_DEFINITION();
+BUILD_ASSERT(sizeof(ascs_attrs_backup) == sizeof(ascs_attrs));
 int bt_ascs_unregister(void)
 {
 	int err;
-	struct bt_gatt_attr _ascs_attrs[] = BT_ASCS_SERVICE_DEFINITION();
 
 	if (!ascs.registered) {
 		LOG_DBG("No ascs instance registered");
@@ -3253,10 +3266,23 @@ int bt_ascs_unregister(void)
 		return err;
 	}
 
-	memcpy(&ascs_attrs, &_ascs_attrs, sizeof(struct bt_gatt_attr));
+	(void)memcpy(ascs_attrs, ascs_attrs_backup, sizeof(ascs_attrs_backup));
+	ascs_svc.attr_count = ARRAY_SIZE(ascs_attrs);
 	ascs.registered = false;
 
 	return err;
 }
 
+struct bt_conn *bt_ascs_ep_get_conn(const struct bt_bap_ep *ep)
+{
+	struct bt_ascs_ase *ase = CONTAINER_OF(ep, struct bt_ascs_ase, ep);
+
+	__ASSERT_NO_MSG(bt_ascs_has_ep(ep));
+
+	if (ase->conn == NULL) {
+		return NULL;
+	}
+
+	return bt_conn_ref(ase->conn);
+}
 #endif /* BT_BAP_UNICAST_SERVER */

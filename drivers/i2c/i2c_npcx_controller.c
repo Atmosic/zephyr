@@ -142,6 +142,18 @@ static const struct npcx_i2c_timing_cfg npcx_25m_speed_confs[] = {
 	[NPCX_I2C_BUS_SPEED_1MHZ] = {.HLDT = 7, .k1 = 16, .k2 = 12},
 };
 
+static const struct npcx_i2c_timing_cfg npcx_40m_speed_confs[] = {
+	[NPCX_I2C_BUS_SPEED_100KHZ] = {.HLDT = 17, .k1 = 202, .k2 = 0},
+	[NPCX_I2C_BUS_SPEED_400KHZ] = {.HLDT = 13, .k1 = 64, .k2 = 42},
+	[NPCX_I2C_BUS_SPEED_1MHZ] = {.HLDT = 7, .k1 = 26, .k2 = 20},
+};
+
+static const struct npcx_i2c_timing_cfg npcx_45m_speed_confs[] = {
+	[NPCX_I2C_BUS_SPEED_100KHZ] = {.HLDT = 17, .k1 = 226, .k2 = 0},
+	[NPCX_I2C_BUS_SPEED_400KHZ] = {.HLDT = 15, .k1 = 72, .k2 = 48},
+	[NPCX_I2C_BUS_SPEED_1MHZ] = {.HLDT = 7, .k1 = 28, .k2 = 22},
+};
+
 static const struct npcx_i2c_timing_cfg npcx_50m_speed_confs[] = {
 	[NPCX_I2C_BUS_SPEED_100KHZ] = {.HLDT = 17, .k1 = 252, .k2 = 0},
 	[NPCX_I2C_BUS_SPEED_400KHZ] = {.HLDT = 17, .k1 = 80, .k2 = 52},
@@ -967,7 +979,7 @@ int npcx_i2c_ctrl_target_unregister(const struct device *i2c_dev,
 		i2c_tgt_mask &= ~BIT(cur_addr_slot);
 	}
 
-	/* Input addrss is not in the smbaddr */
+	/* Input address is not in the smbaddr */
 	if (i2c_tgt_mask == 0 || reg_smbaddr == NULL) {
 		LOG_ERR("Address %#x is not found", target_cfg->address);
 		return -EINVAL;
@@ -1156,6 +1168,10 @@ static int i2c_ctrl_init(const struct device *dev)
 		data->ptr_speed_confs = npcx_20m_speed_confs;
 	} else if (i2c_rate == 25000000) {
 		data->ptr_speed_confs = npcx_25m_speed_confs;
+	} else if (i2c_rate == 40000000) {
+		data->ptr_speed_confs = npcx_40m_speed_confs;
+	} else if (i2c_rate == 45000000) {
+		data->ptr_speed_confs = npcx_45m_speed_confs;
 	} else if (i2c_rate == 50000000) {
 		data->ptr_speed_confs = npcx_50m_speed_confs;
 	} else {

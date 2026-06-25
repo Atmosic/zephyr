@@ -916,7 +916,10 @@ static inline uint8_t *net_buf_simple_tail(const struct net_buf_simple *buf)
  *
  * @return Number of bytes available in the beginning of the buffer.
  */
-size_t net_buf_simple_headroom(const struct net_buf_simple *buf);
+static inline size_t net_buf_simple_headroom(const struct net_buf_simple *buf)
+{
+	return buf->data - buf->__buf;
+}
 
 /**
  * @brief Check buffer tailroom.
@@ -927,7 +930,10 @@ size_t net_buf_simple_headroom(const struct net_buf_simple *buf);
  *
  * @return Number of bytes available at the end of the buffer.
  */
-size_t net_buf_simple_tailroom(const struct net_buf_simple *buf);
+static inline size_t net_buf_simple_tailroom(const struct net_buf_simple *buf)
+{
+	return buf->size - net_buf_simple_headroom(buf) - buf->len;
+}
 
 /**
  * @brief Check maximum net_buf_simple::len value.
@@ -938,7 +944,10 @@ size_t net_buf_simple_tailroom(const struct net_buf_simple *buf);
  *
  * @return Number of bytes usable behind the net_buf_simple::data pointer.
  */
-uint16_t net_buf_simple_max_len(const struct net_buf_simple *buf);
+static inline uint16_t net_buf_simple_max_len(const struct net_buf_simple *buf)
+{
+	return buf->size - net_buf_simple_headroom(buf);
+}
 
 /**
  * @brief Parsing state of a buffer.
@@ -1371,6 +1380,40 @@ struct net_buf_pool *net_buf_pool_get(int id);
  * @return Zero-based index for the buffer.
  */
 int net_buf_id(const struct net_buf *buf);
+
+#if defined(CONFIG_NET_BUF_POOL_USAGE) || defined(__DOXYGEN__)
+/**
+ * @brief Get the number of buffers currently available to claim from a pool.
+ *
+ * Note that the number of available buffers might already have changed by the time this
+ * function returns if other threads are also allocating or freeing buffers from the
+ * pool.
+ *
+ * @kconfig_dep{CONFIG_NET_BUF_POOL_USAGE}
+ *
+ * @param pool Which pool to check
+ *
+ * @return Number of buffers currently available in the pool
+ */
+static inline size_t net_buf_get_available(struct net_buf_pool *pool)
+{
+	return (size_t)atomic_get(&pool->avail_count);
+}
+
+/**
+ * @brief Get the maximum number of buffers simultaneously claimed from a pool.
+ *
+ * @kconfig_dep{CONFIG_NET_BUF_POOL_USAGE}
+ *
+ * @param pool Which pool to check
+ *
+ * @return Maximum number of buffers simultaneously claimed from the pool
+ */
+static inline size_t net_buf_get_max_used(struct net_buf_pool *pool)
+{
+	return (size_t)pool->max_used;
+}
+#endif /* defined(CONFIG_NET_BUF_POOL_USAGE) || defined(__DOXYGEN__) */
 
 /**
  * @brief Allocate a new fixed buffer from a pool.

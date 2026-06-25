@@ -35,6 +35,10 @@ zephyr_library_sources_ifdef(CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_SUPPORT
     lwm2m_obj_firmware_pull.c
     lwm2m_pull_context.c
     )
+zephyr_library_sources_ifdef(CONFIG_LWM2M_SEND_SCHEDULER
+    send_scheduler/send_scheduler_core.c
+    send_scheduler/lwm2m_obj_send_scheduler.c
+    )
 zephyr_library_sources_ifdef(CONFIG_LWM2M_LOCATION_OBJ_SUPPORT
     lwm2m_obj_location.c
     )
@@ -98,6 +102,9 @@ zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_LIGHT_CONTROL
     )
 zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_ACCELEROMETER
     ipso_accelerometer.c
+    )
+zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_MAGNETOMETER
+    ipso_magnetometer.c
     )
 zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_BUZZER
     ipso_buzzer.c

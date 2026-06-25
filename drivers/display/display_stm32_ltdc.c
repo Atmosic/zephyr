@@ -46,20 +46,20 @@ LOG_MODULE_REGISTER(display_stm32_ltdc, CONFIG_DISPLAY_LOG_LEVEL);
 #define LTDC_PCPOL_ACTIVE_HIGH    0x10000000
 
 #if CONFIG_STM32_LTDC_ARGB8888
-#define STM32_LTDC_INIT_PIXEL_SIZE	4u
 #define STM32_LTDC_INIT_PIXEL_FORMAT	LTDC_PIXEL_FORMAT_ARGB8888
 #define DISPLAY_INIT_PIXEL_FORMAT	PIXEL_FORMAT_ARGB_8888
 #elif CONFIG_STM32_LTDC_RGB888
-#define STM32_LTDC_INIT_PIXEL_SIZE	3u
 #define STM32_LTDC_INIT_PIXEL_FORMAT	LTDC_PIXEL_FORMAT_RGB888
 #define DISPLAY_INIT_PIXEL_FORMAT	PIXEL_FORMAT_RGB_888
 #elif CONFIG_STM32_LTDC_RGB565
-#define STM32_LTDC_INIT_PIXEL_SIZE	2u
 #define STM32_LTDC_INIT_PIXEL_FORMAT	LTDC_PIXEL_FORMAT_RGB565
 #define DISPLAY_INIT_PIXEL_FORMAT	PIXEL_FORMAT_RGB_565
 #else
 #error "Invalid LTDC pixel format chosen"
 #endif
+
+#define STM32_LTDC_INIT_PIXEL_SIZE	DISPLAY_BITS_PER_PIXEL(DISPLAY_INIT_PIXEL_FORMAT) \
+					/ BITS_PER_BYTE
 
 struct display_stm32_ltdc_data {
 	LTDC_HandleTypeDef hltdc;
@@ -108,31 +108,27 @@ static int stm32_ltdc_set_pixel_format(const struct device *dev,
 				const enum display_pixel_format format)
 {
 	struct display_stm32_ltdc_data *data = dev->data;
-	HAL_StatusTypeDef err;
+	HAL_StatusTypeDef hal_ret;
+	uint32_t ltdc_pix_fmt;
 
-	switch (format) {
-	case PIXEL_FORMAT_RGB_565:
-		err = HAL_LTDC_SetPixelFormat(&data->hltdc, LTDC_PIXEL_FORMAT_RGB565, 0);
-		data->current_pixel_format = PIXEL_FORMAT_RGB_565;
-		data->current_pixel_size = 2u;
-		break;
-	case PIXEL_FORMAT_RGB_888:
-		err = HAL_LTDC_SetPixelFormat(&data->hltdc, LTDC_PIXEL_FORMAT_RGB888, 0);
-		data->current_pixel_format = PIXEL_FORMAT_RGB_888;
-		data->current_pixel_size = 3u;
-		break;
-	case PIXEL_FORMAT_ARGB_8888:
-		err = HAL_LTDC_SetPixelFormat(&data->hltdc, LTDC_PIXEL_FORMAT_ARGB8888, 0);
-		data->current_pixel_format = PIXEL_FORMAT_ARGB_8888;
-		data->current_pixel_size = 4u;
-		break;
-	default:
+	if (format == PIXEL_FORMAT_RGB_565) {
+		ltdc_pix_fmt = LTDC_PIXEL_FORMAT_RGB565;
+	} else if (format == PIXEL_FORMAT_RGB_888) {
+		ltdc_pix_fmt = LTDC_PIXEL_FORMAT_RGB888;
+	} else if (format == PIXEL_FORMAT_ARGB_8888) {
+		ltdc_pix_fmt = LTDC_PIXEL_FORMAT_ARGB8888;
+	} else {
 		return -ENOTSUP;
 	}
 
-	if (err != HAL_OK) {
+	hal_ret = HAL_LTDC_SetPixelFormat(&data->hltdc, ltdc_pix_fmt, 0);
+	if (hal_ret != HAL_OK) {
 		return -EIO;
 	}
+
+	data->current_pixel_format = format;
+	data->current_pixel_size =
+		DISPLAY_BITS_PER_PIXEL(data->current_pixel_format) / BITS_PER_BYTE;
 
 	return 0;
 }
@@ -169,60 +165,38 @@ static void stm32_ltdc_get_capabilities(const struct device *dev,
 	capabilities->current_orientation = DISPLAY_ORIENTATION_NORMAL;
 }
 
-static int stm32_ltdc_write(const struct device *dev, const uint16_t x,
-				const uint16_t y,
-				const struct display_buffer_descriptor *desc,
-				const void *buf)
+static void stm32_ltdc_partial_write(const struct device *dev,
+				     const uint16_t x, const uint16_t y,
+				     const struct display_buffer_descriptor *desc,
+				     uint8_t *dst, const uint8_t *src)
 {
 	const struct display_stm32_ltdc_config *config = dev->config;
 	struct display_stm32_ltdc_data *data = dev->data;
-	uint8_t *dst = NULL;
-	const uint8_t *pend_buf = NULL;
-	const uint8_t *src = buf;
-	uint16_t row;
 
-	if ((x == 0) && (y == 0) &&
-	    (desc->width == config->width) &&
-	    (desc->height ==  config->height) &&
-	    (desc->pitch == desc->width)) {
-		/* Use buf as ltdc frame buffer directly if it length same as ltdc frame buffer. */
-		pend_buf = buf;
-	} else {
-		if (CONFIG_STM32_LTDC_FB_NUM == 0)  {
-			LOG_ERR("Partial write requires internal frame buffer");
-			return -ENOTSUP;
-		}
+	dst += x * data->current_pixel_size;
+	dst += y * config->width * data->current_pixel_size;
 
-		dst = data->frame_buffer;
-
-		if (CONFIG_STM32_LTDC_FB_NUM == 2) {
-			if (data->front_buf == data->frame_buffer) {
-				dst = data->frame_buffer + data->frame_buffer_len;
-			}
-
-			memcpy(dst, data->front_buf, data->frame_buffer_len);
-		}
-
-		pend_buf = dst;
-
-		/* dst = pointer to upper left pixel of the rectangle
-		 *       to be updated in frame buffer.
-		 */
-		dst += (x * data->current_pixel_size);
-		dst += (y * config->width * data->current_pixel_size);
-
-		for (row = 0; row < desc->height; row++) {
-			(void) memcpy(dst, src, desc->width * data->current_pixel_size);
-			sys_cache_data_flush_range(dst, desc->width * data->current_pixel_size);
-			dst += (config->width * data->current_pixel_size);
-			src += (desc->pitch * data->current_pixel_size);
-		}
-
+	for (uint16_t row = 0; row < desc->height; row++) {
+		(void)memcpy(dst, src, desc->width * data->current_pixel_size);
+		sys_cache_data_flush_range(dst, desc->width * data->current_pixel_size);
+		dst += config->width * data->current_pixel_size;
+		src += desc->pitch * data->current_pixel_size;
 	}
+}
 
-	if (data->front_buf == pend_buf) {
-		return 0;
-	}
+/*
+ * Set pend_buf as the next buffer to be used by the LTDC then enable
+ * LINE interrupt so that the irq handler can swap the buffer.
+ * Wait for the end of the swap by waiting for the semaphore given by
+ * the irq handler upon LTDC register update
+ *
+ * NOTE: MUST only be called when switching between two different buffers,
+ * front_buf and pend_buf, where front_buf != pend_buf. Otherwise, it
+ * will lead to a deadlock.
+ */
+static void stm32_ltdc_sync_frame(struct display_stm32_ltdc_data *data, const uint8_t *pend_buf)
+{
+	__ASSERT(data->front_buf != pend_buf, "Buffers must be different");
 
 	k_sem_reset(&data->sem);
 
@@ -234,6 +208,68 @@ static int stm32_ltdc_write(const struct device *dev, const uint16_t x,
 	k_sem_take(&data->sem, K_FOREVER);
 
 	__HAL_LTDC_DISABLE_IT(&data->hltdc, LTDC_IT_LI);
+}
+
+static int stm32_ltdc_write(const struct device *dev, const uint16_t x,
+				const uint16_t y,
+				const struct display_buffer_descriptor *desc,
+				const void *buf)
+{
+	const struct display_stm32_ltdc_config *config = dev->config;
+	struct display_stm32_ltdc_data *data = dev->data;
+	uint8_t *dst = NULL;
+
+	/* Validate the given parameters */
+	if (x + desc->width > config->width || y + desc->height > config->height) {
+		LOG_ERR("Rectangle does not fit into the display");
+		return -EINVAL;
+	}
+
+	/* Use buf as ltdc frame buffer directly if it has length same as ltdc frame buffer. */
+	if ((x == 0) && (y == 0) &&
+	    (desc->width == config->width) &&
+	    (desc->height == config->height) &&
+	    (desc->pitch == desc->width)) {
+		sys_cache_data_flush_range((void *)buf, config->height * config->width *
+					   data->current_pixel_size);
+
+		/* Avoid waiting for a frame sync when the active buffer is unchanged. */
+		if (buf != data->front_buf) {
+			stm32_ltdc_sync_frame(data, buf);
+		}
+
+		return 0;
+	}
+
+	/* Partial write is only possible if LTDC has its own framebuffer */
+	if (CONFIG_STM32_LTDC_FB_NUM == 0)  {
+		LOG_ERR("Partial write requires internal frame buffer");
+		return -ENOTSUP;
+	}
+
+	dst = data->frame_buffer;
+
+	if (CONFIG_STM32_LTDC_FB_NUM == 2) {
+		/*
+		 * In case of having more than 1 framebuffer, copy is done on the one at the back
+		 * (not being displayed). At the end, buffers are swapped
+		 */
+		if (data->front_buf == data->frame_buffer) {
+			dst = data->frame_buffer + data->frame_buffer_len;
+		}
+
+		/* Copy front buffer content to back then overwrite it */
+		memcpy(dst, data->front_buf, data->frame_buffer_len);
+
+		stm32_ltdc_partial_write(dev, x, y, desc, dst, buf);
+
+		sys_cache_data_flush_range(dst, config->height * config->width *
+						data->current_pixel_size);
+
+		stm32_ltdc_sync_frame(data, dst);
+	} else {
+		stm32_ltdc_partial_write(dev, x, y, desc, dst, buf);
+	}
 
 	return 0;
 }
@@ -249,12 +285,18 @@ static int stm32_ltdc_read(const struct device *dev, const uint16_t x,
 	const uint8_t *src = data->front_buf;
 	uint16_t row;
 
+	/* Validate the given parameters */
+	if (x + desc->width > config->width || y + desc->height > config->height) {
+		LOG_ERR("Rectangle does not fit into the display");
+		return -EINVAL;
+	}
+
 	/* src = pointer to upper left pixel of the rectangle to be read from frame buffer */
 	src += (x * data->current_pixel_size);
 	src += (y * config->width * data->current_pixel_size);
 
 	for (row = 0; row < desc->height; row++) {
-		(void) memcpy(dst, src, desc->width * data->current_pixel_size);
+		(void)memcpy(dst, src, desc->width * data->current_pixel_size);
 		sys_cache_data_flush_range(dst, desc->width * data->current_pixel_size);
 		src += (config->width * data->current_pixel_size);
 		dst += (desc->pitch * data->current_pixel_size);
@@ -345,9 +387,6 @@ static int stm32_ltdc_init(const struct device *dev)
 	int err;
 	const struct display_stm32_ltdc_config *config = dev->config;
 	struct display_stm32_ltdc_data *data = dev->data;
-#if defined(CONFIG_SOC_SERIES_STM32N6X)
-	RIMC_MasterConfig_t rimc = {0};
-#endif
 
 	/* Configure and set display on/off GPIO */
 	if (config->disp_on_gpio.port) {
@@ -374,11 +413,6 @@ static int stm32_ltdc_init(const struct device *dev)
 			LOG_ERR("LTDC pinctrl setup failed");
 			return err;
 		}
-	}
-
-	if (!device_is_ready(DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE))) {
-		LOG_ERR("clock control device not ready");
-		return -ENODEV;
 	}
 
 	/* Turn on LTDC peripheral clock */
@@ -446,15 +480,6 @@ static int stm32_ltdc_init(const struct device *dev)
 	if (err != HAL_OK) {
 		return err;
 	}
-
-#if defined(CONFIG_SOC_SERIES_STM32N6X)
-	/* Configure RIF for LTDC layer 1 */
-	rimc.MasterCID = RIF_CID_1;
-	rimc.SecPriv = RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV;
-	HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_LTDC1, &rimc);
-	HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_LTDCL1,
-					      RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-#endif
 
 	/* Disable layer 2, since it not used */
 	__HAL_LTDC_LAYER_DISABLE(&data->hltdc, LTDC_LAYER_2);
@@ -559,6 +584,11 @@ static DEVICE_API(display, stm32_ltdc_display_api) = {
 	/* frame buffer aligned to cache line width for optimal cache flushing */                  \
 	FRAME_BUFFER_SECTION static uint8_t __aligned(32)                                          \
 		frame_buffer_##inst[CONFIG_STM32_LTDC_FB_NUM * STM32_LTDC_FRAME_BUFFER_LEN(inst)];
+#endif
+
+/* LTDC supports RGB888 and RGB666 for output however only RGB_888 is supported for now */
+#if DT_INST_PROP(0, pixel_format) != PANEL_PIXEL_FORMAT_RGB_888
+#error "Only RGB_888 is supported as a LTDC output (aka panel or mipi-dsi input format)"
 #endif
 
 #define STM32_LTDC_DEVICE(inst)									\

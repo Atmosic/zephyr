@@ -1272,6 +1272,32 @@ struct i3c_driver_data {
 		&((struct i3c_driver_data *)(bus->data))->attached_dev.devices.i2c, desc, node)
 
 /**
+ * @brief safely iterate over all I3C devices present on the bus
+ *
+ * @param bus: the I3C bus device pointer
+ * @param desc: an I3C device descriptor pointer updated to point to the current slot
+ *	 at each iteration of the loop
+ * @param desc_s: an I3C device descriptor pointer used as a safe temp variable
+ */
+#define I3C_BUS_FOR_EACH_I3CDEV_SAFE(bus, desc, desc_s)                                            \
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(                                                         \
+		&((struct i3c_driver_data *)(bus->data))->attached_dev.devices.i3c, desc, desc_s,  \
+		node)
+
+/**
+ * @brief safely iterate over all I2C devices present on the bus
+ *
+ * @param bus: the I3C bus device pointer
+ * @param desc: an I2C device descriptor pointer updated to point to the current slot
+ *	 at each iteration of the loop
+ * @param desc_s: an I2C device descriptor pointer used as a safe temp variable
+ */
+#define I3C_BUS_FOR_EACH_I2CDEV_SAFE(bus, desc, desc_s)                                            \
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(                                                         \
+		&((struct i3c_driver_data *)(bus->data))->attached_dev.devices.i2c, desc, desc_s,  \
+		node)
+
+/**
  * @brief Find a I3C target device descriptor by ID.
  *
  * This finds the I3C target device descriptor in the device list
@@ -2338,6 +2364,18 @@ static inline int i3c_device_info_get(struct i3c_device_desc *target)
 }
 
 /**
+ * @brief Determine I3C bus mode from the I2C devices on the bus.
+ *
+ * Reads the LVR of all I2C devices and returns the I3C bus
+ * mode.
+ *
+ * @param dev_list Pointer to the device list struct.
+ *
+ * @return @see enum i3c_bus_mode
+ */
+enum i3c_bus_mode i3c_bus_mode(const struct i3c_dev_list *dev_list);
+
+/**
  * @brief Check if the bus has a secondary controller.
  *
  * This reads the BCR from the device descriptor struct of all targets
@@ -2596,7 +2634,7 @@ void i3c_sec_handoffed(struct k_work *work);
  *
  * This allocates memory from a mem slab for a i3c_device_desc
  *
- * @retval Pointer to allocated i3c_device_desc
+ * @return Pointer to allocated i3c_device_desc
  * @retval NULL if no mem slabs available
  */
 struct i3c_device_desc *i3c_device_desc_alloc(void);
@@ -2749,6 +2787,18 @@ extern const struct rtio_iodev_api i3c_iodev_api;
 		.dev_id = I3C_DEVICE_ID_DT(node_id),				\
 	};									\
 	RTIO_IODEV_DEFINE(name, &i3c_iodev_api, (void *)&_i3c_iodev_data_##name)
+
+/**
+ * @brief Define an iodev for a devicetree instance on the bus
+ *
+ * This is equivalent to
+ * <tt>I3C_DT_IODEV_DEFINE(name, DT_DRV_INST(inst))</tt>.
+ *
+ * @param name Symbolic name of the iodev to define
+ * @param inst Devicetree instance number
+ */
+#define I3C_DT_INST_IODEV_DEFINE(name, inst)					\
+	I3C_DT_IODEV_DEFINE(name, DT_DRV_INST(inst))
 
 /**
  * @brief Copy the i3c_msgs into a set of RTIO requests

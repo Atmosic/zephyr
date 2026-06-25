@@ -80,10 +80,7 @@ MEMORY {
 SECTIONS {
 
 #include <zephyr/linker/rel-sections.ld>
-
-#ifdef CONFIG_LLEXT
 #include <zephyr/linker/llext-sections.ld>
-#endif
 
 	GROUP_START(ROMABLE_REGION)
 
@@ -141,6 +138,9 @@ SECTIONS {
 		*(".rodata.*")
 		*(".rodata$*")
 		*(.gnu.linkonce.r.*)
+#if defined(CONFIG_LLEXT) && defined(CONFIG_HARVARD)
+		*(.llext_instr_heap)
+#endif /* CONFIG_LLEXT && defined(CONFIG_HARVARD) */
 
 /* Located in generated directory. This file is populated by the
  * zephyr_linker_sources() Cmake function.
@@ -200,6 +200,9 @@ SECTIONS {
 		*(".data.*")
 		*(".data$*")
 		*(".kernel.*")
+#if defined(CONFIG_LLEXT) && defined(CONFIG_HARVARD)
+		*(.llext_data_heap)
+#endif /* CONFIG_LLEXT && defined(CONFIG_HARVARD) */
 
 /* This is an MWDT-specific section, created when -Hccm option is enabled */
 		*(".rodata_in_data")

@@ -30,6 +30,7 @@ from twisterlib.handlers import (
     QEMUWinHandler,
     SimulationHandler,
 )
+from twisterlib.hardwaredata import CompoundHardwareData
 from twisterlib.platform import Platform
 from twisterlib.size_calc import SizeCalculator
 from twisterlib.statuses import TwisterStatus
@@ -67,14 +68,14 @@ class TestInstance:
         self.retries = 0
         self.toolchain = toolchain
         self.name = os.path.join(platform.name, toolchain, testsuite.name)
-        self.dut = None
+        self.hardware_id: str | None = None
         self.suite_repeat = None
         self.test_repeat = None
         self.test_shuffle = None
 
         if testsuite.detailed_test_id:
             self.build_dir = os.path.join(
-                outdir, platform.normalized_name, self.toolchain, testsuite.name
+                outdir, platform.normalized_name, self.toolchain.replace('/', '_'), testsuite.name
             )
         else:
             # if suite is not in zephyr,
@@ -83,7 +84,7 @@ class TestInstance:
             self.build_dir = os.path.join(
                 outdir,
                 platform.normalized_name,
-                self.toolchain,
+                self.toolchain.replace('/', '_'),
                 source_dir_rel,
                 testsuite.name
             )
@@ -99,6 +100,7 @@ class TestInstance:
         self.filter_type = None
         self.required_applications = []
         self.required_build_dirs = []
+        self.reserved_duts: list[CompoundHardwareData] = []
 
     def setup_run_id(self):
         self.run_id = self._get_run_id()
@@ -185,9 +187,6 @@ class TestInstance:
 
     def __lt__(self, other):
         return self.name < other.name
-
-    def compose_case_name(self, tc_name) -> str:
-        return self.testsuite.compose_case_name(tc_name)
 
     def set_case_status_by_name(self, name, status, reason=None):
         tc = self.get_case_or_create(name)

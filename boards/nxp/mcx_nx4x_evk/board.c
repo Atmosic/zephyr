@@ -286,8 +286,8 @@ void board_early_init_hook(void)
 #endif
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcan0))
-	CLOCK_SetClkDiv(kCLOCK_DivFlexcan0Clk, 1U);
-	CLOCK_AttachClk(kFRO_HF_to_FLEXCAN0);
+	CLOCK_SetClkDiv(kCLOCK_DivFlexcan0Clk, 3U);
+	CLOCK_AttachClk(kPLL0_to_FLEXCAN0);
 #endif
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(usdhc0))
@@ -298,7 +298,7 @@ void board_early_init_hook(void)
 #if CONFIG_FLASH_MCUX_FLEXSPI_NOR || CONFIG_FLASH_MCUX_FLEXSPI_XIP
 	/* Setup the FlexSPI clock */
 	flexspi_clock_set_freq(MCUX_FLEXSPI_CLK,
-			       DT_PROP(DT_NODELABEL(w25q64jwtbjq), spi_max_frequency));
+			       DT_PROP(DT_NODELABEL(ext_flash_ctrl), spi_max_frequency));
 	enable_cache64();
 #endif
 

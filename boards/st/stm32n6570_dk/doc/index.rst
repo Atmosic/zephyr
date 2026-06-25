@@ -4,22 +4,22 @@ Overview
 ********
 
 The STM32N6570_DK Discovery kit is a complete demonstration and development platform
-for the Arm |reg| Cortex |reg|‑M55 core‑based STM32N657X0H3Q microcontroller.
+for the Arm® Cortex®‑M55 core‑based STM32N657X0H3Q microcontroller.
 
 The STM32N6570_DK Discovery kit includes a full range of hardware features that help
-the user evaluate many peripherals, such as USB Type-C |reg|, Octo‑SPI flash memory and
-Hexadeca‑SPI PSRAM devices, Ethernet, camera module, LCD, microSD |trade|, audio codec,
+the user evaluate many peripherals, such as USB Type-C®, Octo‑SPI flash memory and
+Hexadeca‑SPI PSRAM devices, Ethernet, camera module, LCD, microSD™, audio codec,
 digital microphones, ADC, flexible extension connectors, and user button.
 The four flexible extension connectors feature easy and unlimited expansion capabilities
 for specific applications such as wireless connectivity, analog applications, and sensors.
 
 The STM32N657X0H3Q microcontroller features one USB 2.0 high‑speed/full‑speed
 Device/Host/OTG controller, one USB 2.0 high‑speed/full‑speed Device/Host/OTG controller
-with UCPD (USB Type-C |reg| Power Delivery), one Ethernet with TSN (time-sensitive networking),
+with UCPD (USB Type-C® Power Delivery), one Ethernet with TSN (time-sensitive networking),
 four I2Cs, two I3Cs, six SPIs (of which four I2S‑capable), two SAIs, with four DMIC support,
 five USARTs, five UARTs (ISO78916 interface, LIN, IrDA, up to 12.5 Mbit/s), one LPUART,
 two SDMMCs (MMC version 4.0, CE-ATA version 1.0, and SD version 1.0.1), three CAN FD
-with TTCAN capability, JTAG and SWD debugging support, and Embedded Trace Macrocell |trade| (ETM).
+with TTCAN capability, JTAG and SWD debugging support, and Embedded Trace Macrocell™ (ETM).
 
 The STM32N6570_DK Discovery kit integrates an STLINK-V3EC embedded in-circuit debugger and
 programmer for the STM32 MCU, with a USB Virtual COM port bridge and the comprehensive MCU Package.
@@ -27,10 +27,10 @@ programmer for the STM32 MCU, with a USB Virtual COM port bridge and the compreh
 Hardware
 ********
 
-- STM32N657X0H3Q Arm |reg| Cortex |reg|‑M55‑based microcontroller featuring ST Neural-ART Accelerator |trade|,
+- STM32N657X0H3Q Arm® Cortex®‑M55‑based microcontroller featuring ST Neural-ART Accelerator™,
   H264 encoder, NeoChrom 2.5D GPU, and 4.2 Mbytes of contiguous SRAM, in a VFBGA264 package
 - 5" LCD module with capacitive touch panel
-- USB Type-C |reg| with USB 2.0 HS interface, dual‑role‑power (DRP)
+- USB Type-C® with USB 2.0 HS interface, dual‑role‑power (DRP)
 - USB Type-A with USB 2.0 HS interface, host, 0.5 A max
 - 1‑Gbit Ethernet with TSN (time-sensitive networking) compliant with IEEE‑802.3‑2002
 - SAI audio codec
@@ -41,15 +41,15 @@ Hardware
 - User, tamper, and reset push-buttons
 - Board connectors:
 
-  - USB Type-C |reg|
+  - USB Type-C®
   - USB Type-A
   - Ethernet RJ45
   - Camera module
-  - microSD |trade| card
+  - microSD™ card
   - LCD
   - Stereo headset jack including analog microphone input
   - Audio MEMS daughterboard expansion connector
-  - ARDUINO |reg| Uno R3 expansion connector
+  - ARDUINO® Uno R3 expansion connector
   - STMod+ expansion connector
 
 - On-board STLINK-V3EC debugger/programmer with USB re-enumeration capability:
@@ -76,7 +76,7 @@ real life colors. This Image Signal Processing could be done with a dedicated `S
 NPU
 ===
 
-STM32N6570-DK also embeds the ST Neural-ART Accelerator |trade| as NPU engineered for power-efficient edge
+STM32N6570-DK also embeds the ST Neural-ART Accelerator™ as NPU engineered for power-efficient edge
 AI applications, such as the `Zephyr computer vision application`_ which is available as a separate
 Zephyr application.
 
@@ -195,9 +195,9 @@ Board variants
 
 Three variants are available with STM32N6570_DK:
 
-- Default variant. Available as a chainloaded application which should be loaded by a
-  bootloader, it has access to the whole AXISRAM1 and AXISRAM2 regions. It is expected to
-  be built using ``--sysbuild`` option exclusively.
+- Main application (default variant). Available as a chainloaded application which should
+  be loaded by a bootloader, it has access to the whole AXISRAM1 and AXISRAM2 regions.
+  It is expected to be built using ``--sysbuild`` option exclusively.
 - ``fsbl``: First Stage Boot Loader (FSBL) which is available as an application loaded by the
   Boot ROM and flashed using ST-Link. This is typically a bootloader image. It runs
   in RAM LOAD mode on second half of AXISRAM2. 511K are available for the whole image.
@@ -341,20 +341,66 @@ You should see the following message on the console:
 Debugging
 =========
 
-You can debug an application in the usual way using the :ref:`ST-LINK GDB Server <runner_stlink_gdbserver>`.
-Here is an example for the :zephyr:code-sample:`hello_world` application.
-
-.. zephyr-app-commands::
-   :zephyr-app: samples/hello_world
-   :board: stm32n6570_dk
-   :maybe-skip-config:
-   :goals: debug
+You can debug an application in the usual way using west and the :ref:`ST-LINK GDB Server <runner_stlink_gdbserver>`.
 
 .. note::
    To enable debugging, before powering on the board, set the boot pins in the following configuration:
 
-   * BOOT0: 0
-   * BOOT1: 1
+   * BOOT0: 0 (switch SW2 in position L)
+   * BOOT1: 1 (switch SW1 in position H)
+
+   .. tabs::
+
+      .. group-tab:: Application image
+
+         To debug a multi-stage application (application loaded by a bootloader such as MCUboot), follow these steps:
+
+         First, flash your application, it is required so that MCUboot can find it in external memory (see indications above).
+
+         Then, launch debug session using the bootloader domain:
+
+         .. code-block:: console
+
+            west debug --domain mcuboot
+
+         At this step, you're able to debug the bootloader. To debug the chainloaded application, now run the following gdb commands:
+
+         .. code-block:: console
+
+            (gdb) b do_boot
+            (gdb) c
+            # Once stopped in do_boot, add chainloaded application symbols
+            (gdb) add-symbol-file ./build/hello_world/zephyr/zephyr.elf
+            # Place breakpoint on 'main' in chainloaded application
+            (gdb) b main
+            (gdb) c
+
+         Don't forget to systematically power reset the board before each debug session.
+         This can be done using :zephyr_file:`the following script:<boards/st/common/scripts/board_power_reset.sh>`
+
+         .. code-block:: console
+
+            ./boards/st/common/scripts/board_power_reset.sh
+
+      .. group-tab:: FSBL - ST-Link
+
+         Here is an example for the :zephyr:code-sample:`hello_world` application.
+
+         .. zephyr-app-commands::
+            :zephyr-app: samples/hello_world
+            :board: stm32n6570_dk/stm32n657xx/fsbl
+            :maybe-skip-config:
+            :goals: debug
+
+      .. group-tab:: FSBL - Serial Boot Loader (USB)
+
+         Here is an example for the :zephyr:code-sample:`hello_world` application.
+
+         .. zephyr-app-commands::
+            :zephyr-app: samples/hello_world
+            :board: stm32n6570_dk/stm32n657xx/sb
+            :maybe-skip-config:
+            :goals: debug
 
 Another solution for debugging is to use STM32CubeIDE:
 
