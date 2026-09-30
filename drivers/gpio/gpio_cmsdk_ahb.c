@@ -106,7 +106,17 @@ int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask, gpio_flags_t 
 	const struct gpio_cmsdk_ahb_cfg * const cfg = dev->config;
 
 	if (((flags & GPIO_INPUT) == 0) && ((flags & GPIO_OUTPUT) == 0)) {
+#ifdef CONFIG_GPIO_ATM_ALLOW_DISCONNECT
+		/*
+		 * GPIO_DISCONNECTED (neither GPIO_INPUT nor GPIO_OUTPUT set)
+		 * is a valid request to disconnect the pin. Fall through
+		 * instead of rejecting it so the outenableclr/inenable_clr/
+		 * pulldown_enable_clr/pullup_enable_clr writes below still
+		 * execute and actually tear down the pin's configuration.
+		 */
+#else
 		return -ENOTSUP;
+#endif
 	}
 
 #ifdef CONFIG_SOC_FAMILY_ATM

@@ -577,13 +577,13 @@ ZTEST(spi_loopback, test_spi_rx_bigger_than_tx)
 	}
 
 	struct spi_dt_spec *spec = loopback_specs[spec_idx];
-	const uint32_t tx_buf_size = 8;
+#define TX_BUF_SIZE 8
 
-	BUILD_ASSERT(tx_buf_size < BUF_SIZE,
+	BUILD_ASSERT(TX_BUF_SIZE < BUF_SIZE,
 		"Transmit buffer is expected to be smaller than the receive buffer");
 
 	const struct spi_buf_set tx = spi_loopback_setup_xfer(tx_bufs_pool, 1,
-							      buffer_tx, tx_buf_size);
+							      buffer_tx, TX_BUF_SIZE);
 	const struct spi_buf_set rx = spi_loopback_setup_xfer(rx_bufs_pool, 1,
 							      buffer_rx, BUF_SIZE);
 
@@ -591,13 +591,14 @@ ZTEST(spi_loopback, test_spi_rx_bigger_than_tx)
 
 	spi_loopback_transceive(spec, &tx, &rx, 2);
 
-	spi_loopback_compare_bufs(buffer_tx, buffer_rx, tx_buf_size,
+	spi_loopback_compare_bufs(buffer_tx, buffer_rx, TX_BUF_SIZE,
 				  buffer_print_tx, buffer_print_rx);
 
 	static const uint8_t all_zeroes_buf[BUF_SIZE] = {0};
 
-	spi_loopback_compare_bufs(all_zeroes_buf, buffer_rx + tx_buf_size, BUF_SIZE - tx_buf_size,
+	spi_loopback_compare_bufs(all_zeroes_buf, buffer_rx + TX_BUF_SIZE, BUF_SIZE - TX_BUF_SIZE,
 				  buffer_print_tx, buffer_print_rx);
+#undef TX_BUF_SIZE
 }
 
 /* test transferring different buffers on the same dma channels */
