@@ -1,10 +1,10 @@
 /*
- * Copyright (c) 2022 Nordic Semiconductor ASA
+ * Copyright (c) 2022-2025 Nordic Semiconductor ASA
  * Copyright (c) 2023 Husqvarna AB
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#if FFCONF_DEF != 5380
+#if FFCONF_DEF != 80386
 #error "Configuration version mismatch"
 #endif
 
@@ -109,12 +109,13 @@
 #define _FF_DISK_NAME(node) DT_PROP(node, disk_name),
 
 #undef FF_VOLUME_STRS
-#define FF_VOLUME_STRS \
-	DT_FOREACH_STATUS_OKAY(zephyr_flash_disk, _FF_DISK_NAME) \
-	DT_FOREACH_STATUS_OKAY(zephyr_ram_disk, _FF_DISK_NAME) \
-	DT_FOREACH_STATUS_OKAY(zephyr_sdmmc_disk, _FF_DISK_NAME) \
-	DT_FOREACH_STATUS_OKAY(zephyr_mmc_disk, _FF_DISK_NAME) \
-	DT_FOREACH_STATUS_OKAY(st_stm32_sdmmc, _FF_DISK_NAME)
+#define FF_VOLUME_STRS                                                                             \
+	DT_FOREACH_STATUS_OKAY(zephyr_flash_disk, _FF_DISK_NAME)                                   \
+	DT_FOREACH_STATUS_OKAY(zephyr_ram_disk, _FF_DISK_NAME)                                     \
+	DT_FOREACH_STATUS_OKAY(zephyr_sdmmc_disk, _FF_DISK_NAME)                                   \
+	DT_FOREACH_STATUS_OKAY(zephyr_mmc_disk, _FF_DISK_NAME)                                     \
+	DT_FOREACH_STATUS_OKAY(st_stm32_sdmmc, _FF_DISK_NAME)                                      \
+	DT_FOREACH_STATUS_OKAY(zephyr_ftl_dhara, _FF_DISK_NAME)
 
 #undef FF_VOLUMES
 #define FF_VOLUMES NUM_VA_ARGS_LESS_1(FF_VOLUME_STRS _)

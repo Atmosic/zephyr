@@ -598,7 +598,7 @@ def test_unit_addr():
 / {
 	no-unit-addr {
 	};
-	unit-addr@ABC {
+	unit-addr@abc {
 	};
 	unit-addr-non-numeric@foo-bar {
 	};
@@ -606,7 +606,7 @@ def test_unit_addr():
 """)
 
     verify_unit_addr("/no-unit-addr", "")
-    verify_unit_addr("/unit-addr@ABC", "ABC")
+    verify_unit_addr("/unit-addr@ABC", "abc")
     verify_unit_addr("/unit-addr-non-numeric@foo-bar", "foo-bar")
 
 def test_node_path_references():
@@ -665,6 +665,74 @@ def test_node_path_references():
 };
 """,
 "/sub: component 'missing' in path '/sub/missing' does not exist")
+
+    verify_parse("""
+/dts-v1/;
+
+/ {
+	sub {
+		x = &{/sub/unambiguous_path};
+		unambiguous_path@10 {};
+	};
+};
+""",
+"""
+/dts-v1/;
+
+/ {
+	sub {
+		x = &{/sub/unambiguous_path};
+		unambiguous_path@10 {
+		};
+	};
+};
+""")
+
+    verify_error("""
+/dts-v1/;
+
+/ {
+	sub {
+		x = &{/sub/ambiguous_path};
+		ambiguous_path@10 {
+		};
+		ambiguous_path@20 {
+		};
+	};
+};
+""",
+"/sub: component 'ambiguous_path' in path '/sub/ambiguous_path' does not exist")
+
+    verify_parse("""
+/dts-v1/;
+
+/ {
+	sub {
+		a = &{/sub/case_insesitive1@ABC};
+		b = &{/sub/case_insesitive1@abc};
+		c = &{/sub/case_insesitive2@ABC};
+		d = &{/sub/case_insesitive2@abc};
+		case_insesitive1@abc {};
+		case_insesitive2@ABC {};
+	};
+};
+""",
+"""
+/dts-v1/;
+
+/ {
+	sub {
+		a = &{/sub/case_insesitive1@ABC};
+		b = &{/sub/case_insesitive1@abc};
+		c = &{/sub/case_insesitive2@ABC};
+		d = &{/sub/case_insesitive2@abc};
+		case_insesitive1@abc {
+		};
+		case_insesitive2@abc {
+		};
+	};
+};
+""")
 
 def test_phandles():
     '''Various tests related to phandles.'''
@@ -2166,9 +2234,9 @@ def test_reprs():
 
     assert re.fullmatch(r"DT\(filename='.*', include_path=.'foo', 'bar'.\)",
                         repr(dt))
-    assert re.fullmatch("<Property 'x' at '/' in '.*'>",
+    assert re.fullmatch("<Property 'x' on / in .*:5>",
                         repr(dt.root.props["x"]))
-    assert re.fullmatch("<Node /sub in '.*'>",
+    assert re.fullmatch("<Node /sub in .*:6>",
                         repr(dt.root.nodes["sub"]))
 
     dt = parse(dts, include_path=iter(("foo", "bar")))

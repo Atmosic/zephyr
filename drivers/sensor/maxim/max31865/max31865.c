@@ -210,7 +210,7 @@ static int max31865_get_temperature(const struct device *dev)
 	} read_reg;
 
 	read_reg.u16 = 0;
-	/* Waiting Time for Temerature Conversion (Page 3 of the datasheet)*/
+	/* Waiting Time for Temperature Conversion (Page 3 of the datasheet)*/
 	k_sleep(K_MSEC(66));
 	/* Read resistance measured value */
 	int err = max31865_spi_read(dev, (REG_RTD_MSB), read_reg.u8, 2);
@@ -249,7 +249,7 @@ static int max31865_init(const struct device *dev)
 		return -ENODEV;
 	}
 	struct max31865_data *data = dev->data;
-	/* Set the confgiuration register */
+	/* Set the configuration register */
 	data->config_control_bits = 0;
 
 	WRITE_BIT(data->config_control_bits, 6, config->conversion_mode);
@@ -313,7 +313,7 @@ static DEVICE_API(sensor, max31865_api_funcs) = {
 	static struct max31865_data max31865_data_##inst;                                          \
                                                                                                    \
 	static const struct max31865_config max31865_config_##inst = {                             \
-		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_MODE_CPHA | SPI_WORD_SET(8), 0),             \
+		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_MODE_CPHA | SPI_WORD_SET(8)),                \
 		.resistance_at_zero = DT_INST_PROP(inst, resistance_at_zero),                      \
 		.resistance_reference = DT_INST_PROP(inst, resistance_reference),                  \
 		.conversion_mode = false,                                                          \

@@ -22,7 +22,7 @@ Click the operating system you are using.
 
    .. group-tab:: Ubuntu
 
-      This guide covers Ubuntu version 22.04 LTS and later.
+      This guide covers Ubuntu version 24.04 LTS and later.
       If you are using a different Linux distribution see :ref:`installation_linux`.
 
       .. code-block:: bash
@@ -37,6 +37,10 @@ Click the operating system you are using.
 
       On other versions, see `this Apple support topic
       <https://support.apple.com/en-us/HT201541>`_.
+
+      .. note::
+
+         x86-64 macOS is not supported.
 
    .. group-tab:: Windows
 
@@ -62,7 +66,7 @@ The current minimum required version for the main dependencies are:
      - 3.20.5
 
    * - `Python <https://www.python.org/>`_
-     - 3.10
+     - 3.12
 
    * - `Devicetree compiler <https://www.devicetree.org/>`_
      - 1.4.6
@@ -84,7 +88,7 @@ The current minimum required version for the main dependencies are:
          .. note::
 
             Due to the unavailability of ``gcc-multilib`` and ``g++-multilib`` on AArch64
-            (ARM64) systems, you may need to remove them from the list of packages to install.
+            (ARM64) systems, you may need to omit them from the list of packages to install.
 
       #. Verify the versions of the main dependencies installed on your system by entering:
 
@@ -111,14 +115,10 @@ The current minimum required version for the main dependencies are:
       #. After the Homebrew installation script completes, follow the on-screen
          instructions to add the Homebrew installation to the path.
 
-         * On macOS running on Apple Silicon, this is achieved with:
+         .. code-block:: bash
 
-           .. code-block:: bash
-
-              (echo; echo 'eval "$(/opt/homebrew/bin/brew shellenv)"') >> ~/.zprofile
-              source ~/.zprofile
-
-         * On macOS running on Intel, use the command for Apple Silicon, but replace ``/opt/homebrew/`` with ``/usr/local/``.
+            (echo; echo 'eval "$(/opt/homebrew/bin/brew shellenv)"') >> ~/.zprofile
+            source ~/.zprofile
 
       #. Use ``brew`` to install the required dependencies:
 
@@ -171,7 +171,7 @@ The current minimum required version for the main dependencies are:
 
          .. code-block:: bat
 
-            winget install Kitware.CMake Ninja-build.Ninja oss-winget.gperf python Git.Git oss-winget.dtc wget 7zip.7zip
+            winget install Kitware.CMake Ninja-build.Ninja oss-winget.gperf Python.Python.3.12 Git.Git oss-winget.dtc wget 7zip.7zip
 
       #. Close the terminal window.
 
@@ -260,12 +260,15 @@ chosen. You'll also install Zephyr's additional Python dependencies in a
 
             west zephyr-export
 
-      #. The Zephyr west extension command, ``west packages`` can be used to install Python
-         dependencies.
+      #. Install Python dependencies using ``west packages``.
 
          .. code-block:: bash
 
             west packages pip --install
+
+         .. note::
+
+            This could downgrade or upgrade west itself.
 
    .. group-tab:: macOS
 
@@ -312,12 +315,15 @@ chosen. You'll also install Zephyr's additional Python dependencies in a
 
             west zephyr-export
 
-      #. The Zephyr west extension command, ``west packages`` can be used to install Python
-         dependencies.
+      #. Install Python dependencies using ``west packages``.
 
          .. code-block:: bash
 
             west packages pip --install
+
+         .. note::
+
+            This could downgrade or upgrade west itself.
 
    .. group-tab:: Windows
 
@@ -338,6 +344,15 @@ chosen. You'll also install Zephyr's additional Python dependencies in a
                python -m venv zephyrproject\.venv
 
       #. Activate the virtual environment:
+
+         .. note::
+
+            Python's virtual environment activation in PowerShell requires
+            running a script itself, which needs to be allowed.
+
+            .. code-block:: powershell
+
+               Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
          .. tabs::
 
@@ -380,12 +395,21 @@ chosen. You'll also install Zephyr's additional Python dependencies in a
 
             west zephyr-export
 
-      #. The Zephyr west extension command, ``west packages`` can be used to install Python
-         dependencies.
+      #. Install Python dependencies using ``west packages``.
 
-         .. code-block:: bat
+         .. tabs::
 
-            west packages pip --install
+            .. code-tab:: bat
+
+               cmd /c zephyr\scripts\utils\west-packages-pip-install.cmd
+
+            .. code-tab:: powershell
+
+               python -m pip install @((west packages pip) -split ' ')
+
+         .. note::
+
+            This could downgrade or upgrade west itself.
 
 Install the Zephyr SDK
 **********************
@@ -395,7 +419,7 @@ contains toolchains for each of Zephyr's supported architectures, which
 include a compiler, assembler, linker and other programs required to build
 Zephyr applications.
 
-For Linux, it also contains additional host tools, such as custom QEMU and OpenOCD builds
+It also contains additional host tools, such as custom QEMU and OpenOCD builds
 that are used to emulate, flash and debug Zephyr applications.
 
 
@@ -547,11 +571,11 @@ Then flash the sample using :ref:`west flash <west-flashing>`:
 
 If you're using blinky, the LED will start to blink as shown in this figure:
 
-.. figure:: img/ReelBoard-Blinky.png
+.. figure:: img/ReelBoard-Blinky.webp
    :width: 400px
    :name: reelboard-blinky
 
-   Phytec :ref:`reel_board <reel_board>` running blinky
+   Phytec :zephyr:board:`reel_board <reel_board>` running blinky
 
 Next Steps
 **********

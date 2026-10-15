@@ -42,9 +42,15 @@
 	RV_E(	op ra, __struct_arch_esf_ra_OFFSET(sp)	)
 
 #ifdef CONFIG_EXCEPTION_DEBUG
-/* Convenience macro for storing callee saved register [s0 - s11] states. */
-#define STORE_CALLEE_SAVED() \
-	RV_E(	sr s0, ___callee_saved_t_s0_OFFSET(sp)		);\
+/*
+ * Convenience macro for storing callee saved register [s0 - s11] states.
+ * Note: s0 is callee-saved and the exception entry code already saved it
+ * in struct arch_esf so it could be used as the current CPU pointer.
+ * Also stores address of csf to the esf. Clobbers t0.
+ */
+#define STORE_CALLEE_SAVED(esf) \
+		lr t0, __struct_arch_esf_s0_OFFSET(esf);\
+	RV_E(	sr t0, ___callee_saved_t_s0_OFFSET(sp)		);\
 	RV_E(	sr s1, ___callee_saved_t_s1_OFFSET(sp)		);\
 	RV_I(	sr s2, ___callee_saved_t_s2_OFFSET(sp)		);\
 	RV_I(	sr s3, ___callee_saved_t_s3_OFFSET(sp)		);\
@@ -55,7 +61,8 @@
 	RV_I(	sr s8, ___callee_saved_t_s8_OFFSET(sp)		);\
 	RV_I(	sr s9, ___callee_saved_t_s9_OFFSET(sp)		);\
 	RV_I(	sr s10, ___callee_saved_t_s10_OFFSET(sp)	);\
-	RV_I(	sr s11, ___callee_saved_t_s11_OFFSET(sp)	)
+	RV_I(	sr s11, ___callee_saved_t_s11_OFFSET(sp)	);\
+		sr sp __struct_arch_esf_csf_OFFSET(esf)
 #endif /* CONFIG_EXCEPTION_DEBUG */
 
 	.macro get_current_cpu dst
@@ -68,22 +75,15 @@
 
 /* imports */
 GDATA(_sw_isr_table)
-#ifdef CONFIG_RISCV_SOC_EXCEPTION_FROM_IRQ
-GTEXT(__soc_is_irq)
-#endif
 GTEXT(__soc_handle_irq)
 GTEXT(z_riscv_fault)
+GTEXT(z_irq_spurious)
 #ifdef CONFIG_RISCV_SOC_CONTEXT_SAVE
 GTEXT(__soc_save_context)
 GTEXT(__soc_restore_context)
 #endif /* CONFIG_RISCV_SOC_CONTEXT_SAVE */
 
-#ifdef CONFIG_EXCEPTION_DEBUG
-GTEXT(z_riscv_fatal_error_csf)
-#else
 GTEXT(z_riscv_fatal_error)
-#endif /* CONFIG_EXCEPTION_DEBUG */
-
 GTEXT(z_get_next_switch_handle)
 GTEXT(z_riscv_switch)
 GTEXT(z_riscv_thread_start)
@@ -100,6 +100,11 @@ GDATA(_k_syscall_table)
 #ifdef CONFIG_RISCV_SOC_HAS_CUSTOM_IRQ_HANDLING
 GTEXT(__soc_handle_all_irqs)
 #endif
+
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+GTEXT(z_riscv_custom_stack_guard_enable)
+GTEXT(z_riscv_custom_stack_guard_disable)
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
 
 /* exports */
 GTEXT(_isr_wrapper)
@@ -119,8 +124,6 @@ GTEXT(_isr_wrapper)
  * what standard behavior is defined). Hence, the arch level code expects
  * the following functions to be provided at the SOC level:
  *
- *     - __soc_is_irq (optional): decide if we're handling an interrupt or an
-         exception
  *     - __soc_handle_irq: handle SoC-specific details for a pending IRQ
  *       (e.g. clear a pending bit in a SoC-specific register)
  *
@@ -225,7 +228,7 @@ SECTION_FUNC(exception.entry, _isr_wrapper)
 	bne t1, t2, no_fp
 	/* determine if we trapped on an FP instruction. */
 	csrr t2, mtval		/* get faulting instruction */
-#ifdef CONFIG_QEMU_TARGET
+#ifdef CONFIG_RISCV_NO_MTVAL_ON_FP_TRAP
 	/*
 	 * Some implementations may not support MTVAL in this capacity.
 	 * Notably QEMU when a CSR instruction is involved.
@@ -325,38 +328,43 @@ no_fp:	/* increment _current->arch.exception_depth */
 	 * Check if exception is the result of an interrupt or not.
 	 * (SOC dependent). Following the RISC-V architecture spec, the MSB
 	 * of the mcause register is used to indicate whether an exception
-	 * is the result of an interrupt or an exception/fault. But for some
-	 * SOCs (like pulpino or riscv-qemu), the MSB is never set to indicate
-	 * interrupt. Hence, check for interrupt/exception via the __soc_is_irq
-	 * function (that needs to be implemented by each SOC). The result is
-	 * returned via register a0 (1: interrupt, 0 exception)
+	 * is the result of an interrupt or an exception/fault.
 	 */
-#ifdef CONFIG_RISCV_SOC_EXCEPTION_FROM_IRQ
-	jal ra, __soc_is_irq
-	bnez a0, is_interrupt
-#else
 	csrr t0, mcause
-	srli t0, t0, RISCV_MCAUSE_IRQ_POS
-	bnez t0, is_interrupt
-#endif
+	bltz t0, is_interrupt
 
 	/*
 	 * If the exception is the result of an ECALL, check whether to
 	 * perform a context-switch or an IRQ offload. Otherwise call z_riscv_fault
 	 * to report the exception.
 	 */
-	csrr t0, mcause
+#if CONFIG_RISCV_MCAUSE_EXCEPTION_MASK < ((1LLU << (__riscv_xlen - 1)) - 1LLU)
 	li t2, CONFIG_RISCV_MCAUSE_EXCEPTION_MASK
 	and t0, t0, t2
+#endif
 
-	/*
-	 * If mcause == RISCV_EXC_ECALLM, handle system call from
+	/* If mcause == RISCV_EXC_ECALLM, handle system call from
 	 * kernel thread.
 	 */
 	li t1, RISCV_EXC_ECALLM
 	beq t0, t1, is_kernel_syscall
 
 #ifdef CONFIG_USERSPACE
+
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	/*
+	 * Enable custom stack guard when entering from user mode
+	 * to protect the privileged stack.
+	 */
+	csrr t1, mstatus
+	li t2, MSTATUS_MPP
+	and t1, t1, t2
+	bnez t1, 1f
+	lr a0, ___cpu_t_current_OFFSET(s0)
+	call z_riscv_custom_stack_guard_enable
+1:
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
+
 	/*
 	 * If mcause == RISCV_EXC_ECALLU, handle system call
 	 * for user mode thread.
@@ -364,19 +372,19 @@ no_fp:	/* increment _current->arch.exception_depth */
 	li t1, RISCV_EXC_ECALLU
 	beq t0, t1, is_user_syscall
 
-#if defined(CONFIG_PMP_STACK_GUARD) && defined(CONFIG_MULTITHREADING)
+#ifdef CONFIG_PMP_KERNEL_MODE_DYNAMIC
 	/*
 	 * Determine if we come from user space. If so, reconfigure the PMP for
-	 * kernel mode stack guard.
+	 * kernel mode configuration.
 	 */
 	csrr t0, mstatus
 	li t1, MSTATUS_MPP
 	and t0, t0, t1
 	bnez t0, 1f
 	lr a0, ___cpu_t_current_OFFSET(s0)
-	call z_riscv_pmp_stackguard_enable
+	call z_riscv_pmp_kernelmode_enable
 1:
-#endif /* CONFIG_PMP_STACK_GUARD */
+#endif /* CONFIG_PMP_KERNEL_MODE_DYNAMIC */
 
 #endif /* CONFIG_USERSPACE */
 
@@ -388,8 +396,21 @@ no_fp:	/* increment _current->arch.exception_depth */
 	 * no_reschedule to restore stack.
 	 */
 	mv a0, sp
+#ifdef CONFIG_EXCEPTION_DEBUG
+	/* Make space for callee-saved registers */
+	addi sp, sp, -__callee_saved_t_SIZEOF
+	STORE_CALLEE_SAVED(a0)
+
+	call z_riscv_fault
+
+	/* Restore SP if z_riscv_fault returns before jumping to no_reschedule */
+	addi sp, sp, __callee_saved_t_SIZEOF
+
+	j no_reschedule
+#else
 	la ra, no_reschedule
 	tail z_riscv_fault
+#endif /* CONFIG_EXCEPTION_DEBUG */
 
 is_kernel_syscall:
 	/*
@@ -405,7 +426,7 @@ is_kernel_syscall:
 	addi t0, t0, 4
 	sr t0, __struct_arch_esf_mepc_OFFSET(sp)
 
-#if defined(CONFIG_PMP_STACK_GUARD) && defined(CONFIG_MULTITHREADING)
+#ifdef CONFIG_PMP_KERNEL_MODE_DYNAMIC
 	/* Re-activate PMP for m-mode */
 	li t1, MSTATUS_MPP
 	csrc mstatus, t1
@@ -459,28 +480,11 @@ do_fault:
 1:	mv a1, sp
 
 #ifdef CONFIG_EXCEPTION_DEBUG
-	/*
-	 * Restore the s0 we saved early in ISR entry
-	 * so it shows up properly in the CSF.
-	 */
-	lr s0, __struct_arch_esf_s0_OFFSET(sp)
-
-	/* Allocate space for caller-saved registers on current thread stack */
 	addi sp, sp, -__callee_saved_t_SIZEOF
-
-	/* Save callee-saved registers to be passed as 3rd arg */
-	STORE_CALLEE_SAVED()		;
-	mv a2, sp
-
-#ifdef CONFIG_EXTRA_EXCEPTION_INFO
-	/* Store csf's addr into esf (a1 still holds the pointer to the esf at this point) */
-	sr a2 __struct_arch_esf_csf_OFFSET(a1)
-#endif /* CONFIG_EXTRA_EXCEPTION_INFO */
-
-	tail z_riscv_fatal_error_csf
-#else
-	tail z_riscv_fatal_error
+	STORE_CALLEE_SAVED(a1)
 #endif /* CONFIG_EXCEPTION_DEBUG */
+	call z_riscv_fatal_error
+	j check_reschedule
 
 #if defined(CONFIG_IRQ_OFFLOAD)
 do_irq_offload:
@@ -498,6 +502,11 @@ do_irq_offload:
 	sw t2, ___cpu_t_nested_OFFSET(s0)
 	bnez t1, 1f
 
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	/* Disable custom stack guard */
+	call z_riscv_custom_stack_guard_disable
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
+
 	/* Switch to interrupt stack */
 	mv t0, sp
 	lr sp, ___cpu_t_irq_stack_OFFSET(s0)
@@ -505,6 +514,20 @@ do_irq_offload:
 	/* Save thread stack pointer on interrupt stack */
 	addi sp, sp, -16
 	sr t0, 0(sp)
+
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	/* Enable the custom stack guard for interrupt stack */
+	lr a0, ___cpu_t_current_OFFSET(s0)
+	call z_riscv_custom_stack_guard_enable
+	/*
+	 * Reload the routine and argument from the stack, since the custom
+	 * stack guard hook clobbers a0 and a1.
+	 */
+	lr t0, 0(sp)
+	lr a1, __struct_arch_esf_a0_OFFSET(t0)
+	lr a0, __struct_arch_esf_a1_OFFSET(t0)
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
+
 1:
 	/* Execute provided routine (argument is in a0 already). */
 	jalr ra, a1, 0
@@ -516,13 +539,13 @@ do_irq_offload:
 #ifdef CONFIG_USERSPACE
 is_user_syscall:
 
-#if defined(CONFIG_PMP_STACK_GUARD) && defined(CONFIG_MULTITHREADING)
+#ifdef CONFIG_PMP_KERNEL_MODE_DYNAMIC
 	/*
 	 * We came from userspace and need to reconfigure the
-	 * PMP for kernel mode stack guard.
+	 * PMP for kernel mode configuration.
 	 */
 	lr a0, ___cpu_t_current_OFFSET(s0)
-	call z_riscv_pmp_stackguard_enable
+	call z_riscv_pmp_kernelmode_enable
 #endif
 
 	/* It is safe to re-enable IRQs now */
@@ -586,18 +609,18 @@ valid_syscall_id:
 
 is_interrupt:
 
-#if defined(CONFIG_PMP_STACK_GUARD) && defined(CONFIG_MULTITHREADING)
+#ifdef CONFIG_PMP_KERNEL_MODE_DYNAMIC
 #ifdef CONFIG_USERSPACE
 	/*
 	 * If we came from userspace then we need to reconfigure the
-	 * PMP for kernel mode stack guard.
+	 * PMP for kernel mode configuration.
 	 */
 	lr t0, __struct_arch_esf_mstatus_OFFSET(sp)
 	li t1, MSTATUS_MPP
 	and t0, t0, t1
 	bnez t0, 1f
 	lr a0, ___cpu_t_current_OFFSET(s0)
-	call z_riscv_pmp_stackguard_enable
+	call z_riscv_pmp_kernelmode_enable
 	j 2f
 #endif /* CONFIG_USERSPACE */
 1:	/* Re-activate PMP for m-mode */
@@ -614,6 +637,11 @@ is_interrupt:
 	sw t2, ___cpu_t_nested_OFFSET(s0)
 	bnez t1, on_irq_stack
 
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	/* Disable the custom stack guard */
+	call z_riscv_custom_stack_guard_disable
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
+
 	/* Switch to interrupt stack */
 	mv t0, sp
 	lr sp, ___cpu_t_irq_stack_OFFSET(s0)
@@ -624,6 +652,12 @@ is_interrupt:
 	 */
 	addi sp, sp, -16
 	sr t0, 0(sp)
+
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	/* Enable the custom stack guard for interrupt stack */
+	lr a0, ___cpu_t_current_OFFSET(s0)
+	call z_riscv_custom_stack_guard_enable
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
 
 on_irq_stack:
 
@@ -640,12 +674,28 @@ on_irq_stack:
 	li t0, CONFIG_RISCV_MCAUSE_EXCEPTION_MASK
 	and a0, a0, t0
 
+#ifdef CONFIG_ZERO_LATENCY_IRQS
+	/* Mask from IRQ */
+	li t1, 1
+	sll t0, t1, a0
+	/* Handling a non-ZLI? */
+	li t1, ~CONFIG_ZERO_LATENCY_IRQS_MASK
+	and t0, t0, t1
+	beqz t0, handle_irq
+	/* Allow ZLIs to interrupt */
+	sw t1, _curr_cpu_arch_nzli_disable(s0)
+	csrc mie, t1
+	csrsi mstatus, MSTATUS_MIE
+handle_irq:
+#endif
+
 	/*
 	 * Clear pending IRQ generating the interrupt at SOC level
 	 * Pass IRQ number to __soc_handle_irq via register a0
 	 */
 	jal ra, __soc_handle_irq
 
+#if defined CONFIG_GEN_SW_ISR_TABLE
 	/*
 	 * Call corresponding registered function in _sw_isr_table.
 	 * (table is 2-word wide, we should shift index accordingly)
@@ -659,6 +709,12 @@ on_irq_stack:
 
 	/* Load ISR function address in register t1 */
 	lr t1, RV_REGSIZE(t0)
+#else
+	/* Load spurious interrupt function in case _sw_isr_table does not exist */
+	la t1, z_irq_spurious
+	/* NULL as parameter */
+	li a0, 0
+#endif
 
 	/* Call ISR function */
 	jalr ra, t1, 0
@@ -676,8 +732,19 @@ irq_done:
 	sw t2, ___cpu_t_nested_OFFSET(s0)
 	bnez t2, no_reschedule
 
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	/* Disable the custom stack guard for interrupt stack */
+	call z_riscv_custom_stack_guard_disable
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
+
 	/* nested count is back to 0: Return to thread stack */
 	lr sp, 0(sp)
+
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	/* Enable the custom stack guard for thread stack */
+	lr a0, ___cpu_t_current_OFFSET(s0)
+	call z_riscv_custom_stack_guard_enable
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
 
 #ifdef CONFIG_STACK_SENTINEL
 	call z_check_stack_sentinel
@@ -763,11 +830,16 @@ fp_trap_exit:
 	and t0, t2, t1
 	bnez t0, 1f
 
-#if defined(CONFIG_PMP_STACK_GUARD) && defined(CONFIG_MULTITHREADING)
-	/* Remove kernel stack guard and Reconfigure PMP for user mode */
+#ifdef CONFIG_PMP_KERNEL_MODE_DYNAMIC
+	/* Remove kernel mode configuration and Reconfigure PMP for user mode */
 	lr a0, ___cpu_t_current_OFFSET(s0)
 	call z_riscv_pmp_usermode_enable
 #endif
+
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	/* Disable the custom stack guard in user mode */
+	call z_riscv_custom_stack_guard_disable
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
 
 	/* Set our per-thread usermode flag */
 	li t1, 1
@@ -789,6 +861,14 @@ fp_trap_exit:
 	sr t0, __struct_arch_esf_sp_OFFSET(sp)
 2:
 #endif
+
+#ifdef CONFIG_ZERO_LATENCY_IRQS
+	/* Reset non-ZLI disable */
+	sw zero, _curr_cpu_arch_nzli_disable(s0)
+	/* Unlock non-ZLIs */
+	lw t0, _curr_cpu_arch_mie_raw(s0)
+	csrw mie, t0
+#endif /* CONFIG_ZERO_LATENCY_IRQS */
 
 	/* Restore s0 (it is no longer ours) */
 	lr s0, __struct_arch_esf_s0_OFFSET(sp)

@@ -148,7 +148,6 @@ static int init_manager(void)
 static int init_nrfs(void)
 {
 	nrfs_err_t err;
-	int rv;
 
 	err = nrfs_backend_wait_for_connection(K_FOREVER);
 	if (err != NRFS_SUCCESS) {
@@ -172,8 +171,9 @@ static int init_nrfs(void)
 		mram_no_latency_sync_request();
 	}
 
-	return rv;
+	return 0;
 }
 
 SYS_INIT(init_manager, PRE_KERNEL_1, 0);
-SYS_INIT(init_nrfs, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
+/* Needs to be initialized after IPC and nrfs. */
+SYS_INIT(init_nrfs, POST_KERNEL, UTIL_INC(CONFIG_NRFS_BACKEND_IPC_SERVICE_INIT_PRIO));

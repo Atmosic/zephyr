@@ -203,13 +203,13 @@ int ext2_init_storage(struct ext2_data **fsp, const void *storage_dev, int flags
 
 	dev_size = fs->backend_ops->get_device_size(fs);
 	if (dev_size < 0) {
-		ret = dev_size;
+		ret = (int)dev_size;
 		goto err;
 	}
 
 	write_size = fs->backend_ops->get_write_size(fs);
 	if (write_size < 0) {
-		ret = write_size;
+		ret = (int)write_size;
 		goto err;
 	}
 
@@ -658,7 +658,7 @@ ssize_t ext2_inode_write(struct ext2_inode *inode, const void *buf, uint32_t off
 			break;
 		}
 
-		size_t to_write = MIN(nbytes, block_size - block_off);
+		size_t to_write = MIN(nbytes - written, block_size - block_off);
 
 		memcpy(inode_current_block_mem(inode) + block_off, (uint8_t *)buf + written,
 				to_write);

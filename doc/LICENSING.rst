@@ -10,6 +10,17 @@ are not covered by the `Apache 2.0 License`_. In some places
 there is no LICENSE file or way to put a LICENSE file there, so we describe the
 licensing in this document.
 
+Bootstrap JavaScript and CSS Files
+----------------------------------
+
+* *Origin:* Bootstrap
+* *Licensing:* `MIT License`_
+* *Impact:* These files are used in the :ref:`dashboard` tool and never linked into the firmware.
+* *Files:*
+
+  * :zephyr_file:`scripts/dashboard/static/js/bootstrap-chop.js`
+  * :zephyr_file:`scripts/dashboard/static/css/bootstrap-chop.css`
+
 Continuous Integration Scripts
 ------------------------------
 
@@ -108,6 +119,32 @@ Python Devicetree library test files
 
   * Various yaml files under ``scripts/dts/python-devicetree/tests``
 
+FUSE Interface Definition Header File
+--------------------------------------
+
+* *Licensing:* `BSD-2-clause`_
+* *Impact:* This header is used in Zephyr build only if :kconfig:option:`CONFIG_FUSE_CLIENT` is enabled.
+* *Files*:
+
+  * :zephyr_file:`subsys/fs/fuse_client/fuse_abi.h`
+
+WireGuard VPN Files
+-------------------
+
+* *Origin:* wireguard-lwip
+* *Licensing:* `BSD-3-clause`_
+* *Impact:* These files are only linked into the firmware if :kconfig:option:`CONFIG_WIREGUARD`
+  is enabled.
+* *Files with BSD-3-clause license*:
+
+  * :zephyr_file:`subsys/net/lib/wireguard/wg_crypto.c`
+  * :zephyr_file:`subsys/net/lib/wireguard/crypto/crypto.h`
+  * :zephyr_file:`subsys/net/lib/wireguard/crypto/crypto.c`
+  * :zephyr_file:`subsys/net/lib/wireguard/crypto/refc/blake2s.h`
+  * :zephyr_file:`subsys/net/lib/wireguard/crypto/refc/blake2s.c`
+  * :zephyr_file:`subsys/net/lib/wireguard/crypto/refc/hchacha20.h`
+  * :zephyr_file:`subsys/net/lib/wireguard/crypto/refc/hchacha20.c`
+
 .. _Apache 2.0 License:
    https://github.com/zephyrproject-rtos/zephyr/blob/main/LICENSE
 
@@ -119,6 +156,9 @@ Python Devicetree library test files
 
 .. _BSD-3-clause:
    https://opensource.org/license/bsd-3-clause
+
+.. _BSD-2-clause:
+   https://opensource.org/license/bsd-2-clause
 
 .. _Coccinelle:
    https://coccinelle.gitlabpages.inria.fr/website/

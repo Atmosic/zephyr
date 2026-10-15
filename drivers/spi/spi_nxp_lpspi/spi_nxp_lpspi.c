@@ -18,16 +18,6 @@ struct lpspi_driver_data {
 	uint8_t lpspi_op_mode;
 };
 
-static inline uint8_t rx_fifo_cur_len(LPSPI_Type *base)
-{
-	return (base->FSR & LPSPI_FSR_RXCOUNT_MASK) >> LPSPI_FSR_RXCOUNT_SHIFT;
-}
-
-static inline uint8_t tx_fifo_cur_len(LPSPI_Type *base)
-{
-	return (base->FSR & LPSPI_FSR_TXCOUNT_MASK) >> LPSPI_FSR_TXCOUNT_SHIFT;
-}
-
 /* Reads a word from the RX fifo and handles writing it into the RX spi buf */
 static inline void lpspi_rx_word_write_bytes(const struct device *dev, size_t offset)
 {
@@ -39,7 +29,7 @@ static inline void lpspi_rx_word_write_bytes(const struct device *dev, size_t of
 	uint8_t *buf = ctx->rx_buf + offset;
 	uint32_t word = base->RDR;
 
-	if (!spi_context_rx_buf_on(ctx) && spi_context_rx_on(ctx)) {
+	if (!spi_context_rx_buf_on(ctx)) {
 		/* receive no actual data if rx buf is NULL */
 		return;
 	}
@@ -55,14 +45,12 @@ static inline size_t lpspi_rx_buf_write_words(const struct device *dev, uint8_t 
 	struct lpspi_data *data = dev->data;
 	struct lpspi_driver_data *lpspi_data = (struct lpspi_driver_data *)data->driver_data;
 	struct spi_context *ctx = &data->ctx;
-	size_t buf_len = ctx->rx_len;
-	uint8_t words_read = 0;
+	size_t words_read = MIN(ctx->rx_len, (size_t)max_read);
 	size_t offset = 0;
 
-	while (buf_len-- > 0 && max_read-- > 0) {
+	for (size_t i = 0; i < words_read; i++) {
 		lpspi_rx_word_write_bytes(dev, offset);
 		offset += lpspi_data->word_size_bytes;
-		words_read++;
 	}
 
 	return words_read;
@@ -228,12 +216,16 @@ static inline void lpspi_handle_tx_irq(const struct device *dev)
 static inline void lpspi_end_xfer(const struct device *dev)
 {
 	LPSPI_Type *base = (LPSPI_Type *)DEVICE_MMIO_NAMED_GET(dev, reg_base);
-	const struct lpspi_config *config = dev->config;
 	struct lpspi_data *data = dev->data;
 	struct spi_context *ctx = &data->ctx;
 
 	spi_context_complete(ctx, dev, 0);
+
+#ifdef CONFIG_CPU_CORTEX_M
+	const struct lpspi_config *config = dev->config;
 	NVIC_ClearPendingIRQ(config->irqn);
+#endif
+
 	if (!(ctx->config->operation & SPI_HOLD_ON_CS)) {
 		base->TCR &= ~(LPSPI_TCR_CONT_MASK | LPSPI_TCR_CONTC_MASK);
 		/* don't need to wait for TCR since we are at end of xfer + in IRQ context */
@@ -371,7 +363,8 @@ static int transceive(const struct device *dev, const struct spi_config *spi_cfg
 		goto error;
 	}
 
-	if (data->major_version < 2 && spi_cfg->operation & SPI_HOLD_ON_CS) {
+	if (data->major_version < 2 && spi_cfg->operation & SPI_HOLD_ON_CS &&
+	    !spi_cs_is_gpio(spi_cfg)) {
 		/* on this version of LPSPI, due to errata in design
 		 * CS must be deasserted in order to clock all words,
 		 * so HOLD_ON_CS flag cannot be supported.

@@ -106,6 +106,9 @@ void xtensa_fatal_error(unsigned int reason, const struct arch_esf *esf)
 	}
 #endif /* CONFIG_EXCEPTION_DEBUG */
 
+#if defined(CONFIG_EXCEPTION_DUMP_HOOK)
+	arch_exception_call_drain_hook(false);
+#endif
 	z_fatal_error(reason, esf);
 }
 
@@ -118,7 +121,7 @@ void xtensa_simulator_exit(int return_code)
 	    "simcall\n\t"
 	    :
 	    : [code] "r" (return_code), [call] "i" (SYS_exit)
-	    : "a3", "a2");
+	    : "a3", "a2", "memory");
 
 	CODE_UNREACHABLE;
 }

@@ -238,7 +238,7 @@ static int bme680_sample_fetch(const struct device *dev,
 	do {
 		/* Wait for a maximum of 250ms for data.
 		 * Initial delay after boot has been measured at 170ms.
-		 * Subequent triggers are < 1ms.
+		 * Subsequent triggers are < 1ms.
 		 */
 		if (cnt++ > 250) {
 			return -EAGAIN;
@@ -489,7 +489,7 @@ static DEVICE_API(sensor, bme680_api_funcs) = {
 #define BME680_CONFIG_SPI(inst)				\
 	{						\
 		.bus.spi = SPI_DT_SPEC_INST_GET(	\
-			inst, BME680_SPI_OPERATION, 0),	\
+			inst, BME680_SPI_OPERATION),	\
 		.bus_io = &bme680_bus_io_spi,		\
 	}
 

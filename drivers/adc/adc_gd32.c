@@ -316,7 +316,7 @@ static int adc_gd32_start_read(const struct device *dev,
 		adc_gd32_calibration(cfg);
 	}
 
-	/* Signle conversion mode with regular group. */
+	/* Single conversion mode with regular group. */
 	ADC_RSQ2(cfg->reg) &= ~ADC_RSQX_RSQN;
 	ADC_RSQ2(cfg->reg) = index;
 
@@ -499,7 +499,7 @@ static void adc_gd32_global_irq_cfg(void)
 		ADC_CLOCK_SOURCE(n)								\
 	};											\
 	DEVICE_DT_INST_DEFINE(n,								\
-			      &adc_gd32_init, NULL,						\
+			      adc_gd32_init, NULL,						\
 			      &adc_gd32_data_##n, &adc_gd32_config_##n,				\
 			      POST_KERNEL, CONFIG_ADC_INIT_PRIORITY,				\
 			      &adc_gd32_driver_api);						\

@@ -6,7 +6,7 @@
 
 /**
  * @file
- * @brief Header for agregating all defines for mm
+ * @brief Header for aggregating all defines for mm
  *
  */
 #ifndef ZEPHYR_DRIVERS_SYSTEM_MM_DRV_INTEL_MTL_
@@ -59,7 +59,7 @@
 /**
  * Calculate TLB entry based on physical address.
  *
- * @param pa Page-aligned virutal address.
+ * @param pa Page-aligned virtual address.
  * @return TLB entry value.
  */
 static inline uint16_t pa_to_tlb_entry(uintptr_t pa)
@@ -71,21 +71,12 @@ static inline uint16_t pa_to_tlb_entry(uintptr_t pa)
  * Calculate physical address based on TLB entry.
  *
  * @param tlb_entry TLB entry value.
- * @return physcial address pointer.
+ * @return physical address pointer.
  */
 static inline uintptr_t tlb_entry_to_pa(uint16_t tlb_entry)
 {
 	return ((((tlb_entry) & TLB_PADDR_MASK) *
 		CONFIG_MM_DRV_PAGE_SIZE) + TLB_PHYS_BASE);
 }
-
-/**
- * Calculate virtual memory regions allocation based on
- * info from linker script.
- *
- * @param End address of staticaly allocated memory.
- * @return Error Code.
- */
-int calculate_memory_regions(uintptr_t static_alloc_end_ptr);
 
 #endif /* ZEPHYR_DRIVERS_SYSTEM_MM_DRV_INTEL_MTL_ */

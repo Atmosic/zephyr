@@ -11,6 +11,7 @@
 
 #include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/assigned_numbers.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/csip.h>
@@ -42,7 +43,6 @@ struct bt_conn *default_conn;
 atomic_t flag_connected;
 atomic_t flag_disconnected;
 atomic_t flag_conn_updated;
-atomic_t flag_audio_received;
 volatile bt_security_t security_level;
 #if defined(CONFIG_BT_CSIP_SET_MEMBER)
 uint8_t csip_rsi[BT_CSIP_RSI_SIZE];
@@ -264,20 +264,20 @@ void start_broadcast_adv(struct bt_le_ext_adv *adv)
 		return;
 	}
 
-	if (info.ext_adv_state == BT_LE_EXT_ADV_STATE_DISABLED) {
-		/* Start extended advertising */
-		err = bt_le_ext_adv_start(adv, BT_LE_EXT_ADV_START_DEFAULT);
-		if (err != 0) {
-			FAIL("Failed to start extended advertising: %d\n", err);
-			return;
-		}
-	}
-
 	if (info.per_adv_state == BT_LE_PER_ADV_STATE_DISABLED) {
 		/* Enable Periodic Advertising */
 		err = bt_le_per_adv_start(adv);
 		if (err != 0) {
 			FAIL("Failed to enable periodic advertising: %d\n", err);
+			return;
+		}
+	}
+
+	if (info.ext_adv_state == BT_LE_EXT_ADV_STATE_DISABLED) {
+		/* Start extended advertising */
+		err = bt_le_ext_adv_start(adv, BT_LE_EXT_ADV_START_DEFAULT);
+		if (err != 0) {
+			FAIL("Failed to start extended advertising: %d\n", err);
 			return;
 		}
 	}

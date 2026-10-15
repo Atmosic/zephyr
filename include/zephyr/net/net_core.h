@@ -16,7 +16,6 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include <zephyr/logging/log.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/kernel.h>
 
@@ -47,24 +46,6 @@ extern "C" {
  */
 
 /** @cond INTERNAL_HIDDEN */
-
-/* Network subsystem logging helpers */
-#ifdef CONFIG_THREAD_NAME
-#define NET_DBG(fmt, ...) LOG_DBG("(%s): " fmt,				\
-			k_thread_name_get(k_current_get()), \
-			##__VA_ARGS__)
-#else
-#define NET_DBG(fmt, ...) LOG_DBG("(%p): " fmt, k_current_get(),	\
-				  ##__VA_ARGS__)
-#endif /* CONFIG_THREAD_NAME */
-#define NET_ERR(fmt, ...) LOG_ERR(fmt, ##__VA_ARGS__)
-#define NET_WARN(fmt, ...) LOG_WRN(fmt, ##__VA_ARGS__)
-#define NET_INFO(fmt, ...) LOG_INF(fmt,  ##__VA_ARGS__)
-
-#define NET_HEXDUMP_DBG(_data, _length, _str) LOG_HEXDUMP_DBG(_data, _length, _str)
-#define NET_HEXDUMP_ERR(_data, _length, _str) LOG_HEXDUMP_ERR(_data, _length, _str)
-#define NET_HEXDUMP_WARN(_data, _length, _str) LOG_HEXDUMP_WRN(_data, _length, _str)
-#define NET_HEXDUMP_INFO(_data, _length, _str) LOG_HEXDUMP_INF(_data, _length, _str)
 
 #define NET_ASSERT(cond, ...) __ASSERT(cond, "" __VA_ARGS__)
 
@@ -174,6 +155,18 @@ static inline int net_send_data(struct net_pkt *pkt)
 #define NET_TC_RX_COUNT 0
 #define NET_TC_COUNT 0
 #endif /* CONFIG_NET_TC_TX_COUNT && CONFIG_NET_TC_RX_COUNT */
+
+#if CONFIG_NET_TC_TX_SKIP_FOR_HIGH_PRIO
+#define NET_TC_TX_EFFECTIVE_COUNT (NET_TC_TX_COUNT + 1)
+#else
+#define NET_TC_TX_EFFECTIVE_COUNT NET_TC_TX_COUNT
+#endif
+
+#if CONFIG_NET_TC_RX_SKIP_FOR_HIGH_PRIO
+#define NET_TC_RX_EFFECTIVE_COUNT (NET_TC_RX_COUNT + 1)
+#else
+#define NET_TC_RX_EFFECTIVE_COUNT NET_TC_RX_COUNT
+#endif
 
 /**
  * @brief Registration information for a given L3 handler. Note that

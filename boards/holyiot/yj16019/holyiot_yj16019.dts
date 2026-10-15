@@ -6,7 +6,6 @@
 
 /dts-v1/;
 #include <nordic/nrf52832_qfaa.dtsi>
-#include <nordic/nrf52840_partition.dtsi>
 #include "holyiot_yj16019-pinctrl.dtsi"
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 
@@ -16,6 +15,7 @@
 
 	leds {
 		compatible = "gpio-leds";
+
 		led0: led_0 {
 			gpios = <&gpio0 29 GPIO_ACTIVE_HIGH>;
 			label = "LED";
@@ -24,6 +24,7 @@
 
 	buttons {
 		compatible = "gpio-keys";
+
 		button0: button_0 {
 			gpios = <&gpio0 28 GPIO_ACTIVE_LOW>;
 			label = "Push button switch";

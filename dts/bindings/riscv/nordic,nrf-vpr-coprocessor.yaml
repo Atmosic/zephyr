@@ -30,3 +30,14 @@ properties:
     type: boolean
     description: |
       Enables setting VPR core's secure attribute to secure.
+
+  enable-dma-secure:
+    type: boolean
+    description: |
+      Enables setting VPR core's DMA secure attribute to secure.
+
+  hibernation-ram-block:
+    type: int
+    description: |
+      Enables RAM retention of the block that is used for hibernating the VPR core.
+      The number is the index used by MEMCONF.

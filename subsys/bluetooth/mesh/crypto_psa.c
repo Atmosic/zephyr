@@ -8,7 +8,6 @@
 
 #include <zephyr/bluetooth/mesh.h>
 #include <zephyr/psa/key_ids.h>
-#include <zephyr/sys/check.h>
 
 #define LOG_LEVEL CONFIG_BT_MESH_CRYPTO_LOG_LEVEL
 #include <zephyr/logging/log.h>
@@ -452,9 +451,14 @@ int bt_mesh_key_import(enum bt_mesh_key_type type, const uint8_t in[16], struct 
 	psa_set_key_bits(&key_attributes, 128);
 
 	status = psa_import_key(&key_attributes, in, 16, &out->key);
-	err = status == PSA_SUCCESS ? 0 :
-		status == PSA_ERROR_ALREADY_EXISTS ? -EALREADY : -EIO;
+	if (status == PSA_ERROR_ALREADY_EXISTS) {
+		LOG_WRN("Key with ID 0x%4x already exists (desync between mesh and PSA ITS)",
+			key_id);
+		(void)psa_destroy_key(key_id);
+		status = psa_import_key(&key_attributes, in, 16, &out->key);
+	}
 
+	err = status == PSA_SUCCESS ? 0 : -EIO;
 	if (err && key_id != PSA_KEY_ID_NULL) {
 		keyid_free(key_id);
 	}
@@ -515,9 +519,5 @@ int bt_mesh_key_compare(const uint8_t raw_key[16], const struct bt_mesh_key *key
 
 __weak int bt_rand(void *buf, size_t len)
 {
-	CHECKIF(buf == NULL || len == 0) {
-		return -EINVAL;
-	}
-
 	return psa_generate_random(buf, len) == PSA_SUCCESS ? 0 : -EIO;
 }

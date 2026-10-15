@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <zephyr/storage/flash_map.h>
 #include <zephyr/settings/settings.h>
 
 #include <errno.h>
@@ -18,7 +19,7 @@
 #endif
 
 #define STORAGE_PARTITION	storage_partition
-#define STORAGE_PARTITION_ID	FIXED_PARTITION_ID(STORAGE_PARTITION)
+#define STORAGE_PARTITION_ID	PARTITION_ID(STORAGE_PARTITION)
 
 #define GAMMA_DEFAULT_VAl 0
 #define FAIL_MSG "fail (err %d)\n"
@@ -418,7 +419,7 @@ static void example_without_handler(void)
 	}
 }
 
-static void example_initialization(void)
+static int example_initialization(void)
 {
 	int rc;
 
@@ -450,7 +451,7 @@ static void example_initialization(void)
 	rc = settings_subsys_init();
 	if (rc) {
 		printk("settings subsys initialization: fail (err %d)\n", rc);
-		return;
+		return rc;
 	}
 
 	printk("settings subsys initialization: OK.\n");
@@ -459,10 +460,13 @@ static void example_initialization(void)
 	if (rc) {
 		printk("subtree <%s> handler registered: fail (err %d)\n",
 		       alpha_handler.name, rc);
+		return rc;
 	}
 
 	printk("subtree <%s> handler registered: OK\n", alpha_handler.name);
 	printk("subtree <alpha/beta> has static handler\n");
+
+	return 0;
 }
 
 static void example_delete(void)
@@ -542,7 +546,9 @@ int main(void)
 	printk("\n*** Settings usage example ***\n\n");
 
 	/* settings initialization */
-	example_initialization();
+	if (example_initialization() != 0) {
+		return 0;
+	}
 
 	for (i = 0; i < 6; i++) {
 		printk("\n##############\n");

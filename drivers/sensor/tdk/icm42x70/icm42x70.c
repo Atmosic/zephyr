@@ -482,12 +482,17 @@ static void icm42x70_convert_accel(struct sensor_value *val, int16_t raw_val, ui
 	val->val2 = conv_val % 1000000;
 }
 
-static void icm42x70_convert_temp(struct sensor_value *val, int16_t raw_val)
+static void icm42x70_convert_temp(struct sensor_value *val, int16_t raw_val, bool hires)
 {
 	int64_t conv_val;
 
 	/* see datasheet section 15.9 for details */
-	conv_val = 25 * 1000000 + ((int64_t)raw_val * 1000000 / 2);
+	if (hires) {
+		conv_val = (25 * 1000000) + ((int64_t)raw_val * 1000000 / 128);
+	} else {
+		conv_val = (25 * 1000000) + ((int64_t)raw_val * 1000000 / 2);
+	}
+
 	val->val1 = conv_val / 1000000;
 	val->val2 = conv_val % 1000000;
 }
@@ -530,7 +535,15 @@ static int icm42x70_channel_get(const struct device *dev, enum sensor_channel ch
 		icm42670_convert_gyro(val, data->gyro_z, data->gyro_fs);
 #endif
 	} else if (chan == SENSOR_CHAN_DIE_TEMP) {
-		icm42x70_convert_temp(val, data->temp);
+		/* see datasheet section 15.9 for details */
+		if (IS_ENABLED(CONFIG_ICM42X70_TRIGGER)) {
+			icm42x70_convert_temp(val, data->temp, data->driver.fifo_highres_enabled);
+		} else {
+			/* The temperature data read in non-fifo mode is of 2-bytes;
+			 * which is same as FIFO with high resolution temp data.
+			 */
+			icm42x70_convert_temp(val, data->temp, true);
+		}
 #ifdef CONFIG_TDK_APEX
 	} else if ((enum sensor_channel_tdk_apex)chan == SENSOR_CHAN_APEX_MOTION) {
 		if (cfg->apex == TDK_APEX_PEDOMETER) {
@@ -575,7 +588,7 @@ static int icm42x70_fetch_from_fifo(const struct device *dev)
 	    (int_status & INT_STATUS_FIFO_FULL_INT_MASK)) {
 		uint16_t packet_count;
 
-		/* Make sure RCOSC is enabled to guarrantee FIFO read */
+		/* Make sure RCOSC is enabled to guarantee FIFO read */
 		status |= inv_imu_switch_on_mclk(&data->driver);
 
 		/* Read FIFO frame count */
@@ -585,6 +598,12 @@ static int icm42x70_fetch_from_fifo(const struct device *dev)
 		if (status != 0) {
 			status |= inv_imu_switch_off_mclk(&data->driver);
 			return status;
+		}
+
+		/* CID 520276: Constrain packet_count to the size of the driver buffer */
+		if (packet_count * packet_size > sizeof(data->driver.fifo_data)) {
+			LOG_WRN("FIFO count (%d) exceeds buffer size, capping.", packet_count);
+			packet_count = sizeof(data->driver.fifo_data) / packet_size;
 		}
 
 		/* Read FIFO data */
@@ -983,7 +1002,7 @@ static DEVICE_API(sensor, icm42x70_driver_api) = {
 
 /* Initializes the bus members for an instance on a SPI bus. */
 #define ICM42X70_CONFIG_SPI(inst)                                                                  \
-	{.bus.spi = SPI_DT_SPEC_INST_GET(inst, ICM42X70_SPI_CFG, 0),                               \
+	{.bus.spi = SPI_DT_SPEC_INST_GET(inst, ICM42X70_SPI_CFG),                                  \
 	 .bus_io = &icm42x70_bus_io_spi,                                                           \
 	 .serif_type = UI_SPI4,                                                                    \
 	 ICM42X70_CONFIG_COMMON(inst)}

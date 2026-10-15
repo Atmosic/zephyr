@@ -345,7 +345,7 @@ static void dwxgmac_dma_mtl_init(const struct device *dev,
 			   MTL_OPERATION_MODE_RAA_SET(mtl_cfg->raa);
 	sys_write32(reg_val, reg_addr);
 
-	/* Program the Traffic class priorites. */
+	/* Program the Traffic class priorities. */
 	for (uint32_t tc_id = 0; tc_id < config->num_TCs; tc_id++) {
 		reg_addr = (ioaddr + XGMAC_MTL_BASE_ADDR_OFFSET + MTL_TC_PRTY_MAP0_OFST +
 			    ((tc_id / NUM_OF_TCs_PER_TC_PRTY_MAP_REG) * XGMAC_REG_SIZE_BYTES));
@@ -420,8 +420,8 @@ static void dwxgmac_set_mac_addr_by_idx(const struct device *dev, uint8_t *addr,
 		/**
 		 * 'sa' bit specifies if This MAC address[47:0] is used to compare with the source
 		 * address fields of the received packet. MAC Address with index 0 is always enabled
-		 * for recive packet MAC address filtering. And 'sa' bit of MAC address with index 0
-		 * is reserved hence this step is excluded for index 0.
+		 * for receive packet MAC address filtering. And 'sa' bit of MAC address with index
+		 * 0 is reserved hence this step is excluded for index 0.
 		 */
 		reg_val |= CORE_MAC_ADDRESSx_HIGH_SA_SET(sa);
 	}
@@ -488,7 +488,7 @@ static void dwxgmac_mac_init(const struct device *dev,
 
 	sys_write32(reg_val, ioaddr + CORE_MAC_PACKET_FILTER_OFST);
 
-	/* Enable Recive queues for Data Center Bridging/ Generic */
+	/* Enable Receive queues for Data Center Bridging/ Generic */
 	reg_val = 0;
 	for (uint32_t q = 0; q < config->num_rx_Qs; q++) {
 		reg_val |= (XGMAC_RXQxEN_DCB << (q * XGMAC_RXQxEN_SIZE_BITS));
@@ -500,7 +500,7 @@ static void dwxgmac_mac_init(const struct device *dev,
 	sys_write32(reg_val, ioaddr + CORE_MAC_TX_CONFIGURATION_OFST);
 
 	/**
-	 * Enable Giant Packet Size Limit Control, disable eatchdog timer on reciver and
+	 * Enable Giant Packet Size Limit Control, disable eatchdog timer on receiver and
 	 * Configure RX checksum offload, jumbo packet enable, ARP offload, gaint packet size limit
 	 * in MAC RX configuration register.
 	 */
@@ -560,7 +560,7 @@ static void get_and_refill_desc_buffs(struct xgmac_dma_rx_desc *rx_desc, uint16_
 
 	*buff1 = (struct net_buf *)((mem_addr_t)*(rx_buffs + (desc_id * RX_FRAGS_PER_DESC)));
 	*buff2 = (struct net_buf *)((mem_addr_t)*(rx_buffs + (desc_id * RX_FRAGS_PER_DESC) + 1u));
-	/* Reserve a free buffer in netwrok RX buffers pool */
+	/* Reserve a free buffer in network RX buffers pool */
 	new_buff = net_pkt_get_reserve_rx_data(CONFIG_NET_BUF_DATA_SIZE, K_FOREVER);
 	if (!new_buff) {
 		LOG_ERR("Failed to allocate a network buffer to refill the DMA descriptor");
@@ -578,12 +578,12 @@ static void get_and_refill_desc_buffs(struct xgmac_dma_rx_desc *rx_desc, uint16_
 	 */
 	rx_desc->rdes0 = POINTER_TO_UINT(new_buff->data);
 	rx_desc->rdes1 = POINTER_TO_UINT(new_buff->data) >> XGMAC_REG_SIZE_BITS;
-	/* Reserve another free buffer in netwrok RX buffers pool */
+	/* Reserve another free buffer in network RX buffers pool */
 	new_buff = net_pkt_get_reserve_rx_data(CONFIG_NET_BUF_DATA_SIZE, K_FOREVER);
 	if (!new_buff) {
 		/**
 		 * If we fails reserve another buffer to fill the RX descriptor buffer pointer
-		 * 2, then free the previusly allocated first buffer too. Log an error and return.
+		 * 2, then free the previously allocated first buffer too. Log an error and return.
 		 */
 		rx_desc->rdes0 = 0u;
 		rx_desc->rdes0 = 1u;
@@ -605,7 +605,7 @@ static void get_and_refill_desc_buffs(struct xgmac_dma_rx_desc *rx_desc, uint16_
 	rx_desc->rdes2 = POINTER_TO_UINT(new_buff->data);
 	/**
 	 * Put the RX descriptor back to DMA ownership by setting OWN bit in RX descriptor dword3
-	 * Set IOC bit in dword3 to receive an interrupt after this RX descriptor is beling proceesd
+	 * Set IOC bit in dword3 to receive an interrupt after this RX descriptor is being proceesd
 	 * and put to application ownership.
 	 */
 	rx_desc->rdes3 = XGMAC_RDES3_OWN | XGMAC_RDES3_IOC |
@@ -744,7 +744,7 @@ static void eth_dwc_xgmac_tx_irq_work(const struct device *dev, uint32_t dma_chn
 		tx_desc = (struct xgmac_dma_tx_desc *)(fisrt_tx_desc + desc_idx);
 		arch_dcache_invd_range(tx_desc, sizeof(tx_desc));
 		if (!(tx_desc->tdes3 & XGMAC_TDES3_OWN)) {
-			/* If LD bit of this descritor set then unreferance the TX packet */
+			/* If LD bit of this descriptor set then unreferance the TX packet */
 			if (tx_desc->tdes3 & XGMAC_TDES3_LD) {
 				pkt = (struct net_pkt *)(*tx_pkt_location_in_array(
 					data->tx_pkts, dma_chnl, dma_chnl_cfg->tdrl, desc_idx));
@@ -772,7 +772,7 @@ static void eth_dwc_xgmac_dmach_isr(const struct device *dev, uint32_t dmach_int
 				    uint32_t dma_chnl)
 {
 	if (dmach_interrupt_sts & DMA_CHx_STATUS_TI_SET_MSK) {
-		/* Tranmit interrupt */
+		/* Transmit interrupt */
 		eth_dwc_xgmac_tx_irq_work(dev, dma_chnl);
 	}
 	if (dmach_interrupt_sts & DMA_CHx_STATUS_RI_SET_MSK) {
@@ -1060,7 +1060,7 @@ void eth_dwc_xgmac_prefill_rx_desc(const struct device *dev)
 	 * Every RX descriptor in the descriptor ring, needs to be prefilled with 2 RX
 	 * buffer addresses and put it to DMA ownership by setting the OWN bit. When new
 	 * data is received the DMA will check the OWN bit and moves the data to
-	 * corresponding recive buffers and puts the RX descriptor to application ownership
+	 * corresponding receive buffers and puts the RX descriptor to application ownership
 	 * by clearing the OWN bit. If received data size is more than total of 2 buffer
 	 * sizes  then DMA will use next descriptor in the ring.
 	 */
@@ -1392,7 +1392,7 @@ static int eth_dwc_xgmac_send(const struct device *dev, struct net_pkt *pkt)
 	/* lock the TX desc ring while acquiring the resources */
 	(void)k_mutex_lock(&(context.descmeta->ring_lock), K_FOREVER);
 	(void)net_pkt_ref(pkt);
-	LOG_DBG("%s: %p packet referanced for tx", dev->name, pkt);
+	LOG_DBG("%s: %p packet referenced for tx", dev->name, pkt);
 	tdes3_fd_flg = XGMAC_TDES3_FD;
 	for (struct net_buf *frag = pkt->frags; frag; frag = frag->frags) {
 		ret = k_sem_take(&context.descmeta->free_tx_descs_sem, K_MSEC(1));
@@ -1532,12 +1532,8 @@ static int eth_dwc_xgmac_set_config(const struct device *dev, enum ethernet_conf
 	switch (type) {
 	case ETHERNET_CONFIG_TYPE_MAC_ADDRESS:
 		memcpy(dev_data->mac_addr, config->mac_address.addr, ETH_MAC_ADDRESS_SIZE);
-		retval = net_if_set_link_addr(dev_data->iface, dev_data->mac_addr,
-					      ETH_MAC_ADDRESS_SIZE, NET_LINK_ETHERNET);
-		if (retval == 0) {
-			dwxgmac_set_mac_addr_by_idx(dev, dev_data->mac_addr, 0u, false);
-		}
-		break;
+		dwxgmac_set_mac_addr_by_idx(dev, dev_data->mac_addr, 0u, false);
+		return 0;
 #if (!CONFIG_ETH_DWC_XGMAC_PROMISCUOUS_EXCEPTION && CONFIG_NET_PROMISCUOUS_MODE)
 
 	case ETHERNET_CONFIG_TYPE_PROMISC_MODE:

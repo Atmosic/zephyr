@@ -45,6 +45,7 @@
 		zephyr,flash-controller = &sim_flash;
 		zephyr,ieee802154 = &ieee802154;
 		zephyr,canbus = &can0;
+		zephyr,display = &ramfb0;
 	};
 
 	pcie0: pcie0 {
@@ -115,6 +116,31 @@
 		compatible = "zephyr,ieee802154-uart-pipe";
 	};
 
+	fwcfg0: fw-cfg@510 {
+		compatible = "qemu,fw-cfg-ioport";
+		reg = <0x510 0x18>;
+		status = "okay";
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		ramfb_mem: framebuffer@1c00000 {
+			reg = <0x01c00000 0x00400000>; /* 4 MiB */
+			no-map;
+		};
+	};
+
+	ramfb0: ramfb {
+		compatible = "qemu,ramfb";
+		fwcfg = <&fwcfg0>;
+		memory-region = <&ramfb_mem>;
+		width = <1024>;
+		height = <768>;
+		status = "okay";
+	};
 };
 
 &uart0 {
@@ -137,7 +163,6 @@
 };
 
 &flash_sim0 {
-
 	partitions {
 		compatible = "fixed-partitions";
 		#address-cells = <1>;
@@ -156,10 +181,12 @@
 			label = "image-0";
 			reg = <0x00011000 0x00010000>;
 		};
+
 		slot1_partition: partition@21000 {
 			label = "image-1";
 			reg = <0x00021000 0x00010000>;
 		};
+
 		eepromemu_partition: partition@31000 {
 			label = "eeprom-emu";
 			reg = <0x00031000 0x00010000>;

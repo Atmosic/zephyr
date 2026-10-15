@@ -325,7 +325,6 @@ static int eth_cyclonev_set_config(const struct device *dev, enum ethernet_confi
 	case ETHERNET_CONFIG_TYPE_MAC_ADDRESS:
 		memcpy(p->mac_addr, config->mac_address.addr, sizeof(p->mac_addr));
 		eth_cyclonev_set_mac_addr(p->mac_addr, cv_config->emac_index, 0, p); /* Set MAC */
-		net_if_set_link_addr(p->iface, p->mac_addr, sizeof(p->mac_addr), NET_LINK_ETHERNET);
 		break;
 #if defined(CONFIG_NET_PROMISCUOUS_MODE)
 	case ETHERNET_CONFIG_TYPE_PROMISC_MODE:
@@ -408,6 +407,9 @@ static int eth_cyclonev_send(const struct device *dev, struct net_pkt *pkt)
 
 	LOG_DBG("Pkt length: %d", len);
 	frag = pkt->buffer;
+
+	__ASSERT((frag != NULL), "Invalid net_pkt: no data buffer\n");
+
 	do {
 
 		/* reserve a free descriptor for this fragment */
@@ -433,10 +435,7 @@ static int eth_cyclonev_send(const struct device *dev, struct net_pkt *pkt)
 
 		/* Copy data to local buffer   */
 
-		if (frag) {
-			memcpy(&p->tx_buf[p->tx_current_desc_number * ETH_BUFFER_SIZE], frag->data,
-			       len);
-		}
+		memcpy(&p->tx_buf[p->tx_current_desc_number * ETH_BUFFER_SIZE], frag->data, len);
 
 		/* Set the buffer size.  */
 		tx_desc->control_buffer_size = (frag->len & ETH_DMATXDESC_TBS1);
@@ -680,7 +679,8 @@ static void eth_cyclonev_receive(struct eth_cyclonev_priv *p)
 		p->rx_current_desc_number = last_desc_index;
 
 		/* Allocate packet with buffer */
-		pkt = net_pkt_rx_alloc_with_buffer(p->iface, frame_length, AF_UNSPEC, 0, K_NO_WAIT);
+		pkt = net_pkt_rx_alloc_with_buffer(p->iface, frame_length,
+						   NET_AF_UNSPEC, 0, K_NO_WAIT);
 		if (!pkt) {
 			LOG_ERR("net_pkt_rx_alloc_with_buffer() failed");
 			eth_stats_update_errors_rx(p->iface);
@@ -752,7 +752,7 @@ cont:
 /**
  * @brief Release tx function
  * Main purpose of its function is to track current descriptor number
- * and give back succeding tx semaphore when it have been used.
+ * and give back succeeding tx semaphore when it have been used.
  *
  * @param p Pointer to device structure
  */

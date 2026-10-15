@@ -11,6 +11,7 @@
 
 #include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/assigned_numbers.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/bap_lc3_preset.h>
@@ -690,6 +691,36 @@ static void init(size_t acceptor_cnt)
 	UNSET_FLAG(flag_syncable);
 }
 
+static void deinit(void)
+{
+	int err;
+
+	bt_le_scan_cb_unregister(&bap_scan_cb);
+
+	err = bt_bap_broadcast_assistant_unregister_cb(&ba_cbs);
+	if (err != 0) {
+		FAIL("Failed to unregister broadcast assistant callbacks (err %d)\n", err);
+	}
+
+	err = bt_vcp_vol_ctlr_cb_unregister(&vcp_cb);
+	if (err != 0) {
+		FAIL("Failed to unregister VCP callbacks (err %d)\n", err);
+		return;
+	}
+
+	err = bt_cap_commander_unregister_cb(&cap_cb);
+	if (err != 0) {
+		FAIL("Failed to unregister CAP callbacks (err %d)\n", err);
+		return;
+	}
+
+	err = bt_gatt_cb_unregister(&gatt_callbacks);
+	if (err != 0) {
+		FAIL("Failed to unregister GATT callbacks (err %d)\n", err);
+		return;
+	}
+}
+
 static void scan_and_connect(void)
 {
 	int err;
@@ -1176,6 +1207,8 @@ static void test_main_cap_commander_capture_and_render(void)
 	/* Disconnect all CAP acceptors */
 	disconnect_acl(acceptor_cnt);
 
+	deinit();
+
 	PASS("CAP commander capture and rendering passed\n");
 }
 
@@ -1224,6 +1257,8 @@ static void test_main_cap_commander_broadcast_reception(void)
 
 	backchannel_sync_send_all(); /* let others know we have received what we wanted */
 
+	deinit();
+
 	PASS("Broadcast reception passed\n");
 }
 
@@ -1266,6 +1301,7 @@ static void test_main_cap_commander_cancel(void)
 	/* Disconnect all CAP acceptors */
 	disconnect_acl(acceptor_count);
 
+	deinit();
 	/* restore the default callback */
 	cap_cb.volume_changed = cap_volume_changed_cb;
 

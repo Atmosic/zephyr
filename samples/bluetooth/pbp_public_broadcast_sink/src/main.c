@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/assigned_numbers.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/lc3.h>
@@ -327,14 +329,23 @@ static int reset(void)
 int bap_broadcast_sink_init(void)
 {
 	int err;
+	const struct bt_pacs_register_param pacs_param = {
+			.snk_pac = true,
+			.snk_loc = true,
+	};
 
 	bt_bap_broadcast_sink_register_cb(&broadcast_sink_cbs);
 	bt_le_per_adv_sync_cb_register(&broadcast_sync_cb);
 
-	err = bt_pacs_cap_register(BT_AUDIO_DIR_SINK, &cap);
-	if (err) {
-		printk("Capability register failed (err %d)\n", err);
+	err = bt_pacs_register(&pacs_param);
+	if (err != 0) {
+		printk("Could not register PACS (err %d)\n", err);
+		return err;
+	}
 
+	err = bt_pacs_cap_register(BT_AUDIO_DIR_SINK, &cap);
+	if (err != 0) {
+		printk("Capability register failed (err %d)\n", err);
 		return err;
 	}
 

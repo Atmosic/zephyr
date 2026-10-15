@@ -120,6 +120,10 @@ static int sseq_set(const char *name, size_t len_rd,
 {
 	int err;
 
+	if (!IS_ENABLED(CONFIG_BT_SETTINGS)) {
+		return 0;
+	}
+
 	err = bt_mesh_settings_set(read_cb, cb_arg, &sseq_out, sizeof(sseq_out));
 	if (err) {
 		LOG_ERR("Failed to set \'sseq\'");
@@ -230,8 +234,9 @@ void bt_mesh_sol_recv(struct net_buf_simple *buf, uint8_t uuid_list_len)
 			break;
 		}
 
-		if (buf->len <= reported_len - 3) {
-			LOG_DBG("Invalid length (%u) Solicitation PDU", buf->len);
+		if (reported_len < 3 || buf->len <= reported_len - 3) {
+			LOG_DBG("Invalid length: buf->len=%u reported_len=%u Solicitation PDU",
+				buf->len, reported_len);
 			return;
 		}
 
@@ -363,6 +368,10 @@ static int srpl_set(const char *name, size_t len_rd,
 			LOG_ERR("Unable to allocate SRPL entry for 0x%04x", ssrc);
 			return -ENOMEM;
 		}
+	}
+
+	if (!IS_ENABLED(CONFIG_BT_SETTINGS)) {
+		return 0;
 	}
 
 	err = bt_mesh_settings_set(read_cb, cb_arg, &sseq, sizeof(sseq));

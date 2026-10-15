@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024 Nordic Semiconductor ASA
+ * Copyright (c) 2023-2025 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,10 +17,15 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/__assert.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/check.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
+#include <zephyr/syscalls/kernel.h>
+#include <zephyr/toolchain.h>
 
 #include "cap_internal.h"
 #include "csip_internal.h"
@@ -33,14 +38,36 @@ static struct bt_cap_common_client bt_cap_common_clients[CONFIG_BT_MAX_CONN];
 static const struct bt_uuid *cas_uuid = BT_UUID_CAS;
 static struct bt_cap_common_proc active_proc;
 
+static K_MUTEX_DEFINE(active_proc_mutex);
+#define CAP_ACTIVE_PROC_MUTEX_TIMEOUT K_MSEC(10000U)
+
 struct bt_cap_common_proc *bt_cap_common_get_active_proc(void)
 {
+	__maybe_unused int err;
+
+	err = k_mutex_lock(&active_proc_mutex, CAP_ACTIVE_PROC_MUTEX_TIMEOUT);
+	__ASSERT(err == 0, "Failed to lock mutex: %d", err);
+
+	LOG_DBG("Took active_proc_mutex (count: %u)", active_proc_mutex.lock_count);
+
 	return &active_proc;
 }
 
-void bt_cap_common_clear_active_proc(void)
+void bt_cap_common_unlock_proc(void)
 {
-	(void)memset(&active_proc, 0, sizeof(active_proc));
+	__maybe_unused int err;
+
+	err = k_mutex_unlock(&active_proc_mutex);
+	__ASSERT(err == 0, "Failed to unlock mutex: %d", err);
+
+	LOG_DBG("Released active_proc_mutex");
+}
+
+void bt_cap_common_clear_proc(struct bt_cap_common_proc *proc)
+{
+	(void)memset(proc, 0, sizeof(*proc));
+
+	bt_cap_common_unlock_proc();
 }
 
 void bt_cap_common_set_proc(enum bt_cap_common_proc_type proc_type, size_t proc_cnt)
@@ -73,6 +100,18 @@ bool bt_cap_common_subproc_is_type(enum bt_cap_common_subproc_type subproc_type)
 	return active_proc.subproc_type == subproc_type;
 }
 #endif /* CONFIG_BT_CAP_INITIATOR_UNICAST */
+
+#if defined(CONFIG_BT_CAP_HANDOVER)
+void bt_cap_common_set_handover_active(void)
+{
+	atomic_set_bit(active_proc.proc_state_flags, BT_CAP_COMMON_PROC_STATE_HANDOVER);
+}
+
+bool bt_cap_common_handover_is_active(void)
+{
+	return atomic_test_bit(active_proc.proc_state_flags, BT_CAP_COMMON_PROC_STATE_HANDOVER);
+}
+#endif /* CONFIG_BT_CAP_HANDOVER */
 
 struct bt_conn *bt_cap_common_get_member_conn(enum bt_cap_set_type type,
 					      const union bt_cap_set_member *member)

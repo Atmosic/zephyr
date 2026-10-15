@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2021 Jimmy Johnson <catch22@fastmail.net>
  * Copyright (c) 2022 T-Mobile USA, Inc.
+ * Copyright (c) 2025 Byteflies NV
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -215,7 +216,7 @@ static int tmp108_attr_set(const struct device *dev,
 #ifdef CONFIG_TMP108_ALERT_INTERRUPTS
 	case SENSOR_ATTR_HYSTERESIS:
 		if (TI_TMP108_HYSTER_0_C(dev) == TI_TMP108_CONF_NA) {
-			LOG_WRN("AS621x Series lacks Hysterisis setttings");
+			LOG_WRN("AS621x Series lacks Hysterisis settings");
 			return -ENOTSUP;
 		}
 		if (val->val1 < 1) {
@@ -438,3 +439,8 @@ DT_INST_FOREACH_STATUS_OKAY(TMP108_INIT)
 #undef DT_DRV_COMPAT
 #define DT_DRV_COMPAT ams_as6212
 DT_INST_FOREACH_STATUS_OKAY(AS6212_INIT)
+
+#define AS6221_INIT(n) TMP108_DEFINE(n, AMS_AS6221)
+#undef DT_DRV_COMPAT
+#define DT_DRV_COMPAT ams_as6221
+DT_INST_FOREACH_STATUS_OKAY(AS6221_INIT)

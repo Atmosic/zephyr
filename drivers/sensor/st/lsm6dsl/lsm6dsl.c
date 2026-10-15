@@ -426,47 +426,61 @@ static int lsm6dsl_sample_fetch_press(const struct device *dev)
 static int lsm6dsl_sample_fetch(const struct device *dev,
 				enum sensor_channel chan)
 {
+	int ret = 0;
+
 	switch (chan) {
 	case SENSOR_CHAN_ACCEL_XYZ:
-		lsm6dsl_sample_fetch_accel(dev);
+		ret = lsm6dsl_sample_fetch_accel(dev);
 		break;
 	case SENSOR_CHAN_GYRO_XYZ:
-		lsm6dsl_sample_fetch_gyro(dev);
+		ret = lsm6dsl_sample_fetch_gyro(dev);
 		break;
 #if defined(CONFIG_LSM6DSL_ENABLE_TEMP)
 	case SENSOR_CHAN_DIE_TEMP:
-		lsm6dsl_sample_fetch_temp(dev);
+		ret = lsm6dsl_sample_fetch_temp(dev);
 		break;
 #endif
 #if defined(CONFIG_LSM6DSL_EXT0_LIS2MDL) || defined(CONFIG_LSM6DSL_EXT0_LIS3MDL)
 	case SENSOR_CHAN_MAGN_XYZ:
-		lsm6dsl_sample_fetch_magn(dev);
+		ret = lsm6dsl_sample_fetch_magn(dev);
 		break;
 #endif
 #if defined(CONFIG_LSM6DSL_EXT0_LPS22HB)
 	case SENSOR_CHAN_AMBIENT_TEMP:
 	case SENSOR_CHAN_PRESS:
-		lsm6dsl_sample_fetch_press(dev);
+		ret = lsm6dsl_sample_fetch_press(dev);
 		break;
 #endif
 	case SENSOR_CHAN_ALL:
-		lsm6dsl_sample_fetch_accel(dev);
-		lsm6dsl_sample_fetch_gyro(dev);
+		ret = lsm6dsl_sample_fetch_accel(dev);
+		if (ret != 0) {
+			break;
+		}
+		ret = lsm6dsl_sample_fetch_gyro(dev);
+		if (ret != 0) {
+			break;
+		}
 #if defined(CONFIG_LSM6DSL_ENABLE_TEMP)
-		lsm6dsl_sample_fetch_temp(dev);
+		ret = lsm6dsl_sample_fetch_temp(dev);
+		if (ret != 0) {
+			break;
+		}
 #endif
 #if defined(CONFIG_LSM6DSL_EXT0_LIS2MDL) || defined(CONFIG_LSM6DSL_EXT0_LIS3MDL)
-		lsm6dsl_sample_fetch_magn(dev);
+		ret = lsm6dsl_sample_fetch_magn(dev);
+		if (ret != 0) {
+			break;
+		}
 #endif
 #if defined(CONFIG_LSM6DSL_EXT0_LPS22HB)
-		lsm6dsl_sample_fetch_press(dev);
+		ret = lsm6dsl_sample_fetch_press(dev);
 #endif
 		break;
 	default:
 		return -ENOTSUP;
 	}
 
-	return 0;
+	return ret;
 }
 
 static inline void lsm6dsl_accel_convert(struct sensor_value *val, int raw_val,
@@ -918,7 +932,7 @@ static int lsm6dsl_pm_action(const struct device *dev,
 		.bus_cfg.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8) |	\
 				      SPI_OP_MODE_MASTER |			\
 				      SPI_MODE_CPOL |				\
-				      SPI_MODE_CPHA, 0),			\
+				      SPI_MODE_CPHA),				\
 		COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, irq_gpios),		\
 		(LSM6DSL_CFG_IRQ(inst)), ())					\
 	}

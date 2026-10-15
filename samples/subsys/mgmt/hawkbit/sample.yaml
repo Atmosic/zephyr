@@ -7,9 +7,12 @@ common:
   platform_allow:
     - frdm_k64f
     - stm32h573i_dk
+    - stm32h573i_dk/stm32h573xx/ext_flash_app
+    - stm32h750b_dk/stm32h750xx/ext_flash_app
   integration_platforms:
     - frdm_k64f
     - stm32h573i_dk
+    - stm32h573i_dk/stm32h573xx/ext_flash_app
 sample:
   description: hawkBit Firmware Over-the-Air (FOTA)
   name: hawkbit
@@ -17,8 +20,6 @@ tests:
   sample.net.hawkbit.default: {}
   sample.net.hawkbit.sysbuild:
     sysbuild: true
-    extra_args:
-      - platform:stm32h573i_dk/stm32h573xx:mcuboot_CONFIG_BOOT_MAX_IMG_SECTORS=128
   sample.net.hawkbit.manual:
     extra_configs:
       - CONFIG_HAWKBIT_MANUAL=y
@@ -26,14 +27,9 @@ tests:
     extra_configs:
       - CONFIG_HAWKBIT_DDI_GATEWAY_SECURITY=n
       - CONFIG_HAWKBIT_DDI_TARGET_SECURITY=y
-  sample.net.hawkbit.ddi.no_security:
-    extra_configs:
-      - CONFIG_HAWKBIT_DDI_GATEWAY_SECURITY=n
-      - CONFIG_HAWKBIT_DDI_NO_SECURITY=y
   sample.net.hawkbit.tls:
-    extra_configs:
-      - CONFIG_HAWKBIT_USE_TLS=y
-      - CONFIG_NET_SOCKETS_SOCKOPT_TLS=y
+    extra_args:
+      - EXTRA_CONF_FILE="overlay-tls.conf"
   sample.net.hawkbit.set_settings_runtime:
     extra_configs:
       - CONFIG_HAWKBIT_SET_SETTINGS_RUNTIME=y

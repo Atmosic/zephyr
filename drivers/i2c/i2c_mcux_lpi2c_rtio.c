@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016 Freescale Semiconductor, Inc.
- * Copyright 2019-2023, NXP
+ * Copyright 2019-2023, 2026 NXP
  * Copyright (c) 2022 Vestas Wind Systems A/S
  * Copyright (c) 2024 Intel Corporation
  *
@@ -28,7 +28,7 @@
 #endif /* CONFIG_I2C_MCUX_LPI2C_BUS_RECOVERY */
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(mcux_lpi2c);
+LOG_MODULE_REGISTER(mcux_lpi2c, CONFIG_I2C_LOG_LEVEL);
 
 #include "i2c-priv.h"
 /* Wait for the duration of 12 bits to detect a NAK after a bus
@@ -126,10 +126,6 @@ static uint32_t mcux_lpi2c_convert_flags(int msg_flags)
 
 	if (!(msg_flags & I2C_MSG_STOP)) {
 		flags |= kLPI2C_TransferNoStopFlag;
-	}
-
-	if (msg_flags & I2C_MSG_RESTART) {
-		flags |= kLPI2C_TransferRepeatedStartFlag;
 	}
 
 	return flags;
@@ -278,16 +274,18 @@ static int mcux_lpi2c_transfer(const struct device *dev, struct i2c_msg *msgs,
 	return i2c_rtio_transfer(ctx, msgs, num_msgs, addr);
 }
 
+#if DT_HAS_COMPAT_STATUS_OKAY(nxp_lp_flexcomm)
+#define LPI2C_IRQHANDLE_ARG LPI2C_GetInstance(base)
+#else
+#define LPI2C_IRQHANDLE_ARG base
+#endif
+
 static void mcux_lpi2c_isr(const struct device *dev)
 {
 	struct mcux_lpi2c_data *data = dev->data;
 	LPI2C_Type *base = (LPI2C_Type *)DEVICE_MMIO_NAMED_GET(dev, reg_base);
 
-#if CONFIG_HAS_MCUX_FLEXCOMM
-	LPI2C_MasterTransferHandleIRQ(LPI2C_GetInstance(base), &data->handle);
-#else
-	LPI2C_MasterTransferHandleIRQ(base, &data->handle);
-#endif
+	LPI2C_MasterTransferHandleIRQ(LPI2C_IRQHANDLE_ARG, &data->handle);
 }
 
 static int mcux_lpi2c_init(const struct device *dev)

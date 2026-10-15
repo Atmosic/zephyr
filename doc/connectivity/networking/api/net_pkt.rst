@@ -27,6 +27,30 @@ transmission path, and **RX** for the reception one. In both paths,
 each net_pkt is written and read from the beginning to the end, or
 more specifically from the headers to the payload.
 
+Concurrency and Thread Safety
+=============================
+
+The ``net_pkt`` structure and its associated APIs are **not thread-safe**.
+The network stack relies on a strict **Exclusive Ownership** model. When a network
+packet is created or received, it is owned by a single thread or execution context at
+any given time.
+
+Concurrency is managed using the following primary patterns:
+
+*   **Ownership Transfer via FIFOs:** The most common lifecycle of a ``net_pkt`` involves
+    passing it between isolated execution contexts (e.g., from an RX driver thread to the
+    IP stack). Once a packet is enqueued, the sender drops its reference and loses access.
+*   **Shallow Cloning (``net_pkt_shallow_clone``):** If a packet must be retained by one
+    layer (such as TCP for potential retransmission) while simultaneously processed by
+    another, ``net_pkt_shallow_clone()`` is used to create a new wrapper pointing to the
+    same underlying read-only data (the data buffers themselves are thread-safely
+    reference counted).
+*   **Coarse-Grained Protocol Locks:** When packets are deliberately held in memory
+    queues, they are protected by higher-level subsystem locks (such as connection
+    mutexes).
+
+The ``atomic_ref`` field within ``struct net_pkt`` is for memory lifecycle management
+(preventing Use-After-Free conditions) and is not a lock for concurrent mutation.
 
 Memory management
 *****************
@@ -109,14 +133,14 @@ bytes:
 
 .. code-block:: c
 
-    pkt = net_pkt_alloc_with_buffer(iface, 800, AF_INET4, IPPROTO_UDP, K_FOREVER);
+    pkt = net_pkt_alloc_with_buffer(iface, 800, NET_AF_INET4, IPPROTO_UDP, K_FOREVER);
 
 will successfully allocate 800 + 20 + 8 bytes of buffer for the new
 net_pkt where:
 
 .. code-block:: c
 
-    pkt = net_pkt_alloc_with_buffer(iface, 1600, AF_INET4, IPPROTO_UDP, K_FOREVER);
+    pkt = net_pkt_alloc_with_buffer(iface, 1600, NET_AF_INET4, IPPROTO_UDP, K_FOREVER);
 
 will successfully allocate 1500 bytes, and where 20 + 8 bytes (IPv4 +
 UDP headers) will not be used for the payload.

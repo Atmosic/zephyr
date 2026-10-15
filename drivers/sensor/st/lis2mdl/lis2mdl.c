@@ -289,25 +289,30 @@ static int lis2mdl_sample_fetch_temp(const struct device *dev)
 static int lis2mdl_sample_fetch(const struct device *dev,
 				enum sensor_channel chan)
 {
+	int ret = 0;
+
 	switch (chan) {
 	case SENSOR_CHAN_MAGN_X:
 	case SENSOR_CHAN_MAGN_Y:
 	case SENSOR_CHAN_MAGN_Z:
 	case SENSOR_CHAN_MAGN_XYZ:
-		lis2mdl_sample_fetch_mag(dev);
+		ret = lis2mdl_sample_fetch_mag(dev);
 		break;
 	case SENSOR_CHAN_DIE_TEMP:
-		lis2mdl_sample_fetch_temp(dev);
+		ret = lis2mdl_sample_fetch_temp(dev);
 		break;
 	case SENSOR_CHAN_ALL:
-		lis2mdl_sample_fetch_mag(dev);
-		lis2mdl_sample_fetch_temp(dev);
+		ret = lis2mdl_sample_fetch_mag(dev);
+		if (ret != 0) {
+			break;
+		}
+		ret = lis2mdl_sample_fetch_temp(dev);
 		break;
 	default:
 		return -ENOTSUP;
 	}
 
-	return 0;
+	return ret;
 }
 
 static DEVICE_API(sensor, lis2mdl_driver_api) = {
@@ -527,8 +532,7 @@ static int lis2mdl_pm_action(const struct device *dev,
 		STMEMSC_CTX_SPI(&lis2mdl_config_##inst.stmemsc_cfg),	\
 		.stmemsc_cfg = {					\
 			.spi = SPI_DT_SPEC_INST_GET(inst,		\
-						LIS2MDL_SPI_OPERATION,	\
-						0),			\
+						LIS2MDL_SPI_OPERATION)	\
 		},							\
 		.spi_4wires = DT_INST_PROP(inst, duplex) ==		\
 						SPI_FULL_DUPLEX,	\

@@ -204,7 +204,7 @@ static void analog_axis_loop(const struct device *dev)
 			out = analog_axis_out_linear(dev, i, raw_val);
 		}
 
-		out = CLAMP(out, axis_cfg->out_min, axis_cfg->out_max);
+		out = clamp(out, axis_cfg->out_min, axis_cfg->out_max);
 
 		if (axis_cfg->invert_output) {
 			out = axis_cfg->out_max - out;
@@ -231,7 +231,7 @@ static void analog_axis_thread(void *arg1, void *arg2, void *arg3)
 		const struct analog_axis_channel_config *axis_cfg = &cfg->channel_cfg[i];
 
 		if (!adc_is_ready_dt(&axis_cfg->adc)) {
-			LOG_ERR("ADC controller device not ready");
+			LOG_ERR_DEVICE_NOT_READY(axis_cfg->adc.dev);
 			return;
 		}
 

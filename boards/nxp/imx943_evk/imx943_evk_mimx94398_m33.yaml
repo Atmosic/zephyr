@@ -17,4 +17,10 @@ supported:
   - uart
   - netif:eth
   - gpio
+  - pwm
+  - i2c
+  - i2s
+testing:
+  binaries:
+    - flash.bin
 vendor: nxp

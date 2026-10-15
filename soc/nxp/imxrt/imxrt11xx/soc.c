@@ -157,7 +157,6 @@ __weak void clock_init(void)
 
 	/* Init OSC RC 400M */
 	CLOCK_OSC_EnableOscRc400M();
-	CLOCK_OSC_GateOscRc400M(true);
 
 	/* Init OSC RC 48M */
 	CLOCK_OSC_EnableOsc48M(true);
@@ -202,7 +201,6 @@ __weak void clock_init(void)
 	 * changed in the following PLL/PFD configuration code.
 	 */
 
-
 	static const clock_arm_pll_config_t armPllConfig = {
 		.postDivider = CONCAT(kCLOCK_PllPostDiv, DT_PROP(DT_NODELABEL(arm_pll), clock_div)),
 		.loopDivider = DT_PROP(DT_NODELABEL(arm_pll), clock_mult) * 2,
@@ -228,31 +226,31 @@ __weak void clock_init(void)
 	CLOCK_InitSysPll2(&sysPll2Config);
 
 	/* Init System Pll2 pfd0. */
-	CLOCK_InitPfd(kCLOCK_PllSys2, kCLOCK_Pfd0, 27);
+	CLOCK_InitPfd(kCLOCK_PllSys2, kCLOCK_Pfd0, CONFIG_SYS_PLL2_PFD0_DIV);
 
 	/* Init System Pll2 pfd1. */
-	CLOCK_InitPfd(kCLOCK_PllSys2, kCLOCK_Pfd1, 16);
+	CLOCK_InitPfd(kCLOCK_PllSys2, kCLOCK_Pfd1, CONFIG_SYS_PLL2_PFD1_DIV);
 
 	/* Init System Pll2 pfd2. */
-	CLOCK_InitPfd(kCLOCK_PllSys2, kCLOCK_Pfd2, 24);
+	CLOCK_InitPfd(kCLOCK_PllSys2, kCLOCK_Pfd2, CONFIG_SYS_PLL2_PFD2_DIV);
 
 	/* Init System Pll2 pfd3. */
-	CLOCK_InitPfd(kCLOCK_PllSys2, kCLOCK_Pfd3, 32);
+	CLOCK_InitPfd(kCLOCK_PllSys2, kCLOCK_Pfd3, CONFIG_SYS_PLL2_PFD3_DIV);
 
 	/* Init Sys Pll3. */
 	CLOCK_InitSysPll3();
 
 	/* Init System Pll3 pfd0. */
-	CLOCK_InitPfd(kCLOCK_PllSys3, kCLOCK_Pfd0, 13);
+	CLOCK_InitPfd(kCLOCK_PllSys3, kCLOCK_Pfd0, CONFIG_SYS_PLL3_PFD0_DIV);
 
 	/* Init System Pll3 pfd1. */
-	CLOCK_InitPfd(kCLOCK_PllSys3, kCLOCK_Pfd1, 17);
+	CLOCK_InitPfd(kCLOCK_PllSys3, kCLOCK_Pfd1, CONFIG_SYS_PLL3_PFD1_DIV);
 
 	/* Init System Pll3 pfd2. */
-	CLOCK_InitPfd(kCLOCK_PllSys3, kCLOCK_Pfd2, 32);
+	CLOCK_InitPfd(kCLOCK_PllSys3, kCLOCK_Pfd2, CONFIG_SYS_PLL3_PFD2_DIV);
 
 	/* Init System Pll3 pfd3. */
-	CLOCK_InitPfd(kCLOCK_PllSys3, kCLOCK_Pfd3, 22);
+	CLOCK_InitPfd(kCLOCK_PllSys3, kCLOCK_Pfd3, CONFIG_SYS_PLL3_PFD3_DIV);
 
 	static const clock_video_pll_config_t videoPllConfig = {
 		/* PLL Loop divider, valid range for DIV_SELECT divider value: 27 ~ 54. */
@@ -494,9 +492,23 @@ __weak void clock_init(void)
 	 * calculate LCDIF clock.
 	 */
 	rootCfg.div = ((SYS_PLL2_FREQ /
-			DT_PROP(DT_CHILD(DT_NODELABEL(lcdif), display_timings), clock_frequency)) +
-		       1);
+		DT_PROP(
+			DT_CHILD(DT_INST(0, nxp_imx_elcdif), display_timings),
+			clock_frequency)) + 1);
 	CLOCK_SetRootClock(kCLOCK_Root_Lcdif, &rootCfg);
+#endif
+
+#ifdef CONFIG_DISPLAY_MCUX_LCDIFV2
+	rootCfg.mux = kCLOCK_LCDIF_ClockRoot_MuxSysPll2Out;
+	/*
+	 * PLL2 is fixed at 528MHz. Use desired panel clock clock to
+	 * calculate LCDIF clock.
+	 */
+	rootCfg.div = ((SYS_PLL2_FREQ /
+		DT_PROP(
+			DT_CHILD(DT_INST(0, nxp_imx_lcdifv2), display_timings),
+			clock_frequency)) + 1);
+	CLOCK_SetRootClock(kCLOCK_Root_Lcdifv2, &rootCfg);
 #endif
 
 #ifdef CONFIG_COUNTER_MCUX_GPT
@@ -525,7 +537,7 @@ __weak void clock_init(void)
 #endif
 #endif
 
-#if CONFIG_IMX_USDHC
+#if defined(CONFIG_IMX_USDHC)
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(usdhc1))
 	/* Configure USDHC1 using  SysPll2Pfd2*/
 	rootCfg.mux = kCLOCK_USDHC1_ClockRoot_MuxSysPll2Pfd2;
@@ -543,7 +555,7 @@ __weak void clock_init(void)
 #endif
 #endif
 
-#if !(DT_NODE_HAS_COMPAT(DT_PARENT(DT_CHOSEN(zephyr_flash)), nxp_imx_flexspi)) &&  \
+#if !(DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_flash_controller), nxp_imx_flexspi_nor)) &&  \
 	defined(CONFIG_MEMC_MCUX_FLEXSPI) && DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexspi))
 	/* Configure FLEXSPI1 using OSC_RC_48M_DIV2 */
 	rootCfg.mux = kCLOCK_FLEXSPI1_ClockRoot_MuxOscRc48MDiv2;
@@ -551,7 +563,7 @@ __weak void clock_init(void)
 	CLOCK_SetRootClock(kCLOCK_Root_Flexspi1, &rootCfg);
 #endif
 
-#if !(DT_NODE_HAS_COMPAT(DT_PARENT(DT_CHOSEN(zephyr_flash)), nxp_imx_flexspi)) &&  \
+#if !(DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_flash_controller), nxp_imx_flexspi_nor)) &&  \
 	defined(CONFIG_MEMC_MCUX_FLEXSPI) && DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexspi2))
 	/* Configure FLEXSPI2 using OSC_RC_48M_DIV2 */
 	rootCfg.mux = kCLOCK_FLEXSPI2_ClockRoot_MuxOscRc48MDiv2;
@@ -611,7 +623,11 @@ void imxrt_pre_init_display_interface(void)
 {
 	/* elcdif output to MIPI DSI */
 	CLOCK_EnableClock(kCLOCK_Video_Mux);
+#if CONFIG_DISPLAY_MCUX_ELCDIF
 	VIDEO_MUX->VID_MUX_CTRL.CLR = VIDEO_MUX_VID_MUX_CTRL_MIPI_DSI_SEL_MASK;
+#elif CONFIG_DISPLAY_MCUX_LCDIFV2
+	VIDEO_MUX->VID_MUX_CTRL.SET = VIDEO_MUX_VID_MUX_CTRL_MIPI_DSI_SEL_MASK;
+#endif
 
 	/* Power on and isolation off. */
 	PGMC_BPC4->BPC_POWER_CTRL |= (PGMC_BPC_BPC_POWER_CTRL_PSW_ON_SOFT_MASK |
@@ -742,6 +758,25 @@ static int imxrt_init(void)
 	/* Initialize system clock */
 	clock_init();
 
+#if defined(CONFIG_IMX_USDHC) && defined(CONFIG_CPU_CORTEX_M7) &&                                  \
+	(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(usdhc1)) ||                                          \
+	 DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(usdhc2)))
+	/* USDHC ERR050396 workaround */
+
+	/* ERR050396
+	 * Errata description:
+	 *  AXI to AHB conversion for CM7 AHBS port (port to access CM7 to TCM) is by a NIC301
+	 *  block, instead of XHB400 block. NIC301 doesn't support sparse write conversion.
+	 *  Any AXI to AHB conversion need XHB400, not by NIC. This will result in data corruption
+	 *  in case of AXI sparse write reaches the NIC301 ahead of AHBS.
+	 * Errata workaround:
+	 *  For uSDHC, don't set the bit#1 of IOMUXC_GPR28 (AXI transaction is cacheable), if write
+	 *  data to TCM aligned in 4 bytes; No such write access limitation for OCRAM or external
+	 *  RAM
+	 */
+	IOMUXC_GPR->GPR28 &= (~IOMUXC_GPR_GPR28_AWCACHE_USDHC_MASK);
+#endif
+
 	return 0;
 }
 
@@ -762,12 +797,12 @@ __asm__ (
 
 void __used _soc_reset_hook(void)
 {
-	SystemInit();
-
 #if defined(FLEXRAM_RUNTIME_BANKS_USED)
 	/* Configure flexram if not running from RAM */
 	flexram_dt_partition();
 #endif
+
+	SystemInit();
 }
 #endif
 

@@ -192,6 +192,18 @@
 #endif
 
 /**
+ * @def TOOLCHAIN_WARNING_ARM_INTERRUPT_VFP_CLOBBER
+ * @brief Toolchain-specific warning for ARM interrupt service routines with VFP enabled that may
+ * clobber the VFP state.
+ *
+ * Use this as an argument to the @ref TOOLCHAIN_DISABLE_WARNING and
+ * @ref TOOLCHAIN_ENABLE_WARNING family of macros.
+ */
+#ifndef TOOLCHAIN_WARNING_ARM_INTERRUPT_VFP_CLOBBER
+#define TOOLCHAIN_WARNING_ARM_INTERRUPT_VFP_CLOBBER
+#endif
+
+/**
  * @def TOOLCHAIN_WARNING_NONNULL
  * @brief Toolchain-specific warning for null pointer arguments to functions marked with "nonnull".
  *
@@ -244,6 +256,28 @@
  */
 #ifndef TOOLCHAIN_WARNING_UNUSED_VARIABLE
 #define TOOLCHAIN_WARNING_UNUSED_VARIABLE
+#endif
+
+/**
+ * @def TOOLCHAIN_WARNING_ALWAYS_INLINE
+ * @brief Toolchain-specific warning for inline functions.
+ *
+ * Use this as an argument to the @ref TOOLCHAIN_DISABLE_WARNING and
+ * @ref TOOLCHAIN_ENABLE_WARNING family of macros.
+ */
+#ifndef TOOLCHAIN_WARNING_ALWAYS_INLINE
+#define TOOLCHAIN_WARNING_ALWAYS_INLINE
+#endif
+
+/**
+ * @def TOOLCHAIN_WARNING_CAST_QUAL
+ * @brief Toolchain-specific warning for pointer casts removing a type qualifier.
+ *
+ * Use this as an argument to the @ref TOOLCHAIN_DISABLE_WARNING and
+ * @ref TOOLCHAIN_ENABLE_WARNING family of macros.
+ */
+#ifndef TOOLCHAIN_WARNING_CAST_QUAL
+#define TOOLCHAIN_WARNING_CAST_QUAL
 #endif
 
 /**

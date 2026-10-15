@@ -7,6 +7,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(net_l2_ppp, CONFIG_NET_L2_PPP_LOG_LEVEL);
 
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/net_pkt.h>
 
 #include "ppp_internal.h"
@@ -25,7 +26,7 @@ static struct net_pkt *pap_config_info_add(struct ppp_fsm *fsm)
 	struct net_pkt *pkt;
 
 	pkt = net_pkt_alloc_with_buffer(ppp_fsm_iface(fsm), sizeof(payload),
-					AF_UNSPEC, 0, PPP_BUF_ALLOC_TIMEOUT);
+					NET_AF_UNSPEC, 0, PPP_BUF_ALLOC_TIMEOUT);
 	if (!pkt) {
 		return NULL;
 	}

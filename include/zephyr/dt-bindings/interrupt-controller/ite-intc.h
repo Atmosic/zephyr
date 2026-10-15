@@ -56,7 +56,14 @@
 #define IT8XXX2_IRQ_WU66        54
 #define IT8XXX2_IRQ_WU67        55
 /* Group 7 */
+/** RTC alarm1 interrupt */
+#define IT8XXX2_IRQ_RTCT_ALARM1 56
+/** RTC alarm2 interrupt */
+#define IT8XXX2_IRQ_RTCT_ALARM2 57
 #define IT8XXX2_IRQ_TIMER2      58
+/* Group 8 */
+#define IT8XXX2_IRQ_PMC3_IBF    67
+#define IT8XXX2_IRQ_PMC4_IBF    69
 /* Group 9 */
 #define IT8XXX2_IRQ_WU70        72
 #define IT8XXX2_IRQ_WU71        73
@@ -139,6 +146,7 @@
 #define IT8XXX2_IRQ_WU124       145
 #define IT8XXX2_IRQ_WU125       146
 #define IT8XXX2_IRQ_WU126       147
+#define IT8XXX2_IRQ_PMC5_IBF    150
 #define IT8XXX2_IRQ_V_CMP       151
 /* Group 19 */
 #define IT8XXX2_IRQ_SMB_E       152
@@ -168,6 +176,11 @@
 /* Group 23 */
 #define IT8XXX2_IRQ_WU149       184
 #define IT8XXX2_IRQ_WU150       185
+/* Group 27 */
+#define IT8XXX2_IRQ_WU184       216
+#define IT8XXX2_IRQ_WU185       217
+#define IT8XXX2_IRQ_WU186       218
+#define IT8XXX2_IRQ_WU188       220
 
 #define IT8XXX2_IRQ_COUNT       (CONFIG_NUM_IRQS + 1)
 

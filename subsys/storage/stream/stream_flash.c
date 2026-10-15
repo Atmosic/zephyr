@@ -307,6 +307,11 @@ size_t stream_flash_bytes_written(const struct stream_flash_ctx *ctx)
 	return ctx->bytes_written;
 }
 
+size_t stream_flash_bytes_buffered(const struct stream_flash_ctx *ctx)
+{
+	return ctx->buf_bytes;
+}
+
 #ifdef CONFIG_STREAM_FLASH_INSPECT
 struct _inspect_flash {
 	size_t buf_len;
@@ -384,6 +389,11 @@ int stream_flash_init(struct stream_flash_ctx *ctx, const struct device *fdev,
 
 	if (size == 0 || size % params->write_block_size) {
 		LOG_ERR("Size is incorrect");
+		return -EFAULT;
+	}
+
+	if ((offset + size) < offset) {
+		LOG_ERR("Requested range overflows SIZE_MAX");
 		return -EFAULT;
 	}
 

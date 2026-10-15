@@ -1,21 +1,23 @@
-/**
- * @file drivers/entropy.h
- *
- * @brief Public APIs for the entropy driver.
- */
-
 /*
  * Copyright (c) 2016 ARM Ltd.
  * Copyright (c) 2017 Intel Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef ZEPHYR_INCLUDE_DRIVERS_ENTROPY_H_
+
+/**
+ * @file
+ * @ingroup entropy_interface
+ * @brief Main header file for entropy driver API.
+ */
+
+
+ #ifndef ZEPHYR_INCLUDE_DRIVERS_ENTROPY_H_
 #define ZEPHYR_INCLUDE_DRIVERS_ENTROPY_H_
 
 /**
- * @brief Entropy Interface
- * @defgroup entropy_interface Entropy Interface
+ * @brief Interfaces for entropy hardware.
+ * @defgroup entropy_interface Entropy
  * @since 1.10
  * @version 1.0.0
  * @ingroup io_interfaces
@@ -35,6 +37,12 @@ extern "C" {
 #define ENTROPY_BUSYWAIT  BIT(0)
 
 /**
+ * @def_driverbackendgroup{Entropy,entropy_interface}
+ * @ingroup entropy_interface
+ * @{
+ */
+
+/**
  * @typedef entropy_get_entropy_t
  * @brief Callback API to get entropy.
  *
@@ -46,6 +54,7 @@ extern "C" {
 typedef int (*entropy_get_entropy_t)(const struct device *dev,
 				     uint8_t *buffer,
 				     uint16_t length);
+
 /**
  * @typedef entropy_get_entropy_isr_t
  * @brief Callback API to get entropy from an ISR.
@@ -58,14 +67,16 @@ typedef int (*entropy_get_entropy_isr_t)(const struct device *dev,
 					 uint32_t flags);
 
 /**
- * @brief Entropy driver API structure.
- *
- * This is the mandatory API any Entropy driver needs to expose.
+ * @driver_ops{Entropy}
  */
 __subsystem struct entropy_driver_api {
+	/** @driver_ops_mandatory @copybrief entropy_get_entropy */
 	entropy_get_entropy_t     get_entropy;
+	/** @driver_ops_optional @copybrief entropy_get_entropy_isr */
 	entropy_get_entropy_isr_t get_entropy_isr;
 };
+
+/** @} */
 
 /**
  * @brief Fills a buffer with entropy. Blocks if required in order to
@@ -101,7 +112,8 @@ static inline int z_impl_entropy_get_entropy(const struct device *dev,
  * @param buffer Buffer to fill with entropy.
  * @param length Buffer length.
  * @param flags Flags to modify the behavior of the call.
- * @retval number of bytes filled with entropy or -error.
+ * @return number of bytes filled with entropy or -error.
+ * @retval -ENOSYS Driver does not implement the function
  */
 static inline int entropy_get_entropy_isr(const struct device *dev,
 					  uint8_t *buffer,
@@ -111,8 +123,8 @@ static inline int entropy_get_entropy_isr(const struct device *dev,
 	const struct entropy_driver_api *api =
 		(const struct entropy_driver_api *)dev->api;
 
-	if (unlikely(!api->get_entropy_isr)) {
-		return -ENOTSUP;
+	if (unlikely(api->get_entropy_isr == NULL)) {
+		return -ENOSYS;
 	}
 
 	return api->get_entropy_isr(dev, buffer, length, flags);

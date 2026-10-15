@@ -62,10 +62,15 @@ SYS_MEM_BLOCKS_DEFINE_WITH_EXT_BUF(
 		L2_SRAM_PAGES_NUM,
 		(uint8_t *) L2_SRAM_BASE);
 
+uintptr_t adsp_mm_get_unused_l2_start_aligned(void)
+{
+	return UNUSED_L2_START_ALIGNED;
+}
+
 /**
  * Calculate the index to the TLB table.
  *
- * @param vaddr Page-aligned virutal address.
+ * @param vaddr Page-aligned virtual address.
  * @return Index to the TLB table.
  */
 static uint32_t get_tlb_entry_idx(uintptr_t vaddr)
@@ -143,6 +148,10 @@ static int sys_mm_drv_hpsram_pwr(uint32_t bank_idx, bool enable, bool non_blocki
 	}
 
 	HPSRAM_REGS(bank_idx)->HSxPGCTL = !enable;
+
+	if (enable) {
+		HPSRAM_REGS(bank_idx)->HSxRMCTL = IS_ENABLED(CONFIG_SRAM_RETENTION_MODE);
+	}
 
 	if (!non_blocking) {
 		while (HPSRAM_REGS(bank_idx)->HSxPGISTS == enable) {
@@ -730,7 +739,7 @@ static int sys_mm_drv_mm_init(const struct device *dev)
 	ARG_UNUSED(dev);
 
 	/*
-	 * Change size of avalible physical memory according to fw register information
+	 * Change size of available physical memory according to fw register information
 	 * in runtime.
 	 */
 
@@ -738,10 +747,6 @@ static int sys_mm_drv_mm_init(const struct device *dev)
 
 	L2_PHYS_SRAM_REGION.info.num_blocks = avalible_memory_size / CONFIG_MM_DRV_PAGE_SIZE;
 
-	ret = calculate_memory_regions(UNUSED_L2_START_ALIGNED);
-	CHECKIF(ret != 0) {
-		return ret;
-	}
 	/*
 	 * Initialize memblocks that will store physical
 	 * page usage. Initially all physical pages are
@@ -910,6 +915,7 @@ __imr void adsp_mm_restore_context(void *storage_buffer)
 		/* turn on memory bank power, wait till the power is on */
 		__ASSERT_NO_MSG(bank_idx <= ace_hpsram_get_bank_count());
 		HPSRAM_REGS(bank_idx)->HSxPGCTL = 0;
+		HPSRAM_REGS(bank_idx)->HSxRMCTL = IS_ENABLED(CONFIG_SRAM_RETENTION_MODE);
 		while (HPSRAM_REGS(bank_idx)->HSxPGISTS == 1) {
 			/* k_busy_wait cannot be used here - not available */
 		}

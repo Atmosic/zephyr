@@ -6,6 +6,7 @@
  */
 
 #include <zephyr/device.h>
+#include <zephyr/cache.h>
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/barrier.h>
@@ -14,10 +15,17 @@
 #include <kernel_arch_data.h>
 #include <zephyr/mem_mgmt/mem_attr.h>
 #include <zephyr/dt-bindings/memory-attr/memory-attr-arm.h>
+#include <zephyr/arch/arm/mpu/arm_mpu.h>
 
 #define LOG_LEVEL CONFIG_MPU_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(mpu);
+
+#if Z_ARM_CPU_HAS_PMSAV8_MPU
+#define ATTRIBUTE_AND_SIZE_REG_NAME RLAR
+#else
+#define ATTRIBUTE_AND_SIZE_REG_NAME RASR
+#endif
 
 #if defined(CONFIG_ARMV8_M_BASELINE) || defined(CONFIG_ARMV8_M_MAINLINE)
 /* The order here is on purpose since ARMv8-M SoCs may define
@@ -62,6 +70,7 @@ static uint8_t static_regions_num;
 #include "arm_mpu_v7_internal.h"
 #elif defined(CONFIG_CPU_CORTEX_M23) || \
 	defined(CONFIG_CPU_CORTEX_M33) || \
+	defined(CONFIG_CPU_CORTEX_M52) || \
 	defined(CONFIG_CPU_CORTEX_M55) || \
 	defined(CONFIG_CPU_CORTEX_M85) || \
 	defined(CONFIG_AARCH32_ARMV8_R)
@@ -139,9 +148,19 @@ static int mpu_configure_regions_from_dt(uint8_t *reg_index)
 			region_conf = _BUILD_REGION_CONF(region[idx], REGION_IO_ATTR);
 			break;
 #endif
+#ifdef REGION_DEVICE_ATTR
+		case DT_MEM_ARM_MPU_DEVICE:
+			region_conf = _BUILD_REGION_CONF(region[idx], REGION_DEVICE_ATTR);
+			break;
+#endif
 #ifdef REGION_EXTMEM_ATTR
 		case DT_MEM_ARM_MPU_EXTMEM:
 			region_conf = _BUILD_REGION_CONF(region[idx], REGION_EXTMEM_ATTR);
+			break;
+#endif
+#ifdef REGION_RAM_WT_ATTR
+		case DT_MEM_ARM_MPU_RAM_WT:
+			region_conf = _BUILD_REGION_CONF(region[idx], REGION_RAM_WT_ATTR);
 			break;
 #endif
 		default:
@@ -192,11 +211,11 @@ static int mpu_configure_region(const uint8_t index,
 	!defined(CONFIG_MPU_GAP_FILLING)
 /* This internal function programs a set of given MPU regions
  * over a background memory area, optionally performing a
- * sanity check of the memory regions to be programmed.
+ * coherence check of the memory regions to be programmed.
  */
 static int mpu_configure_regions(const struct z_arm_mpu_partition
 	regions[], uint8_t regions_num, uint8_t start_reg_index,
-	bool do_sanity_check)
+	bool do_coherence_check)
 {
 	int i;
 	int reg_index = start_reg_index;
@@ -207,9 +226,9 @@ static int mpu_configure_regions(const struct z_arm_mpu_partition
 		}
 		/* Non-empty region. */
 
-		if (do_sanity_check &&
+		if (do_coherence_check &&
 				(!mpu_partition_is_valid(&regions[i]))) {
-			LOG_ERR("Partition %u: sanity check failed.", i);
+			LOG_ERR("Partition %u: coherence check failed.", i);
 			return -EINVAL;
 		}
 
@@ -407,6 +426,72 @@ void arm_core_mpu_configure_dynamic_mpu_regions(const struct z_arm_mpu_partition
 	}
 }
 
+#if defined(CONFIG_CPU_CORTEX_M)
+/**
+ * @brief Save the current MPU configuration into the provided context struct.
+ */
+void z_arm_save_mpu_context(struct z_mpu_context_retained *ctx)
+{
+	uint32_t regions = get_num_regions();
+
+	__ASSERT_NO_MSG(ctx != NULL);
+
+	if (regions == 0 || regions > Z_ARM_MPU_MAX_REGIONS) {
+		LOG_DBG("Invalid MPU region count: %u", regions);
+		ctx->num_valid_regions = 0;
+		return;
+	}
+
+	ctx->num_valid_regions = regions;
+
+	for (uint32_t i = 0; i < regions; i++) {
+		MPU->RNR = i;
+		__DSB(); /* Ensure MPU->RNR write completes before reading registers */
+		__ISB();
+		ctx->rbar[i] = MPU->RBAR;
+		ctx->rasr_rlar[i] = MPU->ATTRIBUTE_AND_SIZE_REG_NAME;
+	}
+#if Z_ARM_CPU_HAS_PMSAV8_MPU
+	ctx->mair[0] = MPU->MAIR0;
+	ctx->mair[1] = MPU->MAIR1;
+#endif
+	ctx->ctrl = MPU->CTRL;
+}
+
+/**
+ * @brief Restore the MPU configuration from the provided context struct.
+ */
+void z_arm_restore_mpu_context(const struct z_mpu_context_retained *ctx)
+{
+	__ASSERT_NO_MSG(ctx != NULL);
+
+	if (ctx->num_valid_regions == 0 || ctx->num_valid_regions > Z_ARM_MPU_MAX_REGIONS) {
+		LOG_DBG("Invalid MPU context num_valid_regions: %u", ctx->num_valid_regions);
+		return;
+	}
+
+	/* Disable MPU before reprogramming */
+	arm_core_mpu_disable();
+
+	for (uint32_t i = 0; i < ctx->num_valid_regions; i++) {
+		MPU->RNR = i;
+		MPU->RBAR = ctx->rbar[i];
+		MPU->ATTRIBUTE_AND_SIZE_REG_NAME = ctx->rasr_rlar[i];
+	}
+
+#if Z_ARM_CPU_HAS_PMSAV8_MPU
+	MPU->MAIR0 = ctx->mair[0];
+	MPU->MAIR1 = ctx->mair[1];
+#endif
+	/* Restore MPU control register (including enable bit if set) */
+	MPU->CTRL = ctx->ctrl;
+
+	/* Ensure MPU settings take effect before continuing */
+	__DSB();
+	__ISB();
+}
+#endif /* CONFIG_CPU_CORTEX_M */
+
 /* ARM MPU Driver Initial Setup */
 
 /*
@@ -448,9 +533,18 @@ int z_arm_mpu_init(void)
 	}
 #else
 #if !defined(CONFIG_INIT_ARCH_HW_AT_BOOT)
+	/* When the integrated Cortex-M SCB cache controller is in use
+	 * (CONFIG_ARCH_CACHE) the SCB dcache registers are available, so
+	 * call the CMSIS helper directly.  Other cache backends, such as
+	 * NXP LMEM on RT11xx CM4, must go through the generic cache API.
+	 */
+#if defined(CONFIG_ARCH_CACHE)
 	if (SCB->CCR & SCB_CCR_DC_Msk) {
 		SCB_CleanInvalidateDCache();
 	}
+#else
+	(void)sys_cache_data_flush_and_invd_all();
+#endif
 #endif
 #endif
 #endif /* CONFIG_NOCACHE_MEMORY */
@@ -536,7 +630,7 @@ int z_arm_mpu_init(void)
 #endif
 #endif /* CONFIG_NULL_POINTER_EXCEPTION_DETECTION_MPU */
 
-	/* Sanity check for number of regions in Cortex-M0+, M3, and M4. */
+	/* Coherence check for number of regions in Cortex-M0+, M3, and M4. */
 #if defined(CONFIG_CPU_CORTEX_M0PLUS) || \
 	defined(CONFIG_CPU_CORTEX_M3) || \
 	defined(CONFIG_CPU_CORTEX_M4)

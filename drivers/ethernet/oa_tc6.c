@@ -30,7 +30,7 @@ int oa_tc6_reg_read(struct oa_tc6 *tc6, const uint32_t reg, uint32_t *val)
 
 	/*
 	 * Buffers are allocated for protected (larger) case (by 4 bytes).
-	 * When non-protected case - we need to decrase them
+	 * When non-protected case - we need to decrease them
 	 */
 	if (!tc6->protected) {
 		tx_buf.len -= sizeof(rvn);
@@ -86,7 +86,7 @@ int oa_tc6_reg_write(struct oa_tc6 *tc6, const uint32_t reg, uint32_t val)
 
 	/*
 	 * Buffers are allocated for protected (larger) case (by 4 bytes).
-	 * When non-protected case - we need to decrase them
+	 * When non-protected case - we need to decrease them
 	 */
 	if (!tc6->protected) {
 		tx_buf.len -= sizeof(rvn);
@@ -303,13 +303,19 @@ int oa_tc6_check_status(struct oa_tc6 *tc6)
 		 * The RESETC is handled separately as it requires per
 		 * device configuration.
 		 */
-		oa_tc6_reg_read(tc6, OA_STATUS0, &sts);
+		if (oa_tc6_reg_read(tc6, OA_STATUS0, &sts) < 0) {
+			return -EIO;
+		}
+
 		if (sts != 0) {
 			oa_tc6_reg_write(tc6, OA_STATUS0, sts);
 			LOG_WRN("EXST: OA_STATUS0: 0x%x", sts);
 		}
 
-		oa_tc6_reg_read(tc6, OA_STATUS1, &sts);
+		if (oa_tc6_reg_read(tc6, OA_STATUS1, &sts) < 0) {
+			return -EIO;
+		}
+
 		if (sts != 0) {
 			oa_tc6_reg_write(tc6, OA_STATUS1, sts);
 			LOG_WRN("EXST: OA_STATUS1: 0x%x", sts);

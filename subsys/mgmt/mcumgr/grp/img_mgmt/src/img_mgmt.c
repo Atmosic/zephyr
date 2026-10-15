@@ -1,8 +1,9 @@
 /*
  * Copyright (c) 2018-2021 mcumgr authors
- * Copyright (c) 2022-2024 Nordic Semiconductor ASA
+ * Copyright (c) 2022-2025 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 Atmosic
  */
 
 #include <zephyr/sys/util.h>
@@ -43,39 +44,78 @@
 
 #if !defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD)
 
+#if defined(CONFIG_FLASH_USES_MAPPED_PARTITION)
+#define PARTITION_IS_RUNNING_APP_PARTITION(label)				\
+	DT_SAME_NODE(DT_CHOSEN(zephyr_code_partition), DT_NODELABEL(label))
+#else
 #ifndef CONFIG_FLASH_LOAD_OFFSET
 #error MCUmgr requires application to be built with CONFIG_FLASH_LOAD_OFFSET set \
 	to be able to figure out application running slot.
 #endif
 
-#define FIXED_PARTITION_IS_RUNNING_APP_PARTITION(label)	\
-	 (FIXED_PARTITION_OFFSET(label) == CONFIG_FLASH_LOAD_OFFSET)
+#define PARTITION_IS_RUNNING_APP_PARTITION(label)                                            \
+	DT_SAME_NODE(PARTITION_NODE_MTD(DT_CHOSEN(zephyr_code_partition)),                   \
+		PARTITION_MTD(label)) && (PARTITION_ADDRESS(label) <=                  \
+			(CONFIG_FLASH_BASE_ADDRESS + CONFIG_FLASH_LOAD_OFFSET) &&                  \
+		PARTITION_ADDRESS(label) + PARTITION_SIZE(label) >                     \
+			(CONFIG_FLASH_BASE_ADDRESS + CONFIG_FLASH_LOAD_OFFSET))
+#endif
 
 BUILD_ASSERT(sizeof(struct image_header) == IMAGE_HEADER_SIZE,
 	     "struct image_header not required size");
 
 #if CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER >= 2
-#if FIXED_PARTITION_EXISTS(slot0_ns_partition) &&			\
-	FIXED_PARTITION_IS_RUNNING_APP_PARTITION(slot0_ns_partition)
+#if PARTITION_EXISTS(slot0_ns_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot0_ns_partition)
 #define ACTIVE_IMAGE_IS 0
-#elif FIXED_PARTITION_EXISTS(slot0_partition) &&			\
-	FIXED_PARTITION_IS_RUNNING_APP_PARTITION(slot0_partition)
+#elif PARTITION_EXISTS(slot0_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot0_partition)
 #define ACTIVE_IMAGE_IS 0
-#elif FIXED_PARTITION_EXISTS(slot1_partition) &&			\
-	FIXED_PARTITION_IS_RUNNING_APP_PARTITION(slot1_partition)
+#elif PARTITION_EXISTS(slot1_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot1_partition)
 #define ACTIVE_IMAGE_IS 0
-#elif FIXED_PARTITION_EXISTS(slot2_partition) &&			\
-	FIXED_PARTITION_IS_RUNNING_APP_PARTITION(slot2_partition)
+#elif PARTITION_EXISTS(slot2_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot2_partition)
 #define ACTIVE_IMAGE_IS 1
-#elif FIXED_PARTITION_EXISTS(slot3_partition) &&			\
-	FIXED_PARTITION_IS_RUNNING_APP_PARTITION(slot3_partition)
+#elif PARTITION_EXISTS(slot3_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot3_partition)
 #define ACTIVE_IMAGE_IS 1
-#elif FIXED_PARTITION_EXISTS(slot4_partition) &&			\
-	FIXED_PARTITION_IS_RUNNING_APP_PARTITION(slot4_partition)
+#elif PARTITION_EXISTS(slot4_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot4_partition)
 #define ACTIVE_IMAGE_IS 2
-#elif FIXED_PARTITION_EXISTS(slot5_partition) &&			\
-	FIXED_PARTITION_IS_RUNNING_APP_PARTITION(slot5_partition)
+#elif PARTITION_EXISTS(slot5_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot5_partition)
 #define ACTIVE_IMAGE_IS 2
+#elif PARTITION_EXISTS(slot6_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot6_partition)
+#define ACTIVE_IMAGE_IS 3
+#elif PARTITION_EXISTS(slot7_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot7_partition)
+#define ACTIVE_IMAGE_IS 3
+#elif PARTITION_EXISTS(slot8_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot8_partition)
+#define ACTIVE_IMAGE_IS 4
+#elif PARTITION_EXISTS(slot9_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot9_partition)
+#define ACTIVE_IMAGE_IS 4
+#elif PARTITION_EXISTS(slot10_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot10_partition)
+#define ACTIVE_IMAGE_IS 5
+#elif PARTITION_EXISTS(slot11_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot11_partition)
+#define ACTIVE_IMAGE_IS 5
+#elif PARTITION_EXISTS(slot12_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot12_partition)
+#define ACTIVE_IMAGE_IS 6
+#elif PARTITION_EXISTS(slot13_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot13_partition)
+#define ACTIVE_IMAGE_IS 6
+#elif PARTITION_EXISTS(slot14_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot14_partition)
+#define ACTIVE_IMAGE_IS 7
+#elif PARTITION_EXISTS(slot15_partition) &&			\
+	PARTITION_IS_RUNNING_APP_PARTITION(slot15_partition)
+#define ACTIVE_IMAGE_IS 7
 #else
 #define ACTIVE_IMAGE_IS 0
 #endif
@@ -129,22 +169,6 @@ void img_mgmt_release_lock(void)
 #endif
 }
 
-#if defined(CONFIG_MCUMGR_GRP_IMG_SLOT_INFO_HOOKS)
-static bool img_mgmt_reset_zse(struct smp_streamer *ctxt)
-{
-	zcbor_state_t *zse = ctxt->writer->zs;
-
-	/* Because there is already data in the buffer, it must be cleared first */
-	net_buf_reset(ctxt->writer->nb);
-	ctxt->writer->nb->len = sizeof(struct smp_hdr);
-	zcbor_new_encode_state(zse, ARRAY_SIZE(ctxt->writer->zs),
-			       ctxt->writer->nb->data + sizeof(struct smp_hdr),
-			       net_buf_tailroom(ctxt->writer->nb), 0);
-
-	return zcbor_map_start_encode(zse, CONFIG_MCUMGR_SMP_CBOR_MAX_MAIN_MAP_ENTRIES);
-}
-#endif
-
 #if defined(CONFIG_MCUMGR_GRP_IMG_TOO_LARGE_SYSBUILD)
 static bool img_mgmt_slot_max_size(size_t *area_sizes, zcbor_state_t *zse)
 {
@@ -172,7 +196,7 @@ static bool img_mgmt_slot_max_size(size_t *area_sizes, zcbor_state_t *zse)
 
 	ARG_UNUSED(area_sizes);
 
-	rc = blinfo_lookup(BLINFO_MAX_APPLICATION_SIZE, &max_app_size, sizeof(max_app_size))
+	rc = blinfo_lookup(BLINFO_MAX_APPLICATION_SIZE, &max_app_size, sizeof(max_app_size));
 
 	if (rc < 0) {
 		LOG_ERR("Failed to lookup max application size: %d", rc);
@@ -233,7 +257,7 @@ int img_mgmt_active_slot(int image)
 	slot = (int)temp_slot;
 #else
 	/* This covers single image, including DirectXiP */
-	if (FIXED_PARTITION_IS_RUNNING_APP_PARTITION(slot1_partition)) {
+	if (PARTITION_IS_RUNNING_APP_PARTITION(slot1_partition)) {
 		slot = 1;
 	}
 #endif
@@ -322,7 +346,7 @@ int img_mgmt_read_info(int image_slot, struct image_version *ver, uint8_t *hash,
 		if (tlv.it_type == 0xff && tlv.it_len == 0xffff) {
 			return IMG_MGMT_ERR_INVALID_TLV;
 		}
-		if (tlv.it_type != IMAGE_TLV_SHA256 || tlv.it_len != IMAGE_HASH_LEN) {
+		if (tlv.it_type != IMAGE_TLV_SHA || tlv.it_len != IMAGE_SHA_LEN) {
 			/* Non-hash TLV.  Skip it. */
 			data_off += sizeof(tlv) + tlv.it_len;
 			continue;
@@ -336,14 +360,15 @@ int img_mgmt_read_info(int image_slot, struct image_version *ver, uint8_t *hash,
 
 		data_off += sizeof(tlv);
 		if (hash != NULL) {
-			if (data_off + IMAGE_HASH_LEN > data_end) {
+			if (data_off + IMAGE_SHA_LEN > data_end) {
 				return IMG_MGMT_ERR_TLV_INVALID_SIZE;
 			}
-			rc = img_mgmt_read(image_slot, data_off, hash, IMAGE_HASH_LEN);
+			rc = img_mgmt_read(image_slot, data_off, hash, IMAGE_SHA_LEN);
 			if (rc != 0) {
 				return rc;
 			}
 		}
+		data_off += IMAGE_SHA_LEN;
 	}
 
 	if (!hash_found) {
@@ -382,13 +407,13 @@ int
 img_mgmt_find_by_hash(uint8_t *find, struct image_version *ver)
 {
 	int i;
-	uint8_t hash[IMAGE_HASH_LEN];
+	uint8_t hash[IMAGE_SHA_LEN];
 
 	for (i = 0; i < SLOTS_PER_IMAGE * CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER; i++) {
 		if (img_mgmt_read_info(i, ver, hash, NULL) != 0) {
 			continue;
 		}
-		if (!memcmp(hash, find, IMAGE_HASH_LEN)) {
+		if (!memcmp(hash, find, IMAGE_SHA_LEN)) {
 			return i;
 		}
 	}
@@ -595,7 +620,7 @@ static int img_mgmt_slot_info(struct smp_streamer *ctxt)
 					return err_rc;
 				}
 
-				ok = img_mgmt_reset_zse(ctxt) &&
+				ok = smp_mgmt_reset_zse(ctxt) &&
 				     smp_add_cmd_err(zse, err_group, (uint16_t)err_rc);
 
 				goto finish;
@@ -624,7 +649,7 @@ static int img_mgmt_slot_info(struct smp_streamer *ctxt)
 			}
 
 #if defined(CONFIG_MCUMGR_GRP_IMG_TOO_LARGE_SYSBUILD) || \
-	defined(MCUMGR_GRP_IMG_TOO_LARGE_BOOTLOADER_INFO)
+	defined(CONFIG_MCUMGR_GRP_IMG_TOO_LARGE_BOOTLOADER_INFO)
 			ok = img_mgmt_slot_max_size(area_sizes, zse);
 
 			if (!ok) {
@@ -643,7 +668,7 @@ static int img_mgmt_slot_info(struct smp_streamer *ctxt)
 					return err_rc;
 				}
 
-				ok = img_mgmt_reset_zse(ctxt) &&
+				ok = smp_mgmt_reset_zse(ctxt) &&
 				     smp_add_cmd_err(zse, err_group, (uint16_t)err_rc);
 
 				goto finish;
@@ -698,7 +723,7 @@ img_mgmt_upload_good_rsp(struct smp_streamer *ctxt)
 static int
 img_mgmt_upload_log(bool is_first, bool is_last, int status)
 {
-	uint8_t hash[IMAGE_HASH_LEN];
+	uint8_t hash[IMAGE_SHA_LEN];
 	const uint8_t *hashp;
 	int rc;
 
@@ -873,23 +898,37 @@ defined(CONFIG_MCUMGR_SMP_COMMAND_STATUS_HOOKS)
 		 * of the provided hash is less.
 		 */
 		if (g_img_mgmt_state.data_sha_len == IMG_MGMT_DATA_SHA_LEN) {
-			fic.match = g_img_mgmt_state.data_sha;
-			fic.clen = g_img_mgmt_state.size;
+#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_USING_OFFSET)
+			/* In SWAP_USING_OFFSET mode, the upload target is always sector 1.
+			 * boot_get_image_start_offset() returns 0 when an old swapped image
+			 * occupies sector 0 (post-swap state), in which case sector 1 (the
+			 * actual upload target) does NOT contain the new image yet.
+			 * Skipping the check in that case avoids a false SHA match against
+			 * the old image at sector 0, which would cause the upload to be
+			 * silently skipped while sector 1 remains stale.
+			 */
+			if (boot_get_image_start_offset(g_img_mgmt_state.area_id) > 0)
+#endif /* CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_USING_OFFSET */
+			{
+				fic.match = g_img_mgmt_state.data_sha;
+				fic.clen = g_img_mgmt_state.size;
 
-			if (flash_img_check(&ctx, &fic, g_img_mgmt_state.area_id) == 0) {
-				/* Underlying data already matches, no need to upload any more,
-				 * set offset to image size so client knows upload has finished.
-				 */
-				g_img_mgmt_state.off = g_img_mgmt_state.size;
-				reset = true;
-				last = true;
-				data_match = true;
+				if (flash_img_check(&ctx, &fic, g_img_mgmt_state.area_id) == 0) {
+					/* Underlying data already matches, no need to upload any
+					 * more, set offset to image size so client knows upload has
+					 * finished.
+					 */
+					g_img_mgmt_state.off = g_img_mgmt_state.size;
+					reset = true;
+					last = true;
+					data_match = true;
 
 #if defined(CONFIG_MCUMGR_SMP_COMMAND_STATUS_HOOKS)
-				cmd_status_arg.status = IMG_MGMT_ID_UPLOAD_STATUS_COMPLETE;
+					cmd_status_arg.status = IMG_MGMT_ID_UPLOAD_STATUS_COMPLETE;
 #endif
 
-				goto end;
+					goto end;
+				}
 			}
 		}
 #endif

@@ -196,7 +196,7 @@ static int xpt2046_init(const struct device *dev)
 	struct xpt2046_data *data = dev->data;
 
 	if (!spi_is_ready_dt(&config->bus)) {
-		LOG_ERR("SPI controller device not ready");
+		LOG_ERR_DEVICE_NOT_READY(config->bus.bus);
 		return -ENODEV;
 	}
 
@@ -205,7 +205,7 @@ static int xpt2046_init(const struct device *dev)
 	k_work_init_delayable(&data->dwork, xpt2046_release_handler);
 
 	if (!gpio_is_ready_dt(&config->int_gpio)) {
-		LOG_ERR("Interrupt GPIO controller device not ready");
+		LOG_ERR_DEVICE_NOT_READY(config->int_gpio.port);
 		return -ENODEV;
 	}
 
@@ -237,7 +237,7 @@ static int xpt2046_init(const struct device *dev)
 #define XPT2046_INIT(index)                                                                        \
 	static const struct xpt2046_config xpt2046_config_##index = {                              \
 		.bus = SPI_DT_SPEC_INST_GET(                                                       \
-			index, SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB | SPI_WORD_SET(8), 0),        \
+			index, SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB | SPI_WORD_SET(8)),           \
 		.int_gpio = GPIO_DT_SPEC_INST_GET(index, int_gpios),                               \
 		.min_x = DT_INST_PROP(index, min_x),                                               \
 		.min_y = DT_INST_PROP(index, min_y),                                               \

@@ -272,13 +272,13 @@ static status_t dsi_mcux_dcnano_transfer(const struct device *dev, uint8_t chann
 		switch (data->src_bytes_per_pixel) {
 		case 2:
 			pixfmt = PIXEL_FORMAT_RGB_565;
-			dbi_config.mode |= MIPI_DBI_MODE_RGB565;
+			dbi_config.color_coding = MIPI_DBI_MODE_RGB565;
 			DSI_SetDbiPixelFormat(config->base, kDSI_DbiRGB565);
 			break;
 		case 3:
 			pixfmt = PIXEL_FORMAT_RGB_888;
 			/* If using the DBI, only RGB888 option 1 is supported. */
-			dbi_config.mode |= MIPI_DBI_MODE_RGB888_1;
+			dbi_config.color_coding = MIPI_DBI_MODE_RGB888_1;
 			DSI_SetDbiPixelFormat(config->base, kDSI_DbiRGB888);
 			break;
 		default:
@@ -325,8 +325,8 @@ static int dsi_mcux_tx_color(const struct device *dev, uint8_t channel,
 		.txData = msg->tx_buf,
 		.rxDataSize = (uint16_t)msg->rx_len,
 		.rxData = msg->rx_buf,
-		.sendDscCmd = true,
-		.dscCmd = msg->cmd,
+		.sendDcsCmd = true,
+		.dcsCmd = msg->cmd,
 		.txDataType = kDSI_TxDataDcsLongWr,
 		/* default to high speed unless told to use low power */
 		.flags = (msg->flags & MIPI_DSI_MSG_USE_LPM) ? 0 : kDSI_TransferUseHighSpeed,
@@ -533,7 +533,7 @@ static int dsi_mcux_attach(const struct device *dev,
 	/* Calculate the delay before entering ULPS. After the last cycle of data has
 	 * been accepted from the controller to the PHY, the data still needs to be
 	 * serialized, transmitted, then the appropriate timing must be met before
-	 * entering the ULPS. The data lane rate can impact this, so calcuate the time
+	 * entering the ULPS. The data lane rate can impact this, so calculate the time
 	 * it takes for one data lane to send 1 bit in HS and LP mode first.
 	 */
 	uint32_t hs_bit_ns = 1000000000UL / dphy_bit_clk_freq;
@@ -680,18 +680,18 @@ static ssize_t dsi_mcux_transfer(const struct device *dev, uint8_t channel,
 		LOG_ERR("DCS Read not yet implemented or used");
 		return -ENOTSUP;
 	case MIPI_DSI_DCS_SHORT_WRITE:
-		dsi_xfer.sendDscCmd = true;
-		dsi_xfer.dscCmd = msg->cmd;
+		dsi_xfer.sendDcsCmd = true;
+		dsi_xfer.dcsCmd = msg->cmd;
 		dsi_xfer.txDataType = kDSI_TxDataDcsShortWrNoParam;
 		break;
 	case MIPI_DSI_DCS_SHORT_WRITE_PARAM:
-		dsi_xfer.sendDscCmd = true;
-		dsi_xfer.dscCmd = msg->cmd;
+		dsi_xfer.sendDcsCmd = true;
+		dsi_xfer.dcsCmd = msg->cmd;
 		dsi_xfer.txDataType = kDSI_TxDataDcsShortWrOneParam;
 		break;
 	case MIPI_DSI_DCS_LONG_WRITE:
-		dsi_xfer.sendDscCmd = true;
-		dsi_xfer.dscCmd = msg->cmd;
+		dsi_xfer.sendDcsCmd = true;
+		dsi_xfer.dcsCmd = msg->cmd;
 		dsi_xfer.txDataType = kDSI_TxDataDcsLongWr;
 #ifndef CONFIG_MIPI_DSI_MCUX_NXP_DCNANO_LCDIF
 		int ret;

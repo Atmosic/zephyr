@@ -10,3 +10,9 @@ family:
   - name: m55m1x
     socs:
     - name: m55m1xxx
+  - name: m333x
+    socs:
+    - name: m333xxx
+  - name: m335x
+    socs:
+    - name: m335xxx

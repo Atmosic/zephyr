@@ -290,7 +290,7 @@ static void adc_ad4114_acquisition_thread(struct adc_ad4114_data *data)
 				is_ended = true;
 			}
 			/* Wait before next status ready check: the minimal acquisition time for a
-			 * channel is 100us. So wait 10us betwen each check to avoid to use CPU for
+			 * channel is 100us. So wait 10us between each check to avoid to use CPU for
 			 * nothing.
 			 */
 			k_usleep(10);
@@ -440,7 +440,7 @@ static DEVICE_API(adc, adc_ad4114_api) = {
 #define ADC_AD4114_DEVICE(inst)                                                                    \
 	static struct adc_ad4114_data adc_ad4114_data_##inst;                                      \
 	static const struct adc_ad4114_config adc_ad4114_config_##inst = {                         \
-		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
+		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8)),                                \
 		.resolution = AD4114_ADC_RESOLUTION,                                               \
 		.map_input = DT_INST_PROP(inst, map_inputs),                                       \
 	};                                                                                         \

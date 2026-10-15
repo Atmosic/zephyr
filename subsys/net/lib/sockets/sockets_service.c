@@ -9,6 +9,7 @@ LOG_MODULE_REGISTER(net_sock_svc, CONFIG_NET_SOCKETS_LOG_LEVEL);
 
 #include <zephyr/kernel.h>
 #include <zephyr/init.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/socket_service.h>
 #include <zephyr/zvfs/eventfd.h>
 
@@ -260,7 +261,7 @@ restart:
 		}
 
 		/* Relocate after trigger work so the work gets done before restarting */
-		if (ret > 0 && ctx.events[0].revents) {
+		if (ctx.events[0].revents) {
 			zvfs_eventfd_read(ctx.events[0].fd, &value);
 			ctx.events[0].revents = 0;
 			NET_DBG("Received restart event.");

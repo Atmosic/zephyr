@@ -63,7 +63,7 @@ void dw_dma_isr(const struct device *dev)
 		chan_data = &dev_data->chan[channel];
 
 		if (chan_data->dma_blkcallback) {
-			LOG_DBG("%s: Dispatching block complete callback fro channel %d", dev->name,
+			LOG_DBG("%s: Dispatching block complete callback for channel %d", dev->name,
 				channel);
 
 			/* Ensure the linked list (chan_data->lli) is
@@ -826,8 +826,15 @@ int dw_dma_get_status(const struct device *dev, uint32_t channel,
 	struct dw_dma_dev_data *const dev_data = dev->data;
 	const struct dw_dma_dev_cfg *const dev_cfg = dev->config;
 	struct dw_dma_chan_data *chan_data;
+	enum pm_device_state pm_state;
+	int ret;
 
 	if (channel >= DW_CHAN_COUNT) {
+		return -EINVAL;
+	}
+
+	ret = pm_device_state_get(dev, &pm_state);
+	if (!ret && pm_state != PM_DEVICE_STATE_ACTIVE) {
 		return -EINVAL;
 	}
 

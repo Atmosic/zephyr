@@ -8,15 +8,16 @@
 
 /**
  * @file
- * @brief Public Clock Control APIs
+ * @ingroup clock_control_interface
+ * @brief Main header file for clock control driver API.
  */
 
 #ifndef ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_H_
 #define ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_H_
 
 /**
- * @brief Clock Control Interface
- * @defgroup clock_control_interface Clock Control Interface
+ * @brief Interfaces for clock controllers.
+ * @defgroup clock_control_interface Clock Control
  * @since 1.0
  * @version 1.0.0
  * @ingroup io_interfaces
@@ -44,10 +45,10 @@ extern "C" {
  * @brief Current clock status.
  */
 enum clock_control_status {
-	CLOCK_CONTROL_STATUS_STARTING,
-	CLOCK_CONTROL_STATUS_OFF,
-	CLOCK_CONTROL_STATUS_ON,
-	CLOCK_CONTROL_STATUS_UNKNOWN
+	CLOCK_CONTROL_STATUS_STARTING, /**< Clock is starting. */
+	CLOCK_CONTROL_STATUS_OFF,      /**< Clock is off. */
+	CLOCK_CONTROL_STATUS_ON,       /**< Clock is on. */
+	CLOCK_CONTROL_STATUS_UNKNOWN   /**< Clock status is unknown. */
 };
 
 /**
@@ -69,45 +70,92 @@ typedef void *clock_control_subsys_rate_t;
  *
  * @param dev		Device structure whose driver controls the clock.
  * @param subsys	Opaque data representing the clock.
- * @param user_data	User data.
+ * @param user_data	User data passed to clock_control_async_on().
  */
 typedef void (*clock_control_cb_t)(const struct device *dev,
 				   clock_control_subsys_t subsys,
 				   void *user_data);
 
-typedef int (*clock_control)(const struct device *dev,
-			     clock_control_subsys_t sys);
+/**
+ * @def_driverbackendgroup{Clock Control,clock_control_interface}
+ * @ingroup clock_control_interface
+ * @{
+ */
 
+/**
+ * @brief Callback API to enable or disable a clock.
+ *
+ * See clock_control_on() and clock_control_off() for argument description.
+ */
+typedef int (*clock_control)(const struct device *dev, clock_control_subsys_t sys);
+
+/**
+ * @brief Callback API to get a clock rate.
+ *
+ * See clock_control_get_rate() for argument description.
+ */
 typedef int (*clock_control_get)(const struct device *dev,
 				 clock_control_subsys_t sys,
 				 uint32_t *rate);
 
+/**
+ * @brief Callback API to start a clock asynchronously.
+ *
+ * See clock_control_async_on() for argument description.
+ */
 typedef int (*clock_control_async_on_fn)(const struct device *dev,
 					 clock_control_subsys_t sys,
 					 clock_control_cb_t cb,
 					 void *user_data);
 
+/**
+ * @brief Callback API to get a clock status.
+ *
+ * See clock_control_get_status() for argument description.
+ */
 typedef enum clock_control_status (*clock_control_get_status_fn)(
 						    const struct device *dev,
 						    clock_control_subsys_t sys);
 
+/**
+ * @brief Callback API to set a clock rate.
+ *
+ * See clock_control_set_rate() for argument description.
+ */
 typedef int (*clock_control_set)(const struct device *dev,
 				 clock_control_subsys_t sys,
 				 clock_control_subsys_rate_t rate);
 
+/**
+ * @brief Callback API to configure a clock.
+ *
+ * See clock_control_configure() for argument description.
+ */
 typedef int (*clock_control_configure_fn)(const struct device *dev,
 					  clock_control_subsys_t sys,
 					  void *data);
 
+/**
+ * @driver_ops{Clock Control}
+ */
 __subsystem struct clock_control_driver_api {
-	clock_control			on;
-	clock_control			off;
-	clock_control_async_on_fn	async_on;
-	clock_control_get		get_rate;
-	clock_control_get_status_fn	get_status;
-	clock_control_set		set_rate;
-	clock_control_configure_fn	configure;
+	/** @driver_ops_optional @copybrief clock_control_on */
+	clock_control on;
+	/** @driver_ops_optional @copybrief clock_control_off */
+	clock_control off;
+	/** @driver_ops_optional @copybrief clock_control_async_on */
+	clock_control_async_on_fn async_on;
+	/** @driver_ops_optional @copybrief clock_control_get_rate */
+	clock_control_get get_rate;
+	/** @driver_ops_optional @copybrief clock_control_get_status */
+	clock_control_get_status_fn get_status;
+	/** @driver_ops_optional @copybrief clock_control_set_rate */
+	clock_control_set set_rate;
+	/** @driver_ops_optional @copybrief clock_control_configure */
+	clock_control_configure_fn configure;
 };
+
+/** @} */
 
 /**
  * @brief Enable a clock controlled by the device
@@ -173,7 +221,7 @@ static inline int clock_control_off(const struct device *dev,
  * @retval -EALREADY if clock was already started and is starting or running.
  * @retval -ENOTSUP If the requested mode of operation is not supported.
  * @retval -ENOSYS if the interface is not implemented.
- * @retval other negative errno on vendor specific error.
+ * @retval <0 other negative errno on vendor specific error.
  */
 static inline int clock_control_async_on(const struct device *dev,
 					 clock_control_subsys_t sys,
@@ -251,7 +299,7 @@ static inline int clock_control_get_rate(const struct device *dev,
  * @retval -EALREADY if clock was already in the given rate.
  * @retval -ENOTSUP If the requested mode of operation is not supported.
  * @retval -ENOSYS if the interface is not implemented.
- * @retval other negative errno on vendor specific error.
+ * @retval <0 other negative errno on vendor specific error.
  */
 static inline int clock_control_set_rate(const struct device *dev,
 		clock_control_subsys_t sys,

@@ -16,6 +16,7 @@ LOG_MODULE_REGISTER(net_ieee802154_mgmt_test, LOG_LEVEL_DBG);
 #include <zephyr/net/ieee802154_mgmt.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/net_if.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/shell/shell.h>
 
@@ -209,7 +210,7 @@ static int create_and_receive_packet(uint8_t *beacon_pkt, size_t length)
 {
 	struct net_pkt *pkt;
 
-	pkt = net_pkt_rx_alloc_with_buffer(net_iface, length, AF_UNSPEC, 0, K_FOREVER);
+	pkt = net_pkt_rx_alloc_with_buffer(net_iface, length, NET_AF_UNSPEC, 0, K_FOREVER);
 	if (!pkt) {
 		NET_ERR("*** No buffer to allocate");
 		return -1;

@@ -7,7 +7,7 @@ Blackbox tests for twister's command line functions
 """
 
 import importlib
-import mock
+from unittest import mock
 import os
 import pytest
 import sys
@@ -19,12 +19,12 @@ from conftest import (
     ZEPHYR_BASE,
     clear_log_in_test,
     sample_filename_mock,
-    testsuite_filename_mock
+    suite_filename_mock
 )
 from twisterlib.testplan import TestPlan
 
 
-@mock.patch.object(TestPlan, 'TESTSUITE_FILENAME', testsuite_filename_mock)
+@mock.patch.object(TestPlan, 'TESTSUITE_FILENAME', suite_filename_mock)
 class TestPrintOuts:
     TESTDATA_1 = [
         (
@@ -484,7 +484,7 @@ class TestPrintOuts:
         capfd.readouterr()
 
         p = os.path.relpath(path, ZEPHYR_BASE)
-        prev_path = os.path.join(out_path, 'qemu_x86_atom', 'zephyr', p,
+        prev_path = os.path.join(out_path, 'qemu_x86_atom', 'zephyr_gnu', p,
                                  'sample.basic.helloworld', 'zephyr', 'zephyr.elf')
         args = ['--size', prev_path]
 

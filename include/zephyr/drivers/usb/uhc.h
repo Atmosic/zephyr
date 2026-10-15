@@ -15,13 +15,14 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/net_buf.h>
+#include <zephyr/drivers/usb/usb_buf.h>
 #include <zephyr/usb/usb_ch9.h>
 #include <zephyr/sys/dlist.h>
 
 /**
  * @brief USB host controller (UHC) driver API
- * @defgroup uhc_api USB host controller driver API
- * @ingroup io_interfaces
+ * @defgroup uhc_api USB Host Controller
+ * @ingroup usb_interfaces
  * @since 3.3
  * @version 0.1.1
  * @{
@@ -54,11 +55,16 @@ enum usb_device_speed {
 #define UHC_INTERFACES_MAX 32
 
 struct usb_host_interface {
+	/** Pointer to the interface descriptor */
 	struct usb_desc_header *dhp;
+	/** Pointer to the association interface descriptor, if any */
+	struct usb_association_descriptor *iad;
+	/** Alternate setting selected for this interface */
 	uint8_t alternate;
 };
 
 struct usb_host_ep {
+	/** Pointer to the endpoint descriptor */
 	struct usb_ep_descriptor *desc;
 };
 
@@ -120,6 +126,8 @@ struct uhc_transfer {
 	struct net_buf *buf;
 	/** Endpoint to which request is associated */
 	uint8_t ep;
+	/** Endpoint type */
+	uint8_t type;
 	/** Maximum packet size */
 	uint16_t mps;
 	/** Interval, used for periodic transfers only */

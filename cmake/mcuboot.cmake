@@ -13,6 +13,7 @@
 function(zephyr_runner_file type path)
   # Property magic which makes west flash choose the signed build
   # output of a given type.
+  string(REPLACE "${ZEPHYR_BINARY_DIR}/" "" path ${path})
   set_target_properties(runners_yaml_props_target PROPERTIES "${type}_file" "${path}")
 endfunction()
 
@@ -73,6 +74,9 @@ function(zephyr_mcuboot_tasks)
                             "APPLICATION_CONFIG_DIR=\"${APPLICATION_CONFIG_DIR}\" "
                             "and WEST_TOPDIR=\"${WEST_TOPDIR}\")")
       endif()
+
+      # Add key file as CMake dependency so a file change will rerun the build
+      set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${${file}})
     endforeach()
   endif()
 
@@ -90,7 +94,8 @@ function(zephyr_mcuboot_tasks)
   # If single slot mode, or if in firmware updater mode and this is the firmware updater image,
   # use slot 0 information
   if(NOT CONFIG_MCUBOOT_BOOTLOADER_MODE_SINGLE_APP AND (NOT CONFIG_MCUBOOT_BOOTLOADER_MODE_FIRMWARE_UPDATER OR CONFIG_MCUBOOT_APPLICATION_FIRMWARE_UPDATER)
-      AND NOT CONFIG_MCUBOOT_BOOTLOADER_MODE_SINGLE_APP_RAM_LOAD)
+      AND NOT CONFIG_MCUBOOT_BOOTLOADER_MODE_SINGLE_APP_RAM_LOAD
+      AND NOT CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_USING_OFFSET)
     # Slot 1 size is used instead of slot 0 size
     set(slot_size)
     dt_nodelabel(slot1_flash NODELABEL "slot1_partition" REQUIRED)
@@ -122,10 +127,18 @@ function(zephyr_mcuboot_tasks)
     set(imgtool_args --max-sectors "${CONFIG_BOOT_MAX_IMG_SECTORS}" ${imgtool_args})
   endif()
 
+  if(CONFIG_MCUBOOT_IMGTOOL_UUID_VID)
+    set(imgtool_args ${imgtool_args} --vid "${CONFIG_MCUBOOT_IMGTOOL_UUID_VID_NAME}")
+  endif()
+
+  if(CONFIG_MCUBOOT_IMGTOOL_UUID_CID)
+    set(imgtool_args ${imgtool_args} --cid "${CONFIG_MCUBOOT_IMGTOOL_UUID_CID_NAME}")
+  endif()
+
   if(CONFIG_MCUBOOT_IMGTOOL_OVERWRITE_ONLY)
     # Use overwrite-only instead of swap upgrades.
     set(imgtool_args --overwrite-only --align 1 ${imgtool_args})
-  elseif(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD)
+  elseif(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD OR CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD_WITH_REVERT)
     # RAM load requires setting the location of where to load the image to
     dt_chosen(chosen_ram PROPERTY "zephyr,sram")
     dt_reg_addr(chosen_ram_address PATH ${chosen_ram})
@@ -134,7 +147,12 @@ function(zephyr_mcuboot_tasks)
     dt_nodelabel(slot1_partition NODELABEL "slot1_partition" REQUIRED)
     dt_reg_addr(slot1_partition_address PATH ${slot1_partition})
 
-    set(imgtool_args --align 1 --load-addr ${chosen_ram_address} ${imgtool_args})
+    dt_prop(write_block_size PATH "${flash_node}" PROPERTY "write-block-size")
+    if(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD)
+      set(imgtool_args --align 1 --load-addr ${chosen_ram_address} ${imgtool_args})
+    else() # CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD_WITH_REVERT
+      set(imgtool_args --align ${write_block_size} --load-addr ${chosen_ram_address} ${imgtool_args})
+    endif()
     set(imgtool_args_alt_slot ${imgtool_args} --hex-addr ${slot1_partition_address})
     set(imgtool_args ${imgtool_args} --hex-addr ${slot0_partition_address})
   elseif(CONFIG_MCUBOOT_BOOTLOADER_MODE_SINGLE_APP_RAM_LOAD)
@@ -155,6 +173,20 @@ function(zephyr_mcuboot_tasks)
     endif()
 
     set(imgtool_args --align ${write_block_size} ${imgtool_args})
+  endif()
+
+  # Set proper hash calculation algorithm for signing
+  if(CONFIG_MCUBOOT_BOOTLOADER_SIGNATURE_TYPE_PURE)
+    set(imgtool_args --pure ${imgtool_args})
+  elseif(CONFIG_MCUBOOT_BOOTLOADER_USES_SHA512)
+    set(imgtool_args --sha 512 ${imgtool_args})
+  endif()
+
+  if(NOT "${keyfile_enc}" STREQUAL "")
+    if(CONFIG_MCUBOOT_ENCRYPTION_ALG_AES_256)
+      # Note: this overrides the default behavior of using AES-128
+      set(imgtool_args ${imgtool_args} --encrypt-keylen 256)
+    endif()
   endif()
 
   # Extensionless prefix of any output file.
@@ -182,6 +214,7 @@ function(zephyr_mcuboot_tasks)
       set_property(GLOBAL APPEND PROPERTY extra_post_build_commands COMMAND
                    ${imgtool_sign} ${imgtool_args} --pad --confirm ${output}.bin
                    ${output}.signed.confirmed.bin)
+      zephyr_runner_file(bin ${output}.signed.confirmed.bin)
     endif()
 
     if(NOT "${keyfile_enc}" STREQUAL "")
@@ -192,27 +225,6 @@ function(zephyr_mcuboot_tasks)
       set_property(GLOBAL APPEND PROPERTY extra_post_build_commands COMMAND
                    ${imgtool_sign} ${imgtool_args} --encrypt "${keyfile_enc}" ${output}.bin
                    ${output}.signed.encrypted.bin)
-    endif()
-
-    if(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD)
-      list(APPEND byproducts ${output}.slot1.signed.encrypted.bin)
-      set_property(GLOBAL APPEND PROPERTY extra_post_build_commands COMMAND
-                   ${imgtool_sign} ${imgtool_args_alt_slot} ${output}.bin
-                   ${output}.slot1.signed.bin)
-
-      if(CONFIG_MCUBOOT_GENERATE_CONFIRMED_IMAGE)
-        list(APPEND byproducts ${output}.slot1.signed.confirmed.bin)
-        set_property(GLOBAL APPEND PROPERTY extra_post_build_commands COMMAND
-                     ${imgtool_sign} ${imgtool_args_alt_slot} --pad --confirm ${output}.bin
-                     ${output}.slot1.signed.confirmed.bin)
-      endif()
-
-      if(NOT "${keyfile_enc}" STREQUAL "")
-        list(APPEND byproducts ${output}.slot1.signed.encrypted.bin)
-        set_property(GLOBAL APPEND PROPERTY extra_post_build_commands COMMAND
-                     ${imgtool_sign} ${imgtool_args_alt_slot} --encrypt "${keyfile_enc}"
-                     ${output}.bin ${output}.slot1.signed.encrypted.bin)
-      endif()
     endif()
   endif()
 
@@ -245,6 +257,7 @@ function(zephyr_mcuboot_tasks)
       set_property(GLOBAL APPEND PROPERTY extra_post_build_commands COMMAND
                    ${imgtool_sign} ${imgtool_args} --pad --confirm ${output}.hex
                    ${output}.signed.confirmed.hex)
+      zephyr_runner_file(hex ${output}.signed.confirmed.hex)
     endif()
 
     if(NOT "${keyfile_enc}" STREQUAL "")
@@ -255,9 +268,12 @@ function(zephyr_mcuboot_tasks)
       set_property(GLOBAL APPEND PROPERTY extra_post_build_commands COMMAND
                    ${imgtool_sign} ${imgtool_args} --encrypt "${keyfile_enc}" ${output}.hex
                    ${output}.signed.encrypted.hex)
+      if(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD)
+        zephyr_runner_file(hex ${output}.signed.encrypted.hex)
+      endif()
     endif()
 
-    if(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD)
+    if(CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD OR CONFIG_MCUBOOT_BOOTLOADER_MODE_RAM_LOAD_WITH_REVERT)
       list(APPEND byproducts ${output}.slot1.signed.hex)
       set_property(GLOBAL APPEND PROPERTY extra_post_build_commands COMMAND
                    ${imgtool_sign} ${imgtool_args_alt_slot} ${output}.hex

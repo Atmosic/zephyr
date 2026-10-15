@@ -6,17 +6,22 @@
 
 /**
  * @file
- * @brief Charger APIs
+ * @ingroup charger_interface
+ * @brief Main header file for battery charger driver API.
  */
 
 #ifndef ZEPHYR_INCLUDE_DRIVERS_CHARGER_H_
 #define ZEPHYR_INCLUDE_DRIVERS_CHARGER_H_
 
 /**
- * @brief Charger Interface
- * @defgroup charger_interface Charger Interface
+ * @brief Interfaces for battery chargers.
+ * @defgroup charger_interface Battery Charger
  * @ingroup io_interfaces
  * @{
+ *
+ * @defgroup charger_interface_ext Device-specific Charger API extensions
+ * @{
+ * @}
  */
 
 #include <stdbool.h>
@@ -121,6 +126,31 @@ enum charger_property {
 typedef uint16_t charger_prop_t;
 
 /**
+ * @typedef charger_custom_value_int_t
+ * @brief Type for custom signed integer property values.
+ *
+ * Used only by downstream custom properties (>= CHARGER_PROP_CUSTOM_BEGIN).
+ */
+typedef int32_t charger_custom_value_int_t;
+
+/**
+ * @typedef charger_custom_value_uint_t
+ * @brief Type for custom unsigned integer property values.
+ *
+ * Used only by downstream custom properties (>= CHARGER_PROP_CUSTOM_BEGIN).
+ */
+typedef uint32_t charger_custom_value_uint_t;
+
+/**
+ * @typedef charger_custom_value_bool_t
+ * @brief Type for custom boolean property values.
+ *
+ * Used only by downstream custom properties (>= CHARGER_PROP_CUSTOM_BEGIN),
+ * typically for feature/status flags (e.g. jeita_active).
+ */
+typedef bool charger_custom_value_bool_t;
+
+/**
  * @brief External supply states
  */
 enum charger_online {
@@ -165,16 +195,16 @@ enum charger_charge_type {
 	CHARGER_CHARGE_TYPE_FAST,
 	/** Charging is occurring at a moderate charge rate */
 	CHARGER_CHARGE_TYPE_STANDARD,
-	/*
+	/**
 	 * Charging is being dynamically adjusted by the charger device
 	 */
 	CHARGER_CHARGE_TYPE_ADAPTIVE,
-	/*
+	/**
 	 * Charging is occurring at a reduced charge rate to preserve
 	 * battery health
 	 */
 	CHARGER_CHARGE_TYPE_LONGLIFE,
-	/*
+	/**
 	 * The charger device is being bypassed and the power conversion
 	 * is being handled externally, typically by a "smart" wall adaptor
 	 */
@@ -297,44 +327,58 @@ union charger_propval {
 	charger_status_notifier_t status_notification;
 	/** CHARGER_PROP_ONLINE_NOTIFICATION */
 	charger_online_notifier_t online_notification;
+	/** Generic integer value for downstream custom properties */
+	charger_custom_value_int_t custom_int;
+	/** Generic unsigned value for downstream custom properties */
+	charger_custom_value_uint_t custom_uint;
+	/** Generic boolean value for downstream custom properties */
+	charger_custom_value_bool_t custom_bool;
 };
 
 /**
- * @typedef charger_get_property_t
- * @brief Callback API for getting a charger property.
+ * @def_driverbackendgroup{Charger,charger_interface}
+ * @ingroup charger_interface
+ * @{
+ */
+
+/**
+ * @brief Callback API to get a charger property.
  *
- * See charger_get_property() for argument description
+ * See charger_get_prop() for argument description.
  */
 typedef int (*charger_get_property_t)(const struct device *dev, const charger_prop_t prop,
 				      union charger_propval *val);
 
 /**
- * @typedef charger_set_property_t
- * @brief Callback API for setting a charger property.
+ * @brief Callback API to set a charger property.
  *
- * See charger_set_property() for argument description
+ * See charger_set_prop() for argument description.
  */
 typedef int (*charger_set_property_t)(const struct device *dev, const charger_prop_t prop,
 				      const union charger_propval *val);
 
 /**
- * @typedef charger_charge_enable_t
- * @brief Callback API enabling or disabling a charge cycle.
+ * @brief Callback API to enable or disable a charge cycle.
  *
- * See charger_charge_enable() for argument description
+ * See charger_charge_enable() for argument description.
  */
 typedef int (*charger_charge_enable_t)(const struct device *dev, const bool enable);
 
 /**
- * @brief Charging device API
+ * @driver_ops{Charger}
  *
- * Caching is entirely on the onus of the client
+ * Caching is entirely on the onus of the client.
  */
 __subsystem struct charger_driver_api {
+	/** @driver_ops_mandatory @copybrief charger_get_prop */
 	charger_get_property_t get_property;
+	/** @driver_ops_mandatory @copybrief charger_set_prop */
 	charger_set_property_t set_property;
+	/** @driver_ops_mandatory @copybrief charger_charge_enable */
 	charger_charge_enable_t charge_enable;
 };
+
+/** @} */
 
 /**
  * @brief Fetch a battery charger property
@@ -344,7 +388,7 @@ __subsystem struct charger_driver_api {
  * @param val Pointer to charger_propval union
  *
  * @retval 0 if successful
- * @retval < 0 if getting property failed
+ * @retval <0 if getting property failed
  */
 __syscall int charger_get_prop(const struct device *dev, const charger_prop_t prop,
 			       union charger_propval *val);
@@ -365,7 +409,7 @@ static inline int z_impl_charger_get_prop(const struct device *dev, const charge
  * @param val Pointer to charger_propval union
  *
  * @retval 0 if successful
- * @retval < 0 if setting property failed
+ * @retval <0 if setting property failed
  */
 __syscall int charger_set_prop(const struct device *dev, const charger_prop_t prop,
 			       const union charger_propval *val);

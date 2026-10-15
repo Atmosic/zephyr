@@ -16,46 +16,6 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(LIS2DUX12_RTIO);
 
-/*
- * Create a chain of SQEs representing a bus transaction to read a reg.
- * The RTIO-enabled bus driver will:
- *
- *     - write "reg" address
- *     - read "len" data bytes into "buf".
- *     - call complete_op callback
- *
- * If drdy_xl is active it reads XL data (6 bytes) from LIS2DUX12_OUTX_L_A reg.
- */
-static void lis2dux12_rtio_rw_transaction(const struct device *dev, uint8_t reg,
-					   uint8_t *buf, uint32_t len,
-					   rtio_callback_t complete_op_cb)
-{
-	struct lis2dux12_data *lis2dux12 = dev->data;
-	struct rtio *rtio = lis2dux12->rtio_ctx;
-	struct rtio_iodev *iodev = lis2dux12->iodev;
-	struct rtio_sqe *write_addr = rtio_sqe_acquire(rtio);
-	struct rtio_sqe *read_reg = rtio_sqe_acquire(rtio);
-	struct rtio_sqe *complete_op = rtio_sqe_acquire(rtio);
-	struct rtio_iodev_sqe *sqe = lis2dux12->streaming_sqe;
-	uint8_t reg_bus = lis2dux12_bus_reg(lis2dux12, reg);
-
-	/* check we have been able to acquire sqe */
-	if (write_addr == NULL || read_reg == NULL || complete_op == NULL) {
-		return;
-	}
-
-	rtio_sqe_prep_tiny_write(write_addr, iodev, RTIO_PRIO_NORM, &reg_bus, 1, NULL);
-	write_addr->flags = RTIO_SQE_TRANSACTION;
-	rtio_sqe_prep_read(read_reg, iodev, RTIO_PRIO_NORM, buf, len, NULL);
-	read_reg->flags = RTIO_SQE_CHAINED;
-	if (lis2dux12->bus_type == BUS_I2C) {
-		read_reg->iodev_flags |= RTIO_IODEV_I2C_STOP | RTIO_IODEV_I2C_RESTART;
-	}
-
-	rtio_sqe_prep_callback_no_cqe(complete_op, complete_op_cb, (void *)dev, sqe);
-	rtio_submit(rtio, 0);
-}
-
 void lis2dux12_submit_stream(const struct device *dev, struct rtio_iodev_sqe *iodev_sqe)
 {
 	struct lis2dux12_data *lis2dux12 = dev->data;
@@ -102,8 +62,11 @@ void lis2dux12_submit_stream(const struct device *dev, struct rtio_iodev_sqe *io
 /*
  * Called by bus driver to complete the sqe.
  */
-static void lis2dux12_complete_op_cb(struct rtio *r, const struct rtio_sqe *sqe, void *arg)
+static void lis2dux12_complete_op_cb(struct rtio *r, const struct rtio_sqe *sqe,
+				     int result, void *arg)
 {
+	ARG_UNUSED(result);
+
 	const struct device *dev = arg;
 	struct lis2dux12_data *lis2dux12 = dev->data;
 
@@ -119,8 +82,11 @@ static void lis2dux12_complete_op_cb(struct rtio *r, const struct rtio_sqe *sqe,
  * Called by bus driver to complete the LIS2DUX12_FIFO_STATUS read op (2 bytes).
  * If FIFO threshold or FIFO full events are active it reads all FIFO entries.
  */
-static void lis2dux12_read_fifo_cb(struct rtio *r, const struct rtio_sqe *sqe, void *arg)
+static void lis2dux12_read_fifo_cb(struct rtio *r, const struct rtio_sqe *sqe,
+				   int result, void *arg)
 {
+	ARG_UNUSED(result);
+
 	const struct device *dev = arg;
 	struct lis2dux12_data *lis2dux12 = dev->data;
 	const struct lis2dux12_config *cfg = dev->config;
@@ -163,7 +129,7 @@ static void lis2dux12_read_fifo_cb(struct rtio *r, const struct rtio_sqe *sqe, v
 	bool has_fifo_ths_trig = fifo_ths_cfg != NULL && fifo_th == 1;
 	bool has_fifo_full_trig = fifo_full_cfg != NULL && fifo_full == 1;
 
-	/* check if no theshold/full fifo interrupt or spurious interrupts */
+	/* check if no threshold/full fifo interrupt or spurious interrupts */
 	if (!has_fifo_ths_trig && !has_fifo_full_trig) {
 		/* complete operation with no error */
 		rtio_iodev_sqe_ok(sqe->userdata, 0);
@@ -174,19 +140,9 @@ static void lis2dux12_read_fifo_cb(struct rtio *r, const struct rtio_sqe *sqe, v
 	}
 
 	/* flush completion */
-	struct rtio_cqe *cqe;
 	int res = 0;
 
-	do {
-		cqe = rtio_cqe_consume(rtio);
-		if (cqe != NULL) {
-			if ((cqe->result < 0) && (res == 0)) {
-				LOG_ERR("Bus error: %d", cqe->result);
-				res = cqe->result;
-			}
-			rtio_cqe_release(rtio, cqe);
-		}
-	} while (cqe != NULL);
+	res = rtio_flush_completion_queue(rtio);
 
 	/* Bail/cancel attempt to read sensor on any error */
 	if (res != 0) {
@@ -263,8 +219,9 @@ static void lis2dux12_read_fifo_cb(struct rtio *r, const struct rtio_sqe *sqe, v
 	}
 
 	uint8_t *buf, *read_buf;
-	uint32_t buf_len, buf_avail;
-	uint32_t req_len = LIS2DUX12_FIFO_SIZE(fifo_count) + sizeof(struct lis2dux12_fifo_data);
+	uint32_t buf_len;
+	uint32_t fifo_read_size = LIS2DUX12_FIFO_SIZE(fifo_count);
+	uint32_t req_len = fifo_read_size + sizeof(struct lis2dux12_fifo_data);
 
 	if (rtio_sqe_rx_buf(lis2dux12->streaming_sqe, req_len, req_len, &buf, &buf_len) != 0) {
 		LOG_ERR("Failed to get buffer");
@@ -291,7 +248,19 @@ static void lis2dux12_read_fifo_cb(struct rtio *r, const struct rtio_sqe *sqe, v
 
 	memcpy(buf, &hdr, sizeof(hdr));
 	read_buf = buf + sizeof(hdr);
-	buf_avail = buf_len - sizeof(hdr);
+
+	uint8_t reg_addr = lis2dux12_bus_reg(lis2dux12->bus_type, LIS2DUXXX_DT_FIFO_DATA_OUT_TAG);
+	struct rtio_regs fifo_regs;
+	struct rtio_regs_list regs_list[] = {
+		{
+			reg_addr,
+			read_buf,
+			fifo_read_size,
+		},
+	};
+
+	fifo_regs.rtio_regs_list = regs_list;
+	fifo_regs.rtio_regs_num = ARRAY_SIZE(regs_list);
 
 	/*
 	 * Prepare rtio enabled bus to read all fifo_count entries from
@@ -308,16 +277,19 @@ static void lis2dux12_read_fifo_cb(struct rtio *r, const struct rtio_sqe *sqe, v
 	 *     lis2dux12_fifo_out_raw_get(&dev_ctx, &f_data);
 	 *   }
 	 */
-	lis2dux12_rtio_rw_transaction(dev, LIS2DUXXX_DT_FIFO_DATA_OUT_TAG,
-				       read_buf, buf_avail, lis2dux12_complete_op_cb);
+	rtio_read_regs_async(lis2dux12->rtio_ctx, lis2dux12->iodev, lis2dux12->bus_type,
+			     &fifo_regs, lis2dux12->streaming_sqe, dev, lis2dux12_complete_op_cb);
 }
 
 /*
  * Called by bus driver to complete the LIS2DUX12_STATUS_REG read op.
  * If drdy_xl is active it reads XL data (6 bytes) from LIS2DUX12_OUTX_L_A reg.
  */
-static void lis2dux12_read_status_cb(struct rtio *r, const struct rtio_sqe *sqe, void *arg)
+static void lis2dux12_read_status_cb(struct rtio *r, const struct rtio_sqe *sqe,
+				     int result, void *arg)
 {
+	ARG_UNUSED(result);
+
 	const struct device *dev = arg;
 	struct lis2dux12_data *lis2dux12 = dev->data;
 	struct rtio *rtio = lis2dux12->rtio_ctx;
@@ -342,19 +314,9 @@ static void lis2dux12_read_status_cb(struct rtio *r, const struct rtio_sqe *sqe,
 	}
 
 	/* flush completion */
-	struct rtio_cqe *cqe;
 	int res = 0;
 
-	do {
-		cqe = rtio_cqe_consume(rtio);
-		if (cqe != NULL) {
-			if ((cqe->result < 0) && (res == 0)) {
-				LOG_ERR("Bus error: %d", cqe->result);
-				res = cqe->result;
-			}
-			rtio_cqe_release(rtio, cqe);
-		}
-	} while (cqe != NULL);
+	res = rtio_flush_completion_queue(rtio);
 
 	/* Bail/cancel attempt to read sensor on any error */
 	if (res != 0) {
@@ -430,6 +392,19 @@ static void lis2dux12_read_status_cb(struct rtio *r, const struct rtio_sqe *sqe,
 		memcpy(buf, &hdr, sizeof(hdr));
 		read_buf = (uint8_t *)&((struct lis2dux12_rtio_data *)buf)->acc[0];
 
+		uint8_t reg_addr = lis2dux12_bus_reg(lis2dux12->bus_type, LIS2DUXXX_DT_OUTX_L);
+		struct rtio_regs fifo_regs;
+		struct rtio_regs_list regs_list[] = {
+			{
+				reg_addr,
+				read_buf,
+				6,
+			},
+		};
+
+		fifo_regs.rtio_regs_list = regs_list;
+		fifo_regs.rtio_regs_num = ARRAY_SIZE(regs_list);
+
 		/*
 		 * Prepare rtio enabled bus to read LIS2DUX12_OUTX_L_A register
 		 * where accelerometer data is available.
@@ -441,8 +416,9 @@ static void lis2dux12_read_status_cb(struct rtio *r, const struct rtio_sqe *sqe,
 		 *
 		 *   lis2dux12_acceleration_raw_get(&dev_ctx, accel_raw);
 		 */
-		lis2dux12_rtio_rw_transaction(dev, LIS2DUXXX_DT_OUTX_L,
-					       read_buf, 6, lis2dux12_complete_op_cb);
+		rtio_read_regs_async(lis2dux12->rtio_ctx, lis2dux12->iodev, lis2dux12->bus_type,
+				     &fifo_regs, lis2dux12->streaming_sqe, dev,
+				     lis2dux12_complete_op_cb);
 	}
 }
 
@@ -477,6 +453,20 @@ void lis2dux12_stream_irq_handler(const struct device *dev)
 	if (lis2dux12->trig_cfg.int_fifo_th || lis2dux12->trig_cfg.int_fifo_full) {
 		lis2dux12->fifo_status[0] = lis2dux12->fifo_status[1] = 0;
 
+		uint8_t reg_addr =
+			lis2dux12_bus_reg(lis2dux12->bus_type, LIS2DUXXX_DT_FIFO_STATUS1);
+		struct rtio_regs fifo_regs;
+		struct rtio_regs_list regs_list[] = {
+			{
+				reg_addr,
+				lis2dux12->fifo_status,
+				2,
+			},
+		};
+
+		fifo_regs.rtio_regs_list = regs_list;
+		fifo_regs.rtio_regs_num = ARRAY_SIZE(regs_list);
+
 		/*
 		 * Prepare rtio enabled bus to read LIS2DUX12_FIFO_STATUS1 and
 		 * LIS2DUX12_FIFO_STATUS2 registers where FIFO threshold condition and
@@ -491,13 +481,28 @@ void lis2dux12_stream_irq_handler(const struct device *dev)
 		 *   uint16_t num;
 		 *   lis2duxs12_fifo_data_level_get(&dev_ctx, &num);
 		 */
-		lis2dux12_rtio_rw_transaction(dev, LIS2DUXXX_DT_FIFO_STATUS1,
-				lis2dux12->fifo_status, 2, lis2dux12_read_fifo_cb);
+		rtio_read_regs_async(lis2dux12->rtio_ctx, lis2dux12->iodev,
+				     lis2dux12->bus_type, &fifo_regs,
+				     lis2dux12->streaming_sqe, dev,
+				     lis2dux12_read_fifo_cb);
 	}
 
 	/* handle drdy trigger */
 	if (lis2dux12->trig_cfg.int_drdy) {
 		lis2dux12->status = 0;
+
+		uint8_t reg_addr = lis2dux12_bus_reg(lis2dux12->bus_type, LIS2DUXXX_DT_STATUS);
+		struct rtio_regs fifo_regs;
+		struct rtio_regs_list regs_list[] = {
+			{
+				reg_addr,
+				&lis2dux12->status,
+				1,
+			},
+		};
+
+		fifo_regs.rtio_regs_list = regs_list;
+		fifo_regs.rtio_regs_num = ARRAY_SIZE(regs_list);
 
 		/*
 		 * Prepare rtio enabled bus to read LIS2DUX12_STATUS_REG register
@@ -510,7 +515,8 @@ void lis2dux12_stream_irq_handler(const struct device *dev)
 		 *
 		 *   lis2dux12_flag_data_ready_get(&dev_ctx, &drdy);
 		 */
-		lis2dux12_rtio_rw_transaction(dev, LIS2DUXXX_DT_STATUS,
-					       &lis2dux12->status, 1, lis2dux12_read_status_cb);
+		rtio_read_regs_async(lis2dux12->rtio_ctx, lis2dux12->iodev, lis2dux12->bus_type,
+				     &fifo_regs, lis2dux12->streaming_sqe, dev,
+				     lis2dux12_read_status_cb);
 	}
 }

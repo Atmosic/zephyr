@@ -3,6 +3,7 @@
 # Copyright (c) 2018-2025 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+import collections
 import contextlib
 import filecmp
 import glob
@@ -52,7 +53,7 @@ class CoverageTool:
     @staticmethod
     def retrieve_gcov_data(input_file):
         logger.debug(f"Working on {input_file}")
-        extracted_coverage_info = {}
+        extracted_coverage_info = collections.defaultdict(list)
         capture_data = False
         capture_complete = False
         with open(input_file) as fp:
@@ -78,10 +79,11 @@ class CoverageTool:
                         continue
                 else:
                     continue
-                if file_name in extracted_coverage_info:
-                    extracted_coverage_info[file_name].append(hex_dump)
-                else:
-                    extracted_coverage_info[file_name] = [hex_dump]
+                try:
+                    hex_bytes = bytes.fromhex(hex_dump)
+                    extracted_coverage_info[file_name].append(hex_bytes)
+                except ValueError:
+                    logger.exception(f"Unable to convert hex data for file: {file_name}")
         if not capture_data:
             capture_complete = True
         return {'complete': capture_complete, 'data': extracted_coverage_info}
@@ -99,7 +101,7 @@ class CoverageTool:
                 os.mkdir(subdir)
                 dirs.append(subdir)
                 with open(f'{subdir}/tmp.gcda', 'wb') as fp:
-                    fp.write(bytes.fromhex(dump))
+                    fp.write(dump)
 
             # Iteratively call gcov-tool (not gcov) to merge the files
             merge_tool = self.gcov_tool + '-tool'
@@ -109,7 +111,7 @@ class CoverageTool:
 
             # Read back the final output file
             with open(f'{dirs[-1]}/tmp.gcda', 'rb') as fp:
-                return fp.read(-1).hex()
+                return fp.read(-1)
 
     def create_gcda_files(self, extracted_coverage_info):
         gcda_created = True
@@ -125,12 +127,8 @@ class CoverageTool:
 
             try:
                 hexdump_val = self.merge_hexdumps(hexdumps)
-                hex_bytes = bytes.fromhex(hexdump_val)
                 with open(filename, 'wb') as fp:
-                    fp.write(hex_bytes)
-            except ValueError:
-                logger.exception(f"Unable to convert hex data for file: {filename}")
-                gcda_created = False
+                    fp.write(hexdump_val)
             except FileNotFoundError:
                 logger.exception(f"Unable to create gcda file: {filename}")
                 gcda_created = False
@@ -154,7 +152,7 @@ class CoverageTool:
                 coverage_completed = False
         return coverage_completed
 
-    def generate(self, outdir):
+    def generate(self, outdir) -> tuple[bool, dict]:
         coverage_completed = self.capture_data(outdir) if self.coverage_capture else True
         if not coverage_completed or not self.coverage_report:
             return coverage_completed, {}
@@ -415,6 +413,10 @@ class Gcovr(CoverageTool):
                "--gcov-ignore-parse-errors=negative_hits.warn_once_per_file",
                "--gcov-executable", self.gcov_tool,
                "-e", "tests/*"]
+        if self.version >= "7.0":
+            cmd += ["--gcov-object-directory", outdir]
+        if self.version >= "8.0":
+            cmd += ["--gcov-ignore-parse-errors=suspicious_hits.warn_once_per_file"]
         cmd += excludes + self.options + ["--json", "-o", coverage_file, outdir]
         cmd_str = " ".join(cmd)
         logger.debug(f"Running: {cmd_str}")
@@ -429,6 +431,9 @@ class Gcovr(CoverageTool):
         cmd += ["--gcov-executable", self.gcov_tool,
                 "-f", "tests/ztest", "-e", "tests/ztest/test/*",
                 "--json", "-o", ztest_file, outdir]
+        if self.version >= "7.0":
+            cmd += ["--gcov-object-directory", outdir]
+
         cmd_str = " ".join(cmd)
         logger.debug(f"Running: {cmd_str}")
         coveragelog.write(f"Running: {cmd_str}\n")
@@ -518,7 +523,11 @@ def try_making_symlink(source: str, link: str):
         source (str): The path to the source file.
         link (str): The path where the symbolic link should be created.
     """
-    if os.path.exists(link):
+    symlink_error = None
+
+    try:
+        os.symlink(source, link)
+    except FileExistsError:
         if os.path.islink(link):
             if os.readlink(link) == source:
                 # Link is already set up
@@ -529,27 +538,32 @@ def try_making_symlink(source: str, link: str):
             # File contents are the same
             return
 
-        # link exists, but points to a different file, remove the link. We'll
-        # try to create a new one below
-        os.remove(link)
-
-    # Create the symlink
-    try:
-        os.symlink(source, link)
+        # link exists, but points to a different file. We'll create a new link
+        # and replace it atomically with the old one
+        temp_filename = f"{link}.{os.urandom(8).hex()}"
+        try:
+            os.symlink(source, temp_filename)
+            os.replace(temp_filename, link)
+        except OSError as e:
+            symlink_error = e
     except OSError as e:
-        logger.error(
-            "Error creating symlink: %s, attempting to copy.", str(e)
-        )
-        shutil.copy(source, link)
+        symlink_error = e
 
+    if symlink_error:
+        logger.error(
+            "Error creating symlink: %s, attempting to copy.", str(symlink_error)
+        )
+        temp_filename = f"{link}.{os.urandom(8).hex()}"
+        shutil.copy(source, temp_filename)
+        os.replace(temp_filename, link)
 
 def choose_gcov_tool(options, is_system_gcov):
     gcov_tool = None
     if not options.gcov_tool:
         zephyr_sdk_gcov_tool = os.path.join(
             os.environ.get("ZEPHYR_SDK_INSTALL_DIR", default=""),
-            "x86_64-zephyr-elf/bin/x86_64-zephyr-elf-gcov")
-        if os.environ.get("ZEPHYR_TOOLCHAIN_VARIANT") == "llvm":
+            "gnu/x86_64-zephyr-elf/bin/x86_64-zephyr-elf-gcov")
+        if os.environ.get("ZEPHYR_TOOLCHAIN_VARIANT").endswith("/llvm"):
             llvm_path = os.environ.get("LLVM_TOOLCHAIN_PATH")
             if llvm_path is not None:
                 llvm_path = os.path.join(llvm_path, "bin")
@@ -574,7 +588,7 @@ def choose_gcov_tool(options, is_system_gcov):
 
 
 def run_coverage_tool(options, outdir, is_system_gcov, instances,
-                      coverage_capture, coverage_report):
+                      coverage_capture, coverage_report) -> tuple[bool, dict]:
     coverage_tool = CoverageTool.factory(options.coverage_tool, jobs=options.jobs)
     if not coverage_tool:
         return False, {}
@@ -606,7 +620,7 @@ def has_system_gcov(platform):
     return platform and (platform.type in {"native", "unit"})
 
 
-def run_coverage(options, testplan):
+def run_coverage(options, testplan) -> tuple[bool, dict]:
     """ Summary code coverage over the full test plan's scope.
     """
     is_system_gcov = False

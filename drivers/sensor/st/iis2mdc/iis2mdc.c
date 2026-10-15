@@ -213,25 +213,30 @@ static int iis2mdc_sample_fetch_temp(const struct device *dev)
 static int iis2mdc_sample_fetch(const struct device *dev,
 				enum sensor_channel chan)
 {
+	int ret = 0;
+
 	switch (chan) {
 	case SENSOR_CHAN_MAGN_X:
 	case SENSOR_CHAN_MAGN_Y:
 	case SENSOR_CHAN_MAGN_Z:
 	case SENSOR_CHAN_MAGN_XYZ:
-		iis2mdc_sample_fetch_mag(dev);
+		ret = iis2mdc_sample_fetch_mag(dev);
 		break;
 	case SENSOR_CHAN_DIE_TEMP:
-		iis2mdc_sample_fetch_temp(dev);
+		ret = iis2mdc_sample_fetch_temp(dev);
 		break;
 	case SENSOR_CHAN_ALL:
-		iis2mdc_sample_fetch_mag(dev);
-		iis2mdc_sample_fetch_temp(dev);
+		ret = iis2mdc_sample_fetch_mag(dev);
+		if (ret != 0) {
+			break;
+		}
+		ret = iis2mdc_sample_fetch_temp(dev);
 		break;
 	default:
 		return -ENOTSUP;
 	}
 
-	return 0;
+	return ret;
 }
 
 static DEVICE_API(sensor, iis2mdc_driver_api) = {
@@ -351,7 +356,7 @@ static int iis2mdc_init(const struct device *dev)
 
 #define IIS2MDC_CONFIG_SPI(inst)					\
 	{								\
-		.spi = SPI_DT_SPEC_INST_GET(inst, IIS2MDC_SPI_OP, 0),	\
+		.spi = SPI_DT_SPEC_INST_GET(inst, IIS2MDC_SPI_OP),	\
 		.bus_init = iis2mdc_spi_init,				\
 		COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, drdy_gpios),	\
 			(IIS2MDC_CFG_IRQ(inst)), ())			\

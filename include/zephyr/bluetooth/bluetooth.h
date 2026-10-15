@@ -34,6 +34,7 @@
 #include <zephyr/bluetooth/gap.h>
 #include <zephyr/bluetooth/addr.h>
 #include <zephyr/bluetooth/crypto.h>
+#include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/bluetooth/classic/classic.h>
 #include <zephyr/net_buf.h>
 #include <zephyr/sys/slist.h>
@@ -58,7 +59,7 @@ extern "C" {
  *
  * @defgroup bt_gap Generic Access Profile (GAP)
  * @since 1.0
- * @version 1.0.0
+ * @version 1.1.0
  * @ingroup bluetooth
  * @{
  */
@@ -70,17 +71,32 @@ extern "C" {
  */
 #define BT_ID_DEFAULT 0
 
-/**
- * @brief Number of octets for local supported
- *
- * The value of 8 correspond to page 0 in the LE Controller supported features
- */
-#define BT_LE_LOCAL_SUPPORTED_FEATURES_SIZE 8
+/** Size of an Identity Resolving Key in octets. */
+#define BT_IRK_SIZE 16U
 
-/** Opaque type representing an advertiser. */
+/**
+ * @brief Number of octets for local supported features
+ *
+ * The value of 8 correspond to page 0 in the LE Controller supported features.
+ * 24 bytes are required for all subsequent supported feature pages.
+ */
+#define BT_LE_LOCAL_SUPPORTED_FEATURES_SIZE                         \
+	(BT_HCI_LE_BYTES_PAGE_0_FEATURE_PAGE +                      \
+	 COND_CODE_1(CONFIG_BT_LE_MAX_LOCAL_SUPPORTED_FEATURE_PAGE, \
+		(CONFIG_BT_LE_MAX_LOCAL_SUPPORTED_FEATURE_PAGE      \
+			* BT_HCI_LE_BYTES_PER_FEATURE_PAGE),        \
+		(0U)))
+
+/**
+ * @struct bt_le_ext_adv
+ * @brief Opaque type representing an advertiser.
+ */
 struct bt_le_ext_adv;
 
-/** Opaque type representing an periodic advertising sync. */
+/**
+ * @struct bt_le_per_adv_sync
+ * @brief Opaque type representing a periodic advertising sync.
+ */
 struct bt_le_per_adv_sync;
 
 /* Don't require everyone to include conn.h */
@@ -258,7 +274,7 @@ struct bt_le_ext_adv_cb {
 	bool (*rpa_expired)(struct bt_le_ext_adv *adv);
 #endif /* defined(CONFIG_BT_PRIVACY) */
 
-#if defined(CONFIG_BT_PER_ADV_RSP)
+#if defined(CONFIG_BT_PER_ADV_RSP) || defined(__DOXYGEN__)
 	/**
 	 * @brief The Controller indicates it is ready to transmit one or more PAwR subevents.
 	 *
@@ -267,6 +283,8 @@ struct bt_le_ext_adv_cb {
 	 *
 	 * @param adv     The advertising set object.
 	 * @param request Information about the upcoming subevents.
+	 *
+	 * @kconfig_dep{CONFIG_BT_PER_ADV_RSP}
 	 */
 	void (*pawr_data_request)(struct bt_le_ext_adv *adv,
 				  const struct bt_le_per_adv_data_request *request);
@@ -278,6 +296,8 @@ struct bt_le_ext_adv_cb {
 	 * @param info Information about the responses received.
 	 * @param buf  The received data. NULL if the controller reported
 	 *             that it did not receive any response.
+	 *
+	 * @kconfig_dep{CONFIG_BT_PER_ADV_RSP}
 	 */
 	void (*pawr_response)(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response_info *info,
 			      struct net_buf_simple *buf);
@@ -450,7 +470,7 @@ void bt_id_get(bt_addr_le_t *addrs, size_t *count);
  *             to BT_ADDR_LE_ANY the stack will generate a new random static address
  *             for the identity address and copy it to the given parameter upon return
  *             from this function (in case the parameter was non-NULL).
- * @param irk  Identity Resolving Key (16 octets) to be used with this
+ * @param irk  Identity Resolving Key (@ref BT_IRK_SIZE octets) to be used with this
  *             identity address. If set to all zeroes or NULL, the stack will
  *             generate a random IRK for the identity address and copy it back
  *             to the parameter upon return from this function (in case
@@ -478,7 +498,7 @@ int bt_id_create(bt_addr_le_t *addr, uint8_t *irk);
  *             to BT_ADDR_LE_ANY the stack will generate a new static random
  *             address for the identity address and copy it to the given
  *             parameter upon return from this function.
- * @param irk  Identity Resolving Key (16 octets) to be used with this
+ * @param irk  Identity Resolving Key (@ref BT_IRK_SIZE octets) to be used with this
  *             identity address. If set to all zeroes or NULL, the stack will
  *             generate a random IRK for the identity address and copy it back
  *             to the parameter upon return from this function (in case
@@ -597,6 +617,45 @@ size_t bt_data_get_len(const struct bt_data data[], size_t data_count);
 size_t bt_data_serialize(const struct bt_data *input, uint8_t *output);
 
 /**
+ * @brief Reset the local Identity Resolving Key (IRK) for an identity.
+ *
+ * Replaces the IRK for the given identity and persists it to flash when
+ * @kconfig{CONFIG_BT_SETTINGS} is enabled. Existing bonds must be removed
+ * before calling this function because bonded peers retain the old IRK and
+ * cannot resolve RPAs generated with the new one. Without
+ * @kconfig{CONFIG_BT_SETTINGS}, the new IRK is lost on reboot.
+ *
+ * @note Unlike @ref bt_id_reset, this function also accepts
+ *       @ref BT_ID_DEFAULT because it does not modify the identity address.
+ *
+ * @kconfig_dep{CONFIG_BT_PRIVACY}.
+ *
+ * @note The Bluetooth stack must be enabled via @ref bt_enable before calling
+ *       this function.
+ *
+ * @note With extended advertising, an advertising set assigned to this identity
+ *       must be deleted before calling this function; stopping it is not enough.
+ *
+ * @param id  Identity index, as returned by @ref bt_id_get or @ref BT_ID_DEFAULT.
+ *            Must be less than the number of currently configured identities.
+ * @param[in,out] irk Identity Resolving Key (@ref BT_IRK_SIZE octets) to use for the identity.
+ *                    If NULL or all zeroes, the stack generates a new random
+ *                    IRK and copies it back to this buffer when non-NULL.
+ *
+ * @retval 0           Success.
+ * @retval -EAGAIN     Bluetooth stack is not ready.
+ * @retval -EINVAL     @p id is out of range.
+ * @retval -EALREADY   The identity slot is empty.
+ * @retval -EBUSY      An advertising set is active, the identity is used by
+ *                     scanning or initiating, or a created extended advertising
+ *                     set is assigned to the identity.
+ * @retval -ENOTEMPTY  Bonds exist for this identity; call @ref bt_unpair first.
+ * @retval -EIO        Random IRK generation failed.
+ * @retval -ENOTSUP    Random generation is unsupported.
+ */
+int bt_id_reset_irk(uint8_t id, uint8_t *irk);
+
+/**
  * @brief Local Bluetooth LE controller features and capabilities.
  *
  * @details This struct provides details about the Bluetooth LE controller's supported features,
@@ -685,70 +744,12 @@ enum bt_le_adv_opt {
 	BT_LE_ADV_OPT_NONE = 0,
 
 	/**
-	 * @brief Advertise as connectable.
-	 *
-	 * @deprecated Use @ref BT_LE_ADV_OPT_CONN instead.
-	 *
-	 * Advertise as connectable. If not connectable then the type of
-	 * advertising is determined by providing scan response data.
-	 * The advertiser address is determined by the type of advertising
-	 * and/or enabling privacy @kconfig{CONFIG_BT_PRIVACY}.
-	 *
-	 * Starting connectable advertising preallocates a connection
-	 * object. If this fails, the API returns @c -ENOMEM.
-	 *
-	 * When an advertiser set results in a connection creation, the
-	 * controller automatically disables that advertising set.
-	 *
-	 * If the advertising set was started with @ref bt_le_adv_start
-	 * without @ref BT_LE_ADV_OPT_ONE_TIME, the host will attempt to
-	 * resume the advertiser under some conditions.
-	 */
-	BT_LE_ADV_OPT_CONNECTABLE __deprecated = BIT(0),
-
-	/**
-	 * @internal
-	 *
-	 * Internal access to the deprecated value to maintain the
-	 * implementation of the deprecated feature.
-	 *
-	 * At the end of the deprecation period, ABI will change so
-	 * `BT_LE_ADV_OPT_CONN` is just `BIT(0)`, removing the need for this
-	 * symbol.
-	 */
-	_BT_LE_ADV_OPT_CONNECTABLE = BIT(0),
-
-	/**
-	 * @brief Advertise one time.
-	 *
-	 * @deprecated Use @ref BT_LE_ADV_OPT_CONN instead.
-	 *
-	 * Don't try to resume connectable advertising after a connection.
-	 * This option is only meaningful when used together with
-	 * BT_LE_ADV_OPT_CONNECTABLE. If set the advertising will be stopped
-	 * when @ref bt_le_adv_stop is called or when an incoming (peripheral)
-	 * connection happens. If this option is not set the stack will
-	 * take care of keeping advertising enabled even as connections
-	 * occur.
-	 * If Advertising directed or the advertiser was started with
-	 * @ref bt_le_ext_adv_start then this behavior is the default behavior
-	 * and this flag has no effect.
-	 */
-	BT_LE_ADV_OPT_ONE_TIME __deprecated = BIT(1),
-
-	/**
-	 * @internal
-	 *
-	 * Internal access to the deprecated value to maintain
-	 * the implementation of the deprecated feature.
-	 */
-	_BT_LE_ADV_OPT_ONE_TIME = BIT(1),
-
-	/**
 	 * @brief Connectable advertising
 	 *
 	 * Starting connectable advertising preallocates a connection
 	 * object. If this fails, the API returns @c -ENOMEM.
+	 * Stopping connectable advertising will free the connection object,
+	 * and will trigger a call to @ref bt_conn_cb.recycled.
 	 *
 	 * The advertising set stops immediately after it creates a
 	 * connection. This happens automatically in the controller.
@@ -775,32 +776,6 @@ enum bt_le_adv_opt {
 	 *        should be used to get the LE address.
 	 */
 	BT_LE_ADV_OPT_USE_IDENTITY = BIT(2),
-
-	/**
-	 * @deprecated This option will be removed in the near future, see
-	 * https://github.com/zephyrproject-rtos/zephyr/issues/71686
-	 *
-	 * @brief Advertise using GAP device name.
-	 *
-	 * Include the GAP device name automatically when advertising.
-	 * By default the GAP device name is put at the end of the scan
-	 * response data.
-	 * When advertising using @ref BT_LE_ADV_OPT_EXT_ADV and not
-	 * @ref BT_LE_ADV_OPT_SCANNABLE then it will be put at the end of the
-	 * advertising data.
-	 * If the GAP device name does not fit into advertising data it will be
-	 * converted to a shortened name if possible.
-	 * @ref BT_LE_ADV_OPT_FORCE_NAME_IN_AD can be used to force the device
-	 * name to appear in the advertising data of an advert with scan
-	 * response data.
-	 *
-	 * The application can set the device name itself by including the
-	 * following in the advertising data.
-	 * @code
-	 * BT_DATA(BT_DATA_NAME_COMPLETE, name, sizeof(name) - 1)
-	 * @endcode
-	 */
-	BT_LE_ADV_OPT_USE_NAME = BIT(3),
 
 	/**
 	 * @brief Low duty cycle directed advertising.
@@ -925,27 +900,12 @@ enum bt_le_adv_opt {
 	BT_LE_ADV_OPT_DISABLE_CHAN_39 = BIT(17),
 
 	/**
-	 * @deprecated This option will be removed in the near future, see
-	 * https://github.com/zephyrproject-rtos/zephyr/issues/71686
-	 *
-	 * @brief Put GAP device name into advert data
-	 *
-	 * Will place the GAP device name into the advertising data rather than
-	 * the scan response data.
-	 *
-	 * @note Requires @ref BT_LE_ADV_OPT_USE_NAME
-	 */
-	BT_LE_ADV_OPT_FORCE_NAME_IN_AD = BIT(18),
-
-	/**
 	 * @brief Advertise using a Non-Resolvable Private Address.
 	 *
 	 * A new NRPA is set when updating the advertising parameters.
 	 *
 	 * This is an advanced feature; most users will want to enable
 	 * @kconfig{CONFIG_BT_EXT_ADV} instead.
-	 *
-	 * @note Not implemented when @kconfig{CONFIG_BT_PRIVACY}.
 	 *
 	 * @note Mutually exclusive with BT_LE_ADV_OPT_USE_IDENTITY.
 	 */
@@ -984,6 +944,19 @@ enum bt_le_adv_opt {
 	 * @kconfig_dep{BT_EXT_ADV_CODING_SELECTION}
 	 */
 	BT_LE_ADV_OPT_REQUIRE_S8_CODING = BIT(21),
+
+	/**
+	 * @brief Request a specific TX power level for the advertising set.
+	 *
+	 * When set, the @ref bt_le_adv_param.tx_power field is passed to the
+	 * controller as the desired TX power. The controller selects the closest
+	 * supported level and reports the actual value via
+	 * @ref bt_le_ext_adv_info.tx_power.
+	 *
+	 * When not set, the controller chooses the TX power freely
+	 * (equivalent to @ref BT_HCI_LE_ADV_TX_POWER_NO_PREF).
+	 */
+	BT_LE_ADV_OPT_TX_POWER = BIT(22),
 };
 
 /** LE Advertising Parameters. */
@@ -1019,6 +992,17 @@ struct bt_le_adv_param {
 	 * set as @ref bt_le_adv_param.options.
 	 */
 	uint8_t  secondary_max_skip;
+
+	/**
+	 * @brief Requested TX power in dBm.
+	 *
+	 * Only used when @ref BT_LE_ADV_OPT_TX_POWER is set in @ref options.
+	 * Valid range is @ref BT_HCI_LE_ADV_TX_POWER_MIN to
+	 * @ref BT_HCI_LE_ADV_TX_POWER_MAX.
+	 * The controller selects the closest supported level and reports the
+	 * actual value via @ref bt_le_ext_adv_info.tx_power.
+	 */
+	int8_t tx_power;
 
 	/** @brief Bit-field of advertising options, see the @ref bt_le_adv_opt field. */
 	uint32_t options;
@@ -1065,6 +1049,23 @@ struct bt_le_adv_param {
 	const bt_addr_le_t *peer;
 };
 
+/**
+ * @brief Set the TX power in an advertising parameter struct.
+ *
+ * Convenience helper that sets @ref bt_le_adv_param.tx_power and enables
+ * @ref BT_LE_ADV_OPT_TX_POWER in @ref bt_le_adv_param.options in a single
+ * call.
+ *
+ * @param param    Advertising parameters to update.
+ * @param tx_power Requested TX power in dBm. Valid range is
+ *                 @ref BT_HCI_LE_ADV_TX_POWER_MIN to
+ *                 @ref BT_HCI_LE_ADV_TX_POWER_MAX.
+ */
+static inline void bt_le_adv_param_set_tx_power(struct bt_le_adv_param *param, int8_t tx_power)
+{
+	param->options |= BT_LE_ADV_OPT_TX_POWER;
+	param->tx_power = tx_power;
+}
 
 /** Periodic Advertising options */
 enum bt_le_per_adv_opt {
@@ -1118,14 +1119,16 @@ struct bt_le_per_adv_param {
 	 */
 	uint16_t interval_max;
 
-	/** Bit-field of periodic advertising options, see the @ref bt_le_adv_opt field. */
+	/** Bit-field of periodic advertising options, see the @ref bt_le_per_adv_opt field. */
 	uint32_t options;
 
-#if defined(CONFIG_BT_PER_ADV_RSP)
+#if defined(CONFIG_BT_PER_ADV_RSP) || defined(__DOXYGEN__)
 	/**
 	 * @brief Number of subevents
 	 *
 	 * If zero, the periodic advertiser will be a broadcaster, without responses.
+	 *
+	 * @kconfig_dep{CONFIG_BT_PER_ADV_RSP}
 	 */
 	uint8_t num_subevents;
 
@@ -1133,6 +1136,8 @@ struct bt_le_per_adv_param {
 	 * @brief Interval between subevents (N * 1.25 ms)
 	 *
 	 * Shall be between 7.5ms and 318.75 ms.
+	 *
+	 * @kconfig_dep{CONFIG_BT_PER_ADV_RSP}
 	 */
 	uint8_t subevent_interval;
 
@@ -1140,6 +1145,7 @@ struct bt_le_per_adv_param {
 	 * @brief Time between the advertising packet in a subevent and the
 	 * first response slot (N * 1.25 ms)
 	 *
+	 * @kconfig_dep{CONFIG_BT_PER_ADV_RSP}
 	 */
 	uint8_t response_slot_delay;
 
@@ -1147,6 +1153,8 @@ struct bt_le_per_adv_param {
 	 * @brief Time between response slots (N * 0.125 ms)
 	 *
 	 * Shall be between 0.25 and 31.875 ms.
+	 *
+	 * @kconfig_dep{CONFIG_BT_PER_ADV_RSP}
 	 */
 	uint8_t response_slot_spacing;
 
@@ -1154,6 +1162,8 @@ struct bt_le_per_adv_param {
 	 * @brief Number of subevent response slots
 	 *
 	 * If zero, response_slot_delay and response_slot_spacing are ignored.
+	 *
+	 * @kconfig_dep{CONFIG_BT_PER_ADV_RSP}
 	 */
 	uint8_t num_response_slots;
 #endif /* CONFIG_BT_PER_ADV_RSP */
@@ -1194,17 +1204,6 @@ struct bt_le_per_adv_param {
 	 })
 
 #define BT_LE_ADV_CONN_DIR(_peer) BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONN, 0, 0, _peer)
-
-/**
- * @deprecated This is a convenience macro for @ref
- * BT_LE_ADV_OPT_CONNECTABLE, which is deprecated. Please use
- * @ref BT_LE_ADV_CONN_FAST_1 or @ref BT_LE_ADV_CONN_FAST_2
- * instead.
- */
-#define BT_LE_ADV_CONN                                                                             \
-	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONNECTABLE, BT_GAP_ADV_FAST_INT_MIN_2,                      \
-			BT_GAP_ADV_FAST_INT_MAX_2, NULL)                                           \
-	__DEPRECATED_MACRO
 
 /**
  * @brief GAP recommended connectable advertising parameters user-initiated
@@ -1250,10 +1249,6 @@ struct bt_le_per_adv_param {
  * - Limited Discoverable Mode
  * - General Discoverable Mode
  *
- * The advertising interval corresponds to what was offered as @ref BT_LE_ADV_CONN in Zephyr 3.6 and
- * earlier, but unlike @ref BT_LE_ADV_CONN, the host does not automatically resume the advertiser
- * after it results in a connection.
- *
  * See Bluetooth Core Specification:
  * - 6.0 Vol 3, Part C, Appendix A "Timers and Constants", T_GAP(adv_fast_interval2)
  * - 6.0 Vol 3, Part C, Section 9.3.11 "Connection Establishment Timing parameters"
@@ -1262,29 +1257,6 @@ struct bt_le_per_adv_param {
 	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONN, BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2,  \
 			NULL)
 
-#define BT_LE_ADV_CONN_ONE_TIME BT_LE_ADV_CONN_FAST_2 __DEPRECATED_MACRO
-
-/**
- * @deprecated This macro will be removed in the near future, see
- * https://github.com/zephyrproject-rtos/zephyr/issues/71686
- */
-#define BT_LE_ADV_CONN_NAME BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONNECTABLE | \
-					    BT_LE_ADV_OPT_USE_NAME, \
-					    BT_GAP_ADV_FAST_INT_MIN_2, \
-					    BT_GAP_ADV_FAST_INT_MAX_2, NULL) \
-					    __DEPRECATED_MACRO
-
-/**
- * @deprecated This macro will be removed in the near future, see
- * https://github.com/zephyrproject-rtos/zephyr/issues/71686
- */
-#define BT_LE_ADV_CONN_NAME_AD BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONNECTABLE | \
-					    BT_LE_ADV_OPT_USE_NAME | \
-					    BT_LE_ADV_OPT_FORCE_NAME_IN_AD, \
-					    BT_GAP_ADV_FAST_INT_MIN_2, \
-					    BT_GAP_ADV_FAST_INT_MAX_2, NULL) \
-					    __DEPRECATED_MACRO
-
 #define BT_LE_ADV_CONN_DIR_LOW_DUTY(_peer)                                                         \
 	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONN | BT_LE_ADV_OPT_DIR_MODE_LOW_DUTY,                      \
 			BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, _peer)
@@ -1292,17 +1264,6 @@ struct bt_le_per_adv_param {
 /** Non-connectable advertising with private address */
 #define BT_LE_ADV_NCONN BT_LE_ADV_PARAM(0, BT_GAP_ADV_FAST_INT_MIN_2, \
 					BT_GAP_ADV_FAST_INT_MAX_2, NULL)
-
-/**
- * @deprecated This macro will be removed in the near future, see
- * https://github.com/zephyrproject-rtos/zephyr/issues/71686
- *
- * Non-connectable advertising with @ref BT_LE_ADV_OPT_USE_NAME
- */
-#define BT_LE_ADV_NCONN_NAME BT_LE_ADV_PARAM(BT_LE_ADV_OPT_USE_NAME, \
-					     BT_GAP_ADV_FAST_INT_MIN_2, \
-					     BT_GAP_ADV_FAST_INT_MAX_2, NULL) \
-					     __DEPRECATED_MACRO
 
 /** Non-connectable advertising with @ref BT_LE_ADV_OPT_USE_IDENTITY */
 #define BT_LE_ADV_NCONN_IDENTITY BT_LE_ADV_PARAM(BT_LE_ADV_OPT_USE_IDENTITY, \
@@ -1315,20 +1276,6 @@ struct bt_le_per_adv_param {
 	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV | BT_LE_ADV_OPT_CONN, BT_GAP_ADV_FAST_INT_MIN_2,     \
 			BT_GAP_ADV_FAST_INT_MAX_2, NULL)
 
-/**
- * @deprecated This macro will be removed in the near future, see
- * https://github.com/zephyrproject-rtos/zephyr/issues/71686
- *
- * Connectable extended advertising with @ref BT_LE_ADV_OPT_USE_NAME
- */
-#define BT_LE_EXT_ADV_CONN_NAME BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV | \
-						BT_LE_ADV_OPT_CONNECTABLE | \
-						BT_LE_ADV_OPT_USE_NAME, \
-						BT_GAP_ADV_FAST_INT_MIN_2, \
-						BT_GAP_ADV_FAST_INT_MAX_2, \
-						NULL) \
-						__DEPRECATED_MACRO
-
 /** Scannable extended advertising */
 #define BT_LE_EXT_ADV_SCAN BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV | \
 					   BT_LE_ADV_OPT_SCANNABLE, \
@@ -1336,37 +1283,10 @@ struct bt_le_per_adv_param {
 					   BT_GAP_ADV_FAST_INT_MAX_2, \
 					   NULL)
 
-/**
- * @deprecated This macro will be removed in the near future, see
- * https://github.com/zephyrproject-rtos/zephyr/issues/71686
- *
- * Scannable extended advertising with @ref BT_LE_ADV_OPT_USE_NAME
- */
-#define BT_LE_EXT_ADV_SCAN_NAME BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV | \
-						BT_LE_ADV_OPT_SCANNABLE | \
-						BT_LE_ADV_OPT_USE_NAME, \
-						BT_GAP_ADV_FAST_INT_MIN_2, \
-						BT_GAP_ADV_FAST_INT_MAX_2, \
-						NULL) \
-						__DEPRECATED_MACRO
-
 /** Non-connectable extended advertising with private address */
 #define BT_LE_EXT_ADV_NCONN BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV, \
 					    BT_GAP_ADV_FAST_INT_MIN_2, \
 					    BT_GAP_ADV_FAST_INT_MAX_2, NULL)
-
-/**
- * @deprecated This macro will be removed in the near future, see
- * https://github.com/zephyrproject-rtos/zephyr/issues/71686
- *
- * Non-connectable extended advertising with @ref BT_LE_ADV_OPT_USE_NAME
- */
-#define BT_LE_EXT_ADV_NCONN_NAME BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV | \
-						 BT_LE_ADV_OPT_USE_NAME, \
-						 BT_GAP_ADV_FAST_INT_MIN_2, \
-						 BT_GAP_ADV_FAST_INT_MAX_2, \
-						 NULL) \
-						 __DEPRECATED_MACRO
 
 /** Non-connectable extended advertising with @ref BT_LE_ADV_OPT_USE_IDENTITY */
 #define BT_LE_EXT_ADV_NCONN_IDENTITY \
@@ -1381,20 +1301,6 @@ struct bt_le_per_adv_param {
 						  BT_GAP_ADV_FAST_INT_MIN_2, \
 						  BT_GAP_ADV_FAST_INT_MAX_2, \
 						  NULL)
-
-/**
- * @deprecated This macro will be removed in the near future, see
- * https://github.com/zephyrproject-rtos/zephyr/issues/71686
- *
- * Non-connectable extended advertising on coded PHY with
- * @ref BT_LE_ADV_OPT_USE_NAME
- */
-#define BT_LE_EXT_ADV_CODED_NCONN_NAME \
-		BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV | BT_LE_ADV_OPT_CODED | \
-				BT_LE_ADV_OPT_USE_NAME, \
-				BT_GAP_ADV_FAST_INT_MIN_2, \
-				BT_GAP_ADV_FAST_INT_MAX_2, NULL) \
-				__DEPRECATED_MACRO
 
 /** Non-connectable extended advertising on coded PHY with
  *  @ref BT_LE_ADV_OPT_USE_IDENTITY
@@ -1678,10 +1584,6 @@ int bt_le_ext_adv_set_data(struct bt_le_ext_adv *adv,
  * advertiser set is currently advertising. Stop the advertising set before
  * calling this function.
  *
- * @note When changing the option @ref BT_LE_ADV_OPT_USE_NAME then
- *       @ref bt_le_ext_adv_set_data needs to be called in order to update the
- *       advertising data and scan response data.
- *
  * @param adv   Advertising set object.
  * @param param Advertising parameters.
  *
@@ -1743,6 +1645,9 @@ struct bt_le_ext_adv_info {
 	/** Currently selected Transmit Power (dBM). */
 	int8_t                     tx_power;
 
+	/** Advertising Set ID */
+	uint8_t                    sid;
+
 	/** Current local advertising address used. */
 	const bt_addr_le_t         *addr;
 
@@ -1787,7 +1692,7 @@ typedef void bt_le_scan_cb_t(const bt_addr_le_t *addr, int8_t rssi,
  * The periodic advertising parameters can only be set or updated on an
  * extended advertisement set which is neither scannable, connectable nor
  * anonymous (meaning, the advertising options @ref BT_LE_ADV_OPT_SCANNABLE,
- * @ref BT_LE_ADV_OPT_CONNECTABLE and @ref BT_LE_ADV_OPT_ANONYMOUS cannot be set for @p adv).
+ * @ref BT_LE_ADV_OPT_CONN and @ref BT_LE_ADV_OPT_ANONYMOUS cannot be set for @p adv).
  *
  * @param adv   Advertising set object.
  * @param param Advertising parameters.
@@ -1803,7 +1708,7 @@ int bt_le_per_adv_set_param(struct bt_le_ext_adv *adv,
  * The periodic advertisement data can only be set or updated on an
  * extended advertisement set which is neither scannable, connectable nor
  * anonymous (meaning, the advertising options @ref BT_LE_ADV_OPT_SCANNABLE,
- * @ref BT_LE_ADV_OPT_CONNECTABLE and @ref BT_LE_ADV_OPT_ANONYMOUS cannot be set for @p adv).
+ * @ref BT_LE_ADV_OPT_CONN and @ref BT_LE_ADV_OPT_ANONYMOUS cannot be set for @p adv).
  *
  * @param adv       Advertising set object.
  * @param ad        Advertising data.
@@ -2309,6 +2214,18 @@ int bt_le_per_adv_sync_delete(struct bt_le_per_adv_sync *per_adv_sync);
  * @retval -EEXIST if @p cb was already registered.
  */
 int bt_le_per_adv_sync_cb_register(struct bt_le_per_adv_sync_cb *cb);
+
+/**
+ * @brief Unregister periodic advertising sync callbacks.
+ *
+ * Removes the callback structure from the list of periodic advertising
+ * sync callbacks.
+ *
+ * @param cb Callback struct.
+ *
+ * @retval Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_sync_cb_unregister(struct bt_le_per_adv_sync_cb *cb);
 
 /**
  * @brief Enables receiving periodic advertising reports for a sync.
@@ -2983,6 +2900,9 @@ struct bt_le_oob {
  *       - The local identity address conflicts with the local identity address used by other
  *         roles.
  *
+ * @note This function randomly generates cryptographic material used in the pairing process, and
+ *       should be called again for each new pairing process.
+ *
  * @param[in]  id  Local identity handle (typically @ref BT_ID_DEFAULT). Corresponds to the identity
  *                 address this function will be called for.
  * @param[out] oob LE OOB information
@@ -3009,6 +2929,9 @@ int bt_le_oob_get_local(uint8_t id, struct bt_le_oob *oob);
  * @note If privacy is enabled the RPA cannot be refreshed in the following
  *       cases:
  *       - Creating a connection in progress, wait for the connected callback.
+ *
+ * @note This function randomly generates cryptographic material used in the pairing process, and
+ *       should be called again for each new pairing process.
  *
  * @param[in]  adv The advertising set object
  * @param[out] oob LE OOB information

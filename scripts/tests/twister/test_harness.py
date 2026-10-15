@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 
-# Copyright(c) 2023 Google LLC
+# Copyright (c) 2023 Google LLC
 # SPDX-License-Identifier: Apache-2.0
 
 """
 This test file contains testsuites for the Harness classes of twister
 """
-import mock
-import sys
-import os
-import pytest
-import re
 import logging as logger
+import os
+import re
+import textwrap
+from unittest import mock
 
-# ZEPHYR_BASE = os.getenv("ZEPHYR_BASE")
-from conftest import ZEPHYR_BASE
-
-sys.path.insert(0, os.path.join(ZEPHYR_BASE, "scripts/pylib/twister"))
-
+import pytest
 from twisterlib.harness import (
     Bsim,
     Console,
@@ -25,13 +20,12 @@ from twisterlib.harness import (
     Harness,
     HarnessImporter,
     Pytest,
-    PytestHarnessException,
     Robot,
     Test,
 )
 from twisterlib.statuses import TwisterStatus
-from twisterlib.testsuite import TestSuite
 from twisterlib.testinstance import TestInstance
+from twisterlib.testsuite import TestCase, TestSuite
 
 GTEST_START_STATE = " RUN      "
 GTEST_PASS_STATE = "       OK "
@@ -526,15 +520,7 @@ def test_console_handle(
     assert console.capture_coverage == exp_capture
 
 
-TEST_DATA_5 = [("serial_pty", 0), (None, 0), (None, 1)]
-
-
-@pytest.mark.parametrize(
-    "pty_value, hardware_value",
-    TEST_DATA_5,
-    ids=["hardware pty", "hardware", "non hardware"],
-)
-def test_pytest__generate_parameters_for_hardware(tmp_path, pty_value, hardware_value):
+def test_pytest__generate_parameters_for_hardware(tmp_path):
     # Arrange
     mock_platform = mock.Mock()
     mock_platform.name = "mock_platform"
@@ -553,60 +539,22 @@ def test_pytest__generate_parameters_for_hardware(tmp_path, pty_value, hardware_
 
     handler = mock.Mock()
     handler.instance = instance
-
-    hardware = mock.Mock()
-    hardware.serial_pty = pty_value
-    hardware.serial = "serial"
-    hardware.baud = 115200
-    hardware.runner = "runner"
-    hardware.runner_params = ["--runner-param1", "runner-param2"]
-    hardware.fixtures = ["fixture1:option1", "fixture2"]
-
     options = handler.options
     options.west_flash = "args"
-
-    hardware.probe_id = "123"
-    hardware.product = "product"
-    hardware.pre_script = "pre_script"
-    hardware.post_flash_script = "post_flash_script"
-    hardware.post_script = "post_script"
+    options.flash_command = "flash_command"
 
     pytest_test = Pytest()
     pytest_test.configure(instance)
 
     # Act
-    if hardware_value == 0:
-        handler.get_hardware.return_value = hardware
-        command = pytest_test._generate_parameters_for_hardware(handler)
-    else:
-        handler.get_hardware.return_value = None
+    pytest_test._generate_parameters_for_hardware(handler)
 
     # Assert
-    if hardware_value == 1:
-        with pytest.raises(PytestHarnessException) as exinfo:
-            pytest_test._generate_parameters_for_hardware(handler)
-        assert str(exinfo.value) == "Hardware is not available"
-    else:
-        assert "--device-type=hardware" in command
-        if pty_value == "serial_pty":
-            assert "--device-serial-pty=serial_pty" in command
-        else:
-            assert "--device-serial=serial" in command
-            assert "--device-serial-baud=115200" in command
-        assert "--runner=runner" in command
-        assert "--runner-params=--runner-param1" in command
-        assert "--runner-params=runner-param2" in command
-        assert "--west-flash-extra-args=args" in command
-        assert "--device-id=123" in command
-        assert "--device-product=product" in command
-        assert "--pre-script=pre_script" in command
-        assert "--post-flash-script=post_flash_script" in command
-        assert "--post-script=post_script" in command
-        assert "--twister-fixture=fixture1:option1" in command
-        assert "--twister-fixture=fixture2" in command
+    assert pytest_test.pytest_params.west_flash_extra_args == "args"
+    assert pytest_test.pytest_params.flash_command == "flash_command"
 
 
-def test__update_command_with_env_dependencies():
+def test_pytest__update_command_with_env_dependencies():
     cmd = ["cmd"]
     pytest_test = Pytest()
     mock.patch.object(Pytest, "PYTEST_PLUGIN_INSTALLED", False)
@@ -658,6 +606,147 @@ def test_pytest_run(tmp_path, caplog):
     # Assert
     assert test_obj.status == TwisterStatus.FAIL
     assert exp_out in caplog.text
+
+
+
+class FakeTestInstance:
+
+    def __init__(self):
+        self.testcases = []
+        self.reason = ""
+
+    def add_testcase(self, name):
+        tc = TestCase(name)
+        self.testcases.append(tc)
+        return tc
+
+
+def get_test_case_by_name(testcases, name):
+    for tc in testcases:
+        if tc.name == name:
+            return tc
+
+
+@pytest.fixture
+def pytest_harness():
+    py_harness = Pytest()
+    py_harness.id = "tests.test_foobar"
+    py_harness.instance = FakeTestInstance()
+    return py_harness
+
+
+EXAMPLE_TESTS = textwrap.dedent("""\
+    import pytest
+
+    @pytest.fixture
+    def raise_exception():
+        raise Exception("Something went wrong")
+
+    def test_pass():
+        assert 1
+
+    def test_fail():
+        assert 0, "Not True"
+
+    def test_error(raise_exception):
+        assert 1
+
+    @pytest.mark.skip("WIP")
+    def test_skip():
+        assert 1
+""")
+
+
+def test_if_pytest_harness_parses_report_with_all_kinds_of_statuses(tmp_path, testdir, pytest_harness):
+    # Create JunitXml report
+    report_xml = tmp_path / "results.xml"
+    testdir.makepyfile(EXAMPLE_TESTS)
+    testdir.runpytest("--junitxml", str(report_xml))
+
+    pytest_harness._parse_report_file(report_xml)
+
+    assert pytest_harness.status == "failed"
+    assert pytest_harness.instance.reason == "1/4 pytest scenario(s) failed"
+    assert len(pytest_harness.instance.testcases) == 4
+    assert {tc.name for tc in pytest_harness.instance.testcases} == {
+        "tests.test_foobar.test_pass",
+        "tests.test_foobar.test_fail",
+        "tests.test_foobar.test_error",
+        "tests.test_foobar.test_skip"
+    }
+
+    passed_tc = get_test_case_by_name(pytest_harness.instance.testcases, "tests.test_foobar.test_pass")
+    assert passed_tc.status == "passed"
+    assert passed_tc.reason is None
+    assert passed_tc.output == ""
+    assert isinstance(passed_tc.duration, float)
+
+    failed_tc = get_test_case_by_name(pytest_harness.instance.testcases, "tests.test_foobar.test_fail")
+    assert failed_tc.status == "failed"
+    assert failed_tc.reason == "AssertionError: Not True\nassert 0"
+    assert failed_tc.output != ""
+    assert isinstance(failed_tc.duration, float)
+
+    error_tc = get_test_case_by_name(pytest_harness.instance.testcases, "tests.test_foobar.test_error")
+    assert error_tc.status == "error"
+    assert error_tc.reason == 'failed on setup with "Exception: Something went wrong"'
+    assert error_tc.output != ""
+    assert isinstance(error_tc.duration, float)
+
+    skipped_tc = get_test_case_by_name(pytest_harness.instance.testcases, "tests.test_foobar.test_skip")
+    assert skipped_tc.status == "skipped"
+    assert skipped_tc.reason == 'WIP'
+    assert skipped_tc.output != ""
+    assert isinstance(skipped_tc.duration, float)
+
+
+def test_if_pytest_harness_parses_report_with_passed_and_skipped_tests(tmp_path, testdir, pytest_harness):
+    # Create JunitXml report
+    report_xml = tmp_path / "results.xml"
+    testdir.makepyfile(EXAMPLE_TESTS)
+    testdir.runpytest("-k", "(test_pass or test_skip)", "--junitxml", str(report_xml))
+
+    pytest_harness._parse_report_file(report_xml)
+
+    assert pytest_harness.status == "passed"
+    assert pytest_harness.instance.reason == ""
+    assert len(pytest_harness.instance.testcases) == 2
+    assert {tc.name for tc in pytest_harness.instance.testcases} == {
+        "tests.test_foobar.test_pass",
+        "tests.test_foobar.test_skip"
+    }
+
+
+def test_if_pytest_harness_parses_report_with_passed_and_error_tests(tmp_path, testdir, pytest_harness):
+    # Create JunitXml report
+    report_xml = tmp_path / "results.xml"
+    testdir.makepyfile(EXAMPLE_TESTS)
+    testdir.runpytest("-k", "(test_pass or test_error)", "--junitxml", str(report_xml))
+
+    pytest_harness._parse_report_file(report_xml)
+
+    assert pytest_harness.status == "error"
+    assert pytest_harness.instance.reason == "Error during pytest execution"
+    assert len(pytest_harness.instance.testcases) == 2
+    assert {tc.name for tc in pytest_harness.instance.testcases} == {
+        "tests.test_foobar.test_pass",
+        "tests.test_foobar.test_error"
+    }
+
+def test_if_pytest_harness_parses_report_with_skipped_tests_only(tmp_path, testdir, pytest_harness):
+    # Create JunitXml report
+    report_xml = tmp_path / "results.xml"
+    testdir.makepyfile(EXAMPLE_TESTS)
+    testdir.runpytest("-k", "test_skip", "--junitxml", str(report_xml))
+
+    pytest_harness._parse_report_file(report_xml)
+
+    assert pytest_harness.status == "skipped"
+    assert pytest_harness.instance.reason == ""
+    assert len(pytest_harness.instance.testcases) == 1
+    assert {tc.name for tc in pytest_harness.instance.testcases} == {
+        "tests.test_foobar.test_skip"
+    }
 
 
 TEST_DATA_6 = [(None), ("Test")]
@@ -749,7 +838,7 @@ TEST_DATA_7 = [
         "START - test_testcase",
         [],
         {},
-        { 'testcase': { 'count': 1 } },
+        { 'dummy.test_id.testcase': { 'count': 1 } },
         TwisterStatus.PASS,
         False,
         TwisterStatus.PASS,
@@ -790,7 +879,7 @@ def test_test_handle(
     mock_testsuite.ztest_suite_names = []
     mock_testsuite.detailed_test_id = detailed_id
     mock_testsuite.source_dir_rel = "dummy_suite"
-    mock_testsuite.compose_case_name.return_value = TestSuite.compose_case_name_(mock_testsuite, "testcase")
+    mock_testsuite.compose_case_name.return_value = TestSuite.compose_case_name(mock_testsuite, "testcase")
 
     outdir = tmp_path / "ztest_out"
     with mock.patch('twisterlib.testsuite.TestSuite.get_unique', return_value="dummy_suite"):

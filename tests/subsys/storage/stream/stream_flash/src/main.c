@@ -124,6 +124,10 @@ ZTEST(lib_stream_flash, test_stream_flash_init)
 		      FLASH_AVAILABLE + 4, NULL);
 	zassert_true(rc < 0, "should fail as size is more than available");
 
+	/* End address overflows `size_t` */
+	rc = stream_flash_init(&ctx, fdev, generic_buf, BUF_LEN, FLASH_BASE, SIZE_MAX, NULL);
+	zassert_equal(rc, -EFAULT, "should fail as offset + size overflows");
+
 	rc = stream_flash_init(NULL, fdev, generic_buf, BUF_LEN, FLASH_BASE, 0, NULL);
 	zassert_true(rc < 0, "should fail as ctx is NULL");
 
@@ -274,6 +278,42 @@ ZTEST(lib_stream_flash, test_stream_flash_bytes_written)
 
 	/* Second page should be written */
 	VERIFY_WRITTEN(BUF_LEN, BUF_LEN);
+}
+
+ZTEST(lib_stream_flash, test_stream_flash_bytes_buffered)
+{
+	int rc;
+	size_t buffered;
+
+	init_target();
+
+	/* Initially no bytes should be buffered */
+	buffered = stream_flash_bytes_buffered(&ctx);
+	zassert_equal(buffered, 0, "expected no buffered bytes");
+
+	/* Write partial buffer */
+	rc = stream_flash_buffered_write(&ctx, write_buf, BUF_LEN - 128, false);
+	zassert_equal(rc, 0, "expected success");
+
+	/* Verify buffered bytes */
+	buffered = stream_flash_bytes_buffered(&ctx);
+	zassert_equal(buffered, BUF_LEN - 128, "expected buffered bytes");
+
+	/* Write remaining buffer */
+	rc = stream_flash_buffered_write(&ctx, write_buf, 128, false);
+	zassert_equal(rc, 0, "expected success");
+
+	/* After auto-flush, no bytes should be buffered */
+	buffered = stream_flash_bytes_buffered(&ctx);
+	zassert_equal(buffered, 0, "expected no buffered bytes");
+
+	/* Write more than buffer size to trigger auto-flush */
+	rc = stream_flash_buffered_write(&ctx, write_buf, BUF_LEN + 128, false);
+	zassert_equal(rc, 0, "expected success");
+
+	/* Verify buffered bytes */
+	buffered = stream_flash_bytes_buffered(&ctx);
+	zassert_equal(buffered, 128, "expected remaining buffered bytes after auto-flush");
 }
 
 ZTEST(lib_stream_flash, test_stream_flash_buf_size_greater_than_page_size)

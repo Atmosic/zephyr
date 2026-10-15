@@ -25,7 +25,6 @@
 #include <zephyr/settings/settings.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/sys/check.h>
 #include <zephyr/sys/time_units.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/util_macro.h>
@@ -55,7 +54,7 @@ struct bt_adv_id_check_data {
 #if defined(CONFIG_BT_OBSERVER) || defined(CONFIG_BT_BROADCASTER)
 const bt_addr_le_t *bt_lookup_id_addr(uint8_t id, const bt_addr_le_t *addr)
 {
-	CHECKIF(id >= CONFIG_BT_ID_MAX || addr == NULL) {
+	if (id >= CONFIG_BT_ID_MAX || addr == NULL) {
 		return NULL;
 	}
 
@@ -175,7 +174,7 @@ int bt_id_set_adv_random_addr(struct bt_le_ext_adv *adv,
 	struct net_buf *buf;
 	int err;
 
-	CHECKIF(adv == NULL || addr == NULL) {
+	if (adv == NULL || addr == NULL) {
 		return -EINVAL;
 	}
 
@@ -351,7 +350,7 @@ int bt_id_set_private_addr(uint8_t id)
 	bt_addr_t rpa;
 	int err;
 
-	CHECKIF(id >= CONFIG_BT_ID_MAX) {
+	if (id >= CONFIG_BT_ID_MAX) {
 		return -EINVAL;
 	}
 
@@ -416,18 +415,25 @@ int bt_id_set_adv_private_addr(struct bt_le_ext_adv *adv)
 	bt_addr_t rpa;
 	int err;
 
-	CHECKIF(adv == NULL) {
+	if (adv == NULL) {
 		return -EINVAL;
 	}
 
 	if (IS_ENABLED(CONFIG_BT_PRIVACY) &&
 	    (adv->options & BT_LE_ADV_OPT_USE_NRPA)) {
-		/* The host doesn't support setting NRPAs when BT_PRIVACY=y.
-		 * In that case you probably want to use an RPA anyway.
-		 */
-		LOG_ERR("NRPA not supported when BT_PRIVACY=y");
+		bt_addr_le_t addr;
 
-		return -ENOSYS;
+		err = bt_addr_le_create_nrpa(&addr);
+		if (err != 0) {
+			return err;
+		}
+
+		err = bt_id_set_adv_random_addr(adv, &addr.a);
+		if (err == 0 && !atomic_test_bit(adv->flags, BT_ADV_LIMITED)) {
+			le_rpa_timeout_submit();
+		}
+
+		return err;
 	}
 
 	if (!(IS_ENABLED(CONFIG_BT_EXT_ADV) &&
@@ -492,7 +498,7 @@ int bt_id_set_private_addr(uint8_t id)
 	bt_addr_t nrpa;
 	int err;
 
-	CHECKIF(id >= CONFIG_BT_ID_MAX) {
+	if (id >= CONFIG_BT_ID_MAX) {
 		return -EINVAL;
 	}
 
@@ -520,7 +526,7 @@ int bt_id_set_adv_private_addr(struct bt_le_ext_adv *adv)
 	bt_addr_t nrpa;
 	int err;
 
-	CHECKIF(adv == NULL) {
+	if (adv == NULL) {
 		return -EINVAL;
 	}
 
@@ -679,6 +685,12 @@ static void le_force_rpa_timeout(void)
 }
 
 #if defined(CONFIG_BT_PRIVACY)
+/* Generate a random IRK for the given identity using bt_rand(). */
+static int bt_gen_irk(uint8_t id)
+{
+	return bt_rand(&bt_dev.irk[id], sizeof(bt_dev.irk[id]));
+}
+
 static void rpa_timeout(struct k_work *work)
 {
 	bool adv_enabled;
@@ -760,7 +772,7 @@ bool bt_id_scan_random_addr_check(void)
 
 bool bt_id_adv_random_addr_check(const struct bt_le_adv_param *param)
 {
-	CHECKIF(param == NULL) {
+	if (param == NULL) {
 		return false;
 	}
 
@@ -803,12 +815,11 @@ bool bt_id_adv_random_addr_check(const struct bt_le_adv_param *param)
 		 * Explicitly stop it here.
 		 */
 
-		if (!(param->options & _BT_LE_ADV_OPT_CONNECTABLE) &&
-		     (param->options & BT_LE_ADV_OPT_USE_IDENTITY)) {
+		if (!(param->options & BT_LE_ADV_OPT_CONN) &&
+		    (param->options & BT_LE_ADV_OPT_USE_IDENTITY)) {
 			/* Attempt to set non-connectable NRPA */
 			return false;
-		} else if (bt_dev.id_addr[param->id].type ==
-			   BT_ADDR_LE_RANDOM &&
+		} else if (bt_dev.id_addr[param->id].type == BT_ADDR_LE_RANDOM &&
 			   param->id != BT_ID_DEFAULT) {
 			/* Attempt to set connectable, or non-connectable with
 			 * identity different than scanner.
@@ -953,7 +964,7 @@ struct bt_id_conflict {
  * must refuse bonds that conflict in the resolve list. Notably, this prevents
  * multiple local identities to bond with the same remote identity.
  */
-void find_rl_conflict(struct bt_keys *resident, void *user_data)
+static void find_rl_conflict(struct bt_keys *resident, void *user_data)
 {
 	struct bt_id_conflict *conflict = user_data;
 	bool addr_conflict;
@@ -981,10 +992,12 @@ void find_rl_conflict(struct bt_keys *resident, void *user_data)
 			bt_irk_eq(&conflict->candidate->irk, &resident->irk));
 
 	if (addr_conflict || irk_conflict) {
-		LOG_DBG("Resident : addr %s and IRK %s", bt_addr_le_str(&resident->addr),
-			bt_hex(resident->irk.val, sizeof(resident->irk.val)));
-		LOG_DBG("Candidate: addr %s and IRK %s", bt_addr_le_str(&conflict->candidate->addr),
-			bt_hex(conflict->candidate->irk.val, sizeof(conflict->candidate->irk.val)));
+		LOG_DBG("Resident : addr %s and IRK %s, id: %d", bt_addr_le_str(&resident->addr),
+			bt_hex(resident->irk.val, sizeof(resident->irk.val)), resident->id);
+		LOG_DBG("Candidate: addr %s and IRK %s, id: %d",
+			bt_addr_le_str(&conflict->candidate->addr),
+			bt_hex(conflict->candidate->irk.val, sizeof(conflict->candidate->irk.val)),
+			conflict->candidate->id);
 
 		conflict->found = resident;
 	}
@@ -1003,7 +1016,7 @@ struct bt_keys *bt_id_find_conflict(struct bt_keys *candidate)
 
 void bt_id_add(struct bt_keys *keys)
 {
-	CHECKIF(keys == NULL) {
+	if (keys == NULL) {
 		return;
 	}
 
@@ -1166,7 +1179,7 @@ void bt_id_del(struct bt_keys *keys)
 	struct bt_conn *conn;
 	int err;
 
-	CHECKIF(keys == NULL) {
+	if (keys == NULL) {
 		return;
 	}
 
@@ -1323,7 +1336,7 @@ static int id_create(uint8_t id, bt_addr_le_t *addr, uint8_t *irk)
 		} else {
 			int err;
 
-			err = bt_rand(&bt_dev.irk[id], 16);
+			err = bt_gen_irk(id);
 			if (err) {
 				return err;
 			}
@@ -1364,7 +1377,8 @@ int bt_id_create(bt_addr_le_t *addr, uint8_t *irk)
 			return -EALREADY;
 		}
 
-		if (addr->type == BT_ADDR_LE_PUBLIC && IS_ENABLED(CONFIG_BT_HCI_SET_PUBLIC_ADDR)) {
+		if (addr->type == BT_ADDR_LE_PUBLIC &&
+		    (IS_ENABLED(CONFIG_BT_HCI_SET_PUBLIC_ADDR) || IS_ENABLED(CONFIG_BT_HCI_VS))) {
 			/* set the single public address */
 			if (bt_dev.id_count != 0) {
 				return -EALREADY;
@@ -1508,6 +1522,93 @@ int bt_id_delete(uint8_t id)
 }
 
 #if defined(CONFIG_BT_PRIVACY)
+static void adv_is_enabled_cb(struct bt_le_ext_adv *adv, void *data)
+{
+	if (atomic_test_bit(adv->flags, BT_ADV_ENABLED)) {
+		bool *adv_enabled = data;
+
+		*adv_enabled = true;
+	}
+}
+
+int bt_id_reset_irk(uint8_t id, uint8_t *irk)
+{
+	uint8_t new_irk[sizeof(bt_dev.irk[id])];
+	uint8_t zero_irk[sizeof(new_irk)] = { 0 };
+	bool generate_irk = true;
+	int err;
+
+	if (id >= bt_dev.id_count) {
+		return -EINVAL;
+	}
+
+	if (bt_addr_le_eq(&bt_dev.id_addr[id], BT_ADDR_LE_ANY)) {
+		return -EALREADY;
+	}
+
+	if (!atomic_test_bit(bt_dev.flags, BT_DEV_READY)) {
+		return -EAGAIN;
+	}
+
+	if (IS_ENABLED(CONFIG_BT_BROADCASTER)) {
+		struct bt_adv_id_check_data check_data = {
+			.id = id,
+			.adv_enabled = false,
+		};
+
+		bt_le_ext_adv_foreach(adv_id_check_func, &check_data);
+		if (check_data.adv_enabled) {
+			return -EBUSY;
+		}
+
+		bool adv_enabled = false;
+
+		bt_le_ext_adv_foreach(adv_is_enabled_cb, &adv_enabled);
+		if (adv_enabled) {
+			return -EBUSY;
+		}
+	}
+
+	if ((id == BT_ID_DEFAULT) && (atomic_test_bit(bt_dev.flags, BT_DEV_SCANNING) ||
+				      atomic_test_bit(bt_dev.flags, BT_DEV_INITIATING))) {
+		return -EBUSY;
+	}
+
+	if (bt_keys_has_bond(id)) {
+		return -ENOTEMPTY;
+	}
+
+	if (irk != NULL) {
+		generate_irk = util_memeq(irk, zero_irk, sizeof(new_irk));
+	}
+
+	if (!generate_irk) {
+		(void)memcpy(new_irk, irk, sizeof(new_irk));
+	} else {
+		err = bt_rand(new_irk, sizeof(new_irk));
+		if (err != 0) {
+			return err == -ENOTSUP ? -ENOTSUP : -EIO;
+		}
+	}
+
+	(void)memcpy(bt_dev.irk[id], new_irk, sizeof(new_irk));
+	if (irk != NULL) {
+		(void)memcpy(irk, new_irk, sizeof(new_irk));
+	}
+
+	atomic_clear_bit(bt_dev.flags, BT_DEV_RPA_VALID);
+
+#if defined(CONFIG_BT_RPA_SHARING)
+	bt_addr_copy(&bt_dev.rpa[id], BT_ADDR_NONE);
+#endif
+
+	if (IS_ENABLED(CONFIG_BT_SETTINGS)) {
+		(void)bt_settings_store_irk();
+	}
+
+	return 0;
+}
+
 static void bt_read_identity_root(uint8_t *ir)
 {
 	/* Invalid IR */
@@ -1550,7 +1651,7 @@ uint8_t bt_id_read_public_addr(bt_addr_le_t *addr)
 	struct net_buf *rsp;
 	int err;
 
-	CHECKIF(addr == NULL) {
+	if (addr == NULL) {
 		LOG_WRN("Invalid input parameters");
 		return 0U;
 	}
@@ -1740,7 +1841,7 @@ int bt_id_set_create_conn_own_addr(bool use_filter, uint8_t *own_addr_type)
 {
 	int err;
 
-	CHECKIF(own_addr_type == NULL) {
+	if (own_addr_type == NULL) {
 		return -EINVAL;
 	}
 
@@ -1832,7 +1933,7 @@ int bt_id_set_scan_own_addr(bool active_scan, uint8_t *own_addr_type)
 {
 	int err;
 
-	CHECKIF(own_addr_type == NULL) {
+	if (own_addr_type == NULL) {
 		return -EINVAL;
 	}
 
@@ -1910,7 +2011,7 @@ int bt_id_set_adv_own_addr(struct bt_le_ext_adv *adv, uint32_t options,
 	const bt_addr_le_t *id_addr;
 	int err = 0;
 
-	CHECKIF(adv == NULL || own_addr_type == NULL) {
+	if (adv == NULL || own_addr_type == NULL) {
 		return -EINVAL;
 	}
 
@@ -1934,7 +2035,7 @@ int bt_id_set_adv_own_addr(struct bt_le_ext_adv *adv, uint32_t options,
 		return 0;
 	}
 
-	if (options & _BT_LE_ADV_OPT_CONNECTABLE) {
+	if (options & BT_LE_ADV_OPT_CONN) {
 		if (dir_adv && (options & BT_LE_ADV_OPT_DIR_ADDR_RPA) &&
 		    !BT_FEAT_LE_PRIVACY(bt_dev.le.features)) {
 			return -ENOTSUP;
@@ -2047,7 +2148,7 @@ int bt_id_set_adv_own_addr(struct bt_le_ext_adv *adv, uint32_t options,
 #if defined(CONFIG_BT_CLASSIC)
 int bt_br_oob_get_local(struct bt_br_oob *oob)
 {
-	CHECKIF(oob == NULL) {
+	if (oob == NULL) {
 		return -EINVAL;
 	}
 
@@ -2062,7 +2163,7 @@ int bt_le_oob_get_local(uint8_t id, struct bt_le_oob *oob)
 	struct bt_le_ext_adv *adv = NULL;
 	int err;
 
-	CHECKIF(oob == NULL) {
+	if (oob == NULL) {
 		return -EINVAL;
 	}
 
@@ -2141,7 +2242,7 @@ int bt_le_ext_adv_oob_get_local(struct bt_le_ext_adv *adv,
 {
 	int err;
 
-	CHECKIF(adv == NULL || oob == NULL) {
+	if (adv == NULL || oob == NULL) {
 		return -EINVAL;
 	}
 
@@ -2203,7 +2304,7 @@ int bt_le_oob_set_legacy_tk(struct bt_conn *conn, const uint8_t *tk)
 		return -EINVAL;
 	}
 
-	CHECKIF(tk == NULL) {
+	if (tk == NULL) {
 		return -EINVAL;
 	}
 

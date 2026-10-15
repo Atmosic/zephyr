@@ -173,6 +173,7 @@ set(KERNEL_STRIP_NAME ${KERNEL_NAME}.strip)
 set(KERNEL_META_NAME  ${KERNEL_NAME}.meta)
 set(KERNEL_MOT_NAME  ${KERNEL_NAME}.mot)
 set(KERNEL_SYMBOLS_NAME    ${KERNEL_NAME}.symbols)
+set(KERNEL_VERILOG_NAME    ${KERNEL_NAME}.mem)
 
 # Enable dynamic library support when required by LLEXT.
 if(CONFIG_LLEXT AND CONFIG_LLEXT_TYPE_ELF_SHAREDLIB)
@@ -188,7 +189,7 @@ endforeach()
 # The Qemu supported ethernet driver should define CONFIG_ETH_NIC_MODEL
 # string that tells what nic model Qemu should use.
 if(CONFIG_QEMU_TARGET)
-  if ((CONFIG_NET_QEMU_ETHERNET OR CONFIG_NET_QEMU_USER) AND NOT CONFIG_ETH_NIC_MODEL)
+  if((CONFIG_NET_QEMU_ETHERNET OR CONFIG_NET_QEMU_USER) AND NOT CONFIG_ETH_NIC_MODEL)
     message(FATAL_ERROR "
       No Qemu ethernet driver configured!
       Enable Qemu supported ethernet driver like e1000 at drivers/ethernet"

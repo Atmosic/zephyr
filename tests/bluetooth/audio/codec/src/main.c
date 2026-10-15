@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <zephyr/bluetooth/assigned_numbers.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap_lc3_preset.h>
 #include <zephyr/bluetooth/audio/lc3.h>
@@ -19,9 +20,8 @@
 #include <zephyr/fff.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
-
-#include <ztest_test.h>
-#include <ztest_assert.h>
+#include <zephyr/ztest_test.h>
+#include <zephyr/ztest_assert.h>
 
 DEFINE_FFF_GLOBALS;
 

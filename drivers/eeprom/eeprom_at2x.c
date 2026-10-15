@@ -231,7 +231,7 @@ static bool eeprom_at24_bus_is_ready(const struct device *dev)
  *
  * It allows to address several devices as a continuous memory region
  * but also to address higher part of eeprom for chips
- * with more than 2^(addr_width) adressable word.
+ * with more than 2^(addr_width) addressable word.
  */
 static uint16_t eeprom_at24_translate_offset(const struct device *dev,
 					     off_t *offset)
@@ -621,7 +621,7 @@ static DEVICE_API(eeprom, eeprom_at2x_api) = {
 #define EEPROM_AT25_BUS(n, t)						 \
 	{ .spi = SPI_DT_SPEC_GET(INST_DT_AT2X(n, t),			 \
 				 SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB | \
-				 SPI_WORD_SET(8), 0) }
+				 SPI_WORD_SET(8)) }
 
 #define EEPROM_AT2X_WP_GPIOS(id)					\
 	IF_ENABLED(DT_NODE_HAS_PROP(id, wp_gpios),			\

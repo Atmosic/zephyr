@@ -56,7 +56,6 @@ struct eth_context {
 	uint8_t recv[NET_ETH_MTU + ETH_HDR_LEN];
 	uint8_t send[NET_ETH_MTU + ETH_HDR_LEN];
 	uint8_t mac_addr[6];
-	struct net_linkaddr ll_addr;
 	struct net_if *iface;
 	const char *if_name;
 	k_tid_t rx_thread;
@@ -113,7 +112,7 @@ static struct gptp_hdr *check_gptp_msg(struct net_if *iface,
 	struct net_eth_hdr *hdr;
 
 	hdr = (struct net_eth_hdr *)msg_start;
-	if (ntohs(hdr->type) != NET_ETH_PTYPE_PTP) {
+	if (net_ntohs(hdr->type) != NET_ETH_PTYPE_PTP) {
 		return NULL;
 	}
 
@@ -201,21 +200,13 @@ static int eth_send(const struct device *dev, struct net_pkt *pkt)
 	return ret < 0 ? ret : 0;
 }
 
-static struct net_linkaddr *eth_get_mac(struct eth_context *ctx)
-{
-	(void)net_linkaddr_set(&ctx->ll_addr, ctx->mac_addr,
-			       sizeof(ctx->mac_addr));
-
-	return &ctx->ll_addr;
-}
-
 static struct net_pkt *prepare_pkt(struct eth_context *ctx,
 				   int count, int *status)
 {
 	struct net_pkt *pkt;
 
 	pkt = net_pkt_rx_alloc_with_buffer(ctx->iface, count,
-					   AF_UNSPEC, 0, NET_BUF_TIMEOUT);
+					   NET_AF_UNSPEC, 0, NET_BUF_TIMEOUT);
 	if (!pkt) {
 		*status = -ENOMEM;
 		return NULL;
@@ -307,13 +298,12 @@ static void create_rx_handler(struct eth_context *ctx)
 static void eth_iface_init(struct net_if *iface)
 {
 	struct eth_context *ctx = net_if_get_device(iface)->data;
-	struct net_linkaddr *ll_addr;
 #if !defined(CONFIG_ETH_NATIVE_TAP_RANDOM_MAC)
 	const char *mac_addr =
 		mac_addr_cmd_opt ? mac_addr_cmd_opt : CONFIG_ETH_NATIVE_TAP_MAC_ADDR;
 #endif
 #ifdef CONFIG_NET_IPV4
-	struct in_addr addr, netmask;
+	struct net_in_addr addr, netmask;
 #endif
 
 	ctx->iface = iface;
@@ -355,8 +345,6 @@ static void eth_iface_init(struct net_if *iface)
 	}
 #endif
 
-	ll_addr = eth_get_mac(ctx);
-
 	/* If we have only one network interface, then use the name
 	 * defined in the Kconfig directly. This way there is no need to
 	 * change the documentation etc. and break things.
@@ -371,36 +359,35 @@ static void eth_iface_init(struct net_if *iface)
 
 	LOG_DBG("Interface %p using \"%s\"", iface, ctx->if_name);
 
-	net_if_set_link_addr(iface, ll_addr->addr, ll_addr->len,
-			     NET_LINK_ETHERNET);
+	net_if_set_link_addr(iface, ctx->mac_addr, sizeof(ctx->mac_addr), NET_LINK_ETHERNET);
 
 #ifdef CONFIG_NET_IPV4
 	if (ipv4_addr_cmd_opt != NULL) {
-		if (net_addr_pton(AF_INET, ipv4_addr_cmd_opt, &addr) == 0) {
+		if (net_addr_pton(NET_AF_INET, ipv4_addr_cmd_opt, &addr) == 0) {
 			net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0);
 
 			if (ipv4_nm_cmd_opt != NULL) {
-				if (net_addr_pton(AF_INET, ipv4_nm_cmd_opt, &netmask) == 0) {
+				if (net_addr_pton(NET_AF_INET, ipv4_nm_cmd_opt, &netmask) == 0) {
 					net_if_ipv4_set_netmask_by_addr(iface, &addr, &netmask);
 				} else {
-					NET_ERR("Invalid netmask: %s", ipv4_nm_cmd_opt);
+					LOG_ERR("Invalid netmask: %s", ipv4_nm_cmd_opt);
 				}
 			}
 		} else {
-			NET_ERR("Invalid address: %s", ipv4_addr_cmd_opt);
+			LOG_ERR("Invalid address: %s", ipv4_addr_cmd_opt);
 		}
 	}
 
 	if (ipv4_gw_cmd_opt != NULL) {
-		if (net_addr_pton(AF_INET, ipv4_gw_cmd_opt, &addr) == 0) {
+		if (net_addr_pton(NET_AF_INET, ipv4_gw_cmd_opt, &addr) == 0) {
 			net_if_ipv4_set_gw(iface, &addr);
 		} else {
-			NET_ERR("Invalid gateway: %s", ipv4_gw_cmd_opt);
+			LOG_ERR("Invalid gateway: %s", ipv4_gw_cmd_opt);
 		}
 	}
 #endif
 
-	ctx->dev_fd = eth_iface_create(CONFIG_ETH_NATIVE_POSIX_DEV_NAME, ctx->if_name, false);
+	ctx->dev_fd = eth_iface_create(CONFIG_ETH_NATIVE_TAP_DEV_NAME, ctx->if_name, false);
 	if (ctx->dev_fd < 0) {
 		LOG_ERR("Cannot create %s (%d/%s)", ctx->if_name, ctx->dev_fd,
 			strerror(-ctx->dev_fd));
@@ -482,24 +469,11 @@ static int set_config(const struct device *dev,
 
 		memcpy(context->mac_addr, config->mac_address.addr,
 		       sizeof(context->mac_addr));
+		return 0;
 	}
 
 	return ret;
 }
-
-#if defined(CONFIG_NET_VLAN)
-static int vlan_setup(const struct device *dev, struct net_if *iface,
-		      uint16_t tag, bool enable)
-{
-	if (enable) {
-		net_lldp_set_lldpdu(iface);
-	} else {
-		net_lldp_unset_lldpdu(iface);
-	}
-
-	return 0;
-}
-#endif /* CONFIG_NET_VLAN */
 
 static const struct ethernet_api eth_if_api = {
 	.iface_api.init = eth_iface_init,
@@ -507,10 +481,6 @@ static const struct ethernet_api eth_if_api = {
 	.get_capabilities = eth_native_tap_get_capabilities,
 	.set_config = set_config,
 	.send = eth_send,
-
-#if defined(CONFIG_NET_VLAN)
-	.vlan_setup = vlan_setup,
-#endif
 #if defined(CONFIG_NET_STATISTICS_ETHERNET)
 	.get_stats = get_stats,
 #endif

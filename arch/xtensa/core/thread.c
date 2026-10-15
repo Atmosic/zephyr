@@ -120,26 +120,94 @@ void arch_new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 {
 	thread->switch_handle = init_stack(thread, (int *)stack_ptr, entry,
 					   p1, p2, p3);
+#ifdef CONFIG_XTENSA_LAZY_HIFI_SHARING
+	memset(thread->arch.hifi_regs, 0, sizeof(thread->arch.hifi_regs));
+#endif /* CONFIG_XTENSA_LAZY_HIFI_SHARING */
+
 #ifdef CONFIG_KERNEL_COHERENCE
-	__ASSERT((((size_t)stack) % XCHAL_DCACHE_LINESIZE) == 0, "");
-	__ASSERT((((size_t)stack_ptr) % XCHAL_DCACHE_LINESIZE) == 0, "");
-	sys_cache_data_flush_and_invd_range(stack, (char *)stack_ptr - (char *)stack);
+	__ASSERT_NO_MSG((((size_t)stack) % XCHAL_DCACHE_LINESIZE) == 0);
+
+	/* Here, we need to commit the changes made thus far in the stack,
+	 * so that if the thread starts on another CPU, it will have
+	 * current data. Also, we need to invalidate the cache on this CPU
+	 * or else it would contain stale data when the thread comes back
+	 * to this CPU to run.
+	 *
+	 * Note that the incoming stack_ptr points to an already modified
+	 * stack where the kernel thread setup routine has already put
+	 * data above it. So we need to add back the delta to include
+	 * all modified data.
+	 */
+	size_t flush_sz = (size_t)stack_ptr - (size_t)stack;
+
+	flush_sz += (size_t)thread->stack_info.delta;
+	flush_sz = ROUND_UP(flush_sz, XCHAL_DCACHE_LINESIZE);
+
+	sys_cache_data_flush_and_invd_range(stack, flush_sz);
 #endif
 }
 
 #if defined(CONFIG_FPU) && defined(CONFIG_FPU_SHARING)
 int arch_float_disable(struct k_thread *thread)
 {
+	ARG_UNUSED(thread);
 	/* xtensa always has FPU enabled so cannot be disabled */
 	return -ENOTSUP;
 }
 
 int arch_float_enable(struct k_thread *thread, unsigned int options)
 {
+	ARG_UNUSED(thread);
+	ARG_UNUSED(options);
 	/* xtensa always has FPU enabled so nothing to do here */
 	return 0;
 }
 #endif /* CONFIG_FPU && CONFIG_FPU_SHARING */
+
+
+#if defined(CONFIG_XTENSA_LAZY_HIFI_SHARING)
+void xtensa_hifi_disown(struct k_thread *thread)
+{
+	unsigned int cpu_id = 0;
+	struct k_thread *owner;
+
+#if CONFIG_MP_MAX_NUM_CPUS > 1
+	cpu_id = thread->base.cpu;
+#endif
+
+	owner = atomic_ptr_get(&_kernel.cpus[cpu_id].arch.hifi_owner);
+
+	if (owner == thread) {
+		atomic_ptr_set(&_kernel.cpus[cpu_id].arch.hifi_owner, NULL);
+	}
+}
+#endif
+
+int arch_coprocessors_disable(struct k_thread *thread)
+{
+	bool enotsup = true;
+
+#if defined(CONFIG_FPU) && defined(CONFIG_FPU_SHARING)
+	arch_float_disable(thread);
+	enotsup = false;
+#endif
+
+#if defined(CONFIG_XTENSA_LAZY_HIFI_SHARING)
+	xtensa_hifi_disown(thread);
+
+	/*
+	 * This routine is only called when aborting a thread and we
+	 * deliberately do not disable the HiFi coprocessor here.
+	 * 1. Such disabling can only be done for the current CPU, and we do
+	 *    not have control over which CPU the thread is running on.
+	 * 2. If the thread (being deleted) is a currently executing thread,
+	 *    there will be a context switch to another thread and that CPU
+	 *    will automatically disable the HiFi coprocessor upon the switch.
+	 */
+	enotsup = false;
+#endif
+	return enotsup ? -ENOTSUP : 0;
+}
 
 #ifdef CONFIG_USERSPACE
 FUNC_NORETURN void arch_user_mode_enter(k_thread_entry_t user_entry,
@@ -188,6 +256,15 @@ FUNC_NORETURN void arch_user_mode_enter(k_thread_entry_t user_entry,
 int arch_thread_priv_stack_space_get(const struct k_thread *thread, size_t *stack_size,
 				     size_t *unused_ptr)
 {
+	if (!IS_ENABLED(CONFIG_INIT_STACKS) || !IS_ENABLED(CONFIG_THREAD_STACK_INFO)) {
+		/*
+		 * This is needed to ensure that the call to z_stack_space_get() below is properly
+		 * dead-stripped when linking using LLVM / lld. For more info, please see issue
+		 * #98491.
+		 */
+		return -EINVAL;
+	}
+
 	struct xtensa_thread_stack_header *hdr_stack_obj;
 
 	if ((thread->base.user_options & K_USER) != K_USER) {
